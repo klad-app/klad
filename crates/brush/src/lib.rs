@@ -9,7 +9,7 @@ pub mod record;
 pub mod replay;
 pub mod tiles;
 
-pub const ENGINE_VERSION: u32 = 2;
+pub const ENGINE_VERSION: u32 = 3;
 
 pub use brush::{Brush, BrushSet};
 pub use engine::{
