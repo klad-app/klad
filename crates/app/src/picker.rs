@@ -4,15 +4,25 @@ pub const NATIVE: bool = cfg!(target_os = "macos");
 
 #[cfg(target_os = "macos")]
 pub fn choose_folder(start: Option<&Path>, prompt: &str) -> Option<PathBuf> {
+    choose(start, prompt, true)
+}
+
+#[cfg(target_os = "macos")]
+pub fn choose_file(start: Option<&Path>, prompt: &str) -> Option<PathBuf> {
+    choose(start, prompt, false)
+}
+
+#[cfg(target_os = "macos")]
+fn choose(start: Option<&Path>, prompt: &str, folders: bool) -> Option<PathBuf> {
     use objc2::MainThreadMarker;
     use objc2_app_kit::{NSModalResponseOK, NSOpenPanel};
     use objc2_foundation::{NSString, NSURL};
     let mtm = MainThreadMarker::new()?;
     let panel = NSOpenPanel::openPanel(mtm);
-    panel.setCanChooseDirectories(true);
-    panel.setCanChooseFiles(false);
+    panel.setCanChooseDirectories(folders);
+    panel.setCanChooseFiles(!folders);
     panel.setAllowsMultipleSelection(false);
-    panel.setCanCreateDirectories(true);
+    panel.setCanCreateDirectories(folders);
     panel.setPrompt(Some(&NSString::from_str(prompt)));
     if let Some(dir) = start.and_then(Path::to_str) {
         panel.setDirectoryURL(Some(&NSURL::fileURLWithPath(&NSString::from_str(dir))));
@@ -28,5 +38,10 @@ pub fn choose_folder(start: Option<&Path>, prompt: &str) -> Option<PathBuf> {
 
 #[cfg(not(target_os = "macos"))]
 pub fn choose_folder(_start: Option<&Path>, _prompt: &str) -> Option<PathBuf> {
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn choose_file(_start: Option<&Path>, _prompt: &str) -> Option<PathBuf> {
     None
 }

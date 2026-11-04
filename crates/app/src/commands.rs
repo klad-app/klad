@@ -147,6 +147,13 @@ pub enum Cmd {
     OpenRecent,
     CopyPath,
     About,
+    Export,
+    AddFont,
+    Refill,
+    FillLike,
+    ShowGaps,
+    ShowParts,
+    ShowArcs,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -461,7 +468,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 143] = [
+    pub const ALL: [Cmd; 150] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -605,6 +612,13 @@ impl Cmd {
         Cmd::OpenRecent,
         Cmd::CopyPath,
         Cmd::About,
+        Cmd::Export,
+        Cmd::AddFont,
+        Cmd::Refill,
+        Cmd::FillLike,
+        Cmd::ShowGaps,
+        Cmd::ShowParts,
+        Cmd::ShowArcs,
     ];
 
     pub fn spec(self) -> Spec {
@@ -1868,6 +1882,69 @@ impl Cmd {
                 T::None,
                 R::No,
                 "the drawings opened lately, with thumbnails",
+            ),
+            Cmd::Export => spec(
+                "file.export",
+                "export",
+                icon::EXPORT,
+                G::File,
+                T::Press(const { &[cmd(Key::E)] }),
+                R::No,
+                "export this frame, a layer, numbered frames or a sprite sheet as PNGs, as klad export does",
+            ),
+            Cmd::AddFont => spec(
+                "file.font",
+                "add a font",
+                icon::PLUS,
+                G::File,
+                T::None,
+                R::No,
+                "copy a font file into the drawing so its text can use it",
+            ),
+            Cmd::Refill => spec(
+                "colour.refill",
+                "refill this drawing",
+                icon::FILL,
+                G::Colour,
+                T::None,
+                R::No,
+                "make the flood fills of the active drawing again after its lines changed",
+            ),
+            Cmd::FillLike => spec(
+                "colour.fill-like",
+                "fill like the first drawing",
+                icon::COPY,
+                G::Colour,
+                T::None,
+                R::No,
+                "carry the fills of the first selected drawing to the other selected frames",
+            ),
+            Cmd::ShowGaps => spec(
+                "colour.gaps",
+                "show gaps",
+                icon::SEARCH,
+                G::Colour,
+                T::None,
+                R::No,
+                "outline the closed regions no fill covers on the active layer, on this frame or the selected frames",
+            ),
+            Cmd::ShowParts => spec(
+                "view.parts",
+                "show parts",
+                icon::SHAPES,
+                G::View,
+                T::None,
+                R::No,
+                "box and name each part of the active drawing",
+            ),
+            Cmd::ShowArcs => spec(
+                "view.arcs",
+                "show arcs",
+                icon::TURN,
+                G::View,
+                T::None,
+                R::No,
+                "draw the path the selected mark or part takes over the clip, a dot per frame",
             ),
             Cmd::About => spec(
                 "file.about",

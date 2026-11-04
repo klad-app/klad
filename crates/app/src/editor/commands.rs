@@ -26,7 +26,7 @@ impl Editor {
         self.here().and_then(|(_, c)| c)
     }
 
-    fn active_paint(&self) -> bool {
+    pub(super) fn active_paint(&self) -> bool {
         self.scene.active_layer().is_some_and(|l| l.kind() == LayerKind::Paint)
     }
 
@@ -253,6 +253,25 @@ impl Editor {
             Cmd::NewClip => (span.is_none() && self.timeline.range.is_none())
                 .then(|| "select frames or mark a loop range first".to_string()),
             Cmd::DeleteClip | Cmd::ClipLoops | Cmd::ClipOwnFps => need_clip(),
+            Cmd::Refill | Cmd::ShowGaps if !self.active_paint() => {
+                Some("pick a paint layer with fills first".to_string())
+            }
+            Cmd::Refill => self
+                .jobs
+                .busy(crate::jobs::Tag::Edit)
+                .then(|| "a change is being made".to_string())
+                .or(editing),
+            Cmd::FillLike => need_span().or_else(|| {
+                self.jobs
+                    .busy(crate::jobs::Tag::Edit)
+                    .then(|| "a change is being made".to_string())
+            }),
+            Cmd::ShowGaps => self
+                .jobs
+                .busy(crate::jobs::Tag::Gaps)
+                .then(|| "the gaps are being looked for".to_string()),
+            Cmd::ShowArcs if self.checks.arcs.is_some() => None,
+            Cmd::ShowArcs => self.track().err().map(|e| e.to_string()),
             Cmd::ExportGodot => {
                 if self.jobs.busy(crate::jobs::Tag::Export) {
                     Some("an export is running".into())
@@ -317,6 +336,11 @@ impl Editor {
             Cmd::Numbers => layout.numbers,
             Cmd::Settings => self.windows.settings,
             Cmd::About => self.windows.about,
+            Cmd::Export => self.windows.export,
+            Cmd::AddFont => self.windows.font,
+            Cmd::ShowGaps => self.checks.gaps.is_some(),
+            Cmd::ShowParts => self.checks.parts,
+            Cmd::ShowArcs => self.checks.arcs.is_some(),
             Cmd::BrushWindow => self.windows.brush,
             Cmd::MessageLog => self.windows.log,
             Cmd::Spin => self.spin,
@@ -554,6 +578,13 @@ impl Editor {
             Cmd::OpenDocument => self.wants = Some(super::Want::Open),
             Cmd::OpenRecent => self.wants = Some(super::Want::Recent),
             Cmd::About => self.windows.about = !self.windows.about,
+            Cmd::Export => self.windows.export = !self.windows.export,
+            Cmd::AddFont => self.windows.font = !self.windows.font,
+            Cmd::Refill => self.refill()?,
+            Cmd::FillLike => self.fill_like()?,
+            Cmd::ShowGaps => self.show_gaps()?,
+            Cmd::ShowParts => self.checks.parts = !self.checks.parts,
+            Cmd::ShowArcs => self.show_arcs()?,
             Cmd::CopyPath => {
                 let path = self.scene.bundle.root.display().to_string();
                 self.ctx.copy_text(path.clone());

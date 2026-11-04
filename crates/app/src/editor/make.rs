@@ -275,7 +275,7 @@ impl Editor {
         Ok(())
     }
 
-    fn fonts(&self) -> Vec<String> {
+    pub(super) fn fonts(&self) -> Vec<String> {
         let dir = self.scene.bundle.root.join(klad_render::assets::FONTS);
         let mut names: Vec<String> = std::fs::read_dir(dir)
             .map(|entries| {
@@ -483,7 +483,14 @@ impl Editor {
                         });
                     })
                     .response
-                    .hint("the font file, from the bundle's fonts folder (klad font adds one)");
+                    .hint("the font file, from the bundle's fonts folder (add a font adds one)");
+                if ui
+                    .button("add a font")
+                    .hint("copy a font file into the drawing")
+                    .clicked()
+                {
+                    self.windows.font = true;
+                }
                 if font != t.font {
                     put("font", json!(font));
                 }

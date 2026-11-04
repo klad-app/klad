@@ -208,6 +208,7 @@ impl Editor {
             .on_disabled_hover_text("select frames first: drag over cells, or shift click");
             self.command_button(ui, Cmd::Inbetween, Some("in-between"));
             self.command_button(ui, Cmd::RedoInbetweens, None);
+            self.command_button(ui, Cmd::FillLike, None);
             self.command_button(ui, Cmd::NewClip, None);
             if let Some(span) = &self.timeline.span {
                 ui.label(

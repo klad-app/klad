@@ -206,7 +206,7 @@ pub(super) fn resolve(home: &Path, folder: &str) -> PathBuf {
 }
 
 impl Editor {
-    fn bundle_home(&self) -> PathBuf {
+    pub(super) fn bundle_home(&self) -> PathBuf {
         let root = self.scene.bundle.root.components().collect::<PathBuf>();
         match root.parent() {
             Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),

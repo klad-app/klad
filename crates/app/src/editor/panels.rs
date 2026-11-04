@@ -161,10 +161,10 @@ impl Editor {
     }
 
     pub(super) fn start_job(&mut self, mut spec: Spec) {
-        spec.exe = match std::env::current_exe() {
-            Ok(exe) => exe,
-            Err(e) => {
-                self.error(format!("cannot find the klad binary: {e}"));
+        spec.exe = match crate::start::draw_binary() {
+            Some(exe) => exe,
+            None => {
+                self.error("cannot find the klad binary next to the editor".to_string());
                 return;
             }
         };
@@ -192,6 +192,10 @@ impl Editor {
                         self.check(|ed| ed.reload());
                         self.between.report = super::between::report(&e.output);
                     }
+                    if e.tag == Tag::Edit {
+                        self.check(|ed| ed.reload());
+                    }
+                    self.job_found(e.tag, &e.name, &e.output);
                     let detail = if text.is_empty() {
                         String::new()
                     } else {
@@ -252,6 +256,8 @@ impl Editor {
                     (Cmd::NewDocument, "new drawing"),
                     (Cmd::OpenDocument, "open"),
                     (Cmd::OpenRecent, "recent"),
+                    (Cmd::Export, "export"),
+                    (Cmd::AddFont, "add a font"),
                     (Cmd::CopyPath, "copy path"),
                     (Cmd::About, "about and licences"),
                 ]
@@ -263,7 +269,9 @@ impl Editor {
                 });
             })
             .0
-            .hint(format!("{name}: new, open, recent drawings, copy its path"));
+            .hint(format!(
+                "{name}: new, open, recent drawings, export, fonts, copy its path"
+            ));
     }
 
     fn about_panel(ui: &mut egui::Ui) {
@@ -692,6 +700,28 @@ impl Editor {
                 open = false;
             }
             self.windows.link &= open;
+        }
+        if self.windows.export {
+            let mut open = true;
+            Self::window(
+                ctx,
+                "export",
+                (format!("{} Export", icon::EXPORT), near_timeline),
+                &mut open,
+                |ui| self.check(|e| e.export_window(ui)),
+            );
+            self.windows.export &= open;
+        }
+        if self.windows.font {
+            let mut open = true;
+            Self::window(
+                ctx,
+                "font",
+                (format!("{} Add a font", icon::PLUS), near_timeline),
+                &mut open,
+                |ui| self.check(|e| e.font_window(ui)),
+            );
+            self.windows.font &= open;
         }
         if self.windows.between {
             let mut open = true;

@@ -225,6 +225,17 @@ fn every_control_is_pen_sized_and_has_a_hover_hint() {
     h.run_steps(3);
     assert!(h.query_all(By::new().label_contains("pick its partner")).count() > 0);
     checked += audit(&h, "the in-between and clip windows");
+    {
+        let ed = h.state_mut();
+        ed.windows.between = false;
+        ed.windows.clip = false;
+        ed.windows.export = true;
+        ed.windows.font = true;
+        ed.export.what = super::export::What::Sheet;
+    }
+    h.run_steps(3);
+    assert!(h.query_all(By::new().label("page size px")).count() > 0);
+    checked += audit(&h, "the export and font windows");
     assert!(checked > 150, "only {checked} controls checked");
     let _ = std::fs::remove_dir_all(&path);
 }
@@ -2120,4 +2131,135 @@ fn an_imported_picture_lands_on_its_own_layer_and_can_be_a_reference() {
     h.run_steps(3);
     assert!(h.state().scene.active_layer().unwrap().reference);
     let _ = std::fs::remove_dir_all(&path);
+}
+
+fn hush(h: &mut Harness<'static, Editor>) {
+    let ids: Vec<u64> = h.state().messages.log().map(|m| m.id).collect();
+    ids.into_iter().for_each(|id| h.state_mut().messages.dismiss(id));
+    h.run_steps(2);
+}
+
+#[test]
+fn the_cli_only_features_run_from_the_editor_and_give_what_the_cli_gives() {
+    use super::checks::{arcs_from, gaps_from};
+    use crate::jobs::Tag;
+    let klad = crate::start::draw_binary().expect("build the klad binary first (just test does)");
+    let run = |args: &[&str]| {
+        let out = std::process::Command::new(&klad).args(args).output().unwrap();
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let base = std::env::temp_dir().join(format!("draw-ui-cli-forms-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let (ours, theirs) = (base.join("ours.draw"), base.join("theirs.draw"));
+    let (o, t) = (ours.to_str().unwrap(), theirs.to_str().unwrap());
+    run(&[
+        "new", o, "--width", "256", "--height", "160", "--layers", "0", "--frames", "4",
+    ]);
+    let ops = base.join("ops.jsonl");
+    std::fs::write(
+        &ops,
+        r##"{"op":"add","layer":{"id":"colour","kind":"paint","name":"colour"}}
+{"op":"add","layer":{"id":"lines","kind":"paint","name":"lines"}}
+{"op":"stroke","layer":"lines","brush":"ink","size":4,"path":"M20 20 L110 20 L110 120 L20 120 Z","taper":[0,0]}
+{"op":"stroke","layer":"lines","brush":"ink","size":4,"path":"M140 20 L230 20 L230 120 L140 120 Z","taper":[0,0]}
+{"op":"fill","layer":"colour","at":[60,70],"ref":"lines","color":"#c04040"}"##,
+    )
+    .unwrap();
+    run(&["apply", o, "--file", ops.to_str().unwrap()]);
+    copy_dir(&ours, &theirs);
+    let mut h = harness(editor(&ours), vec2(1280.0, 1400.0));
+    let idle = |tag: Tag| move |ed: &Editor| !ed.jobs.busy(tag);
+
+    activate(&mut h, "colour");
+    h.state_mut().invoke(Cmd::ShowGaps).unwrap();
+    settle(&mut h, |ed| ed.checks.gaps.is_some());
+    let cli = gaps_from(&run(&["gaps", t, "colour", "--json", "--frame", "0"]), "colour").unwrap();
+    assert_eq!(h.state().checks.gaps.as_ref().unwrap().frames, cli.frames);
+    assert_eq!(cli.frames[0].1.len(), 1, "the right box has no fill");
+
+    activate(&mut h, "lines");
+    let (cel, id) = {
+        let ed = h.state();
+        (ed.scene.active_cel().unwrap(), ed.scene.active_marks()[0].id())
+    };
+    h.state_mut().tool = Tool::Strokes;
+    h.state_mut().picked = Some(Picked::whole(cel.clone(), vec![id]));
+    h.state_mut().checks.part = "box".into();
+    h.run_steps(2);
+    hush(&mut h);
+    h.get_by_role_and_label(Role::Button, "make them this part").click();
+    h.run_steps(2);
+    run(&["part", t, &format!("{cel}:s{id}"), "--name", "box"]);
+    let parts = |path: &Path| {
+        let b = Bundle::open(path).unwrap();
+        b.doc.find_layer("lines").unwrap().cels()[0].parts.clone()
+    };
+    assert_eq!(parts(&ours), parts(&theirs));
+    assert_eq!(h.state().picked_part_names(), ["box"]);
+
+    h.state_mut().invoke(Cmd::ShowArcs).unwrap();
+    settle(&mut h, |ed| ed.checks.arcs.is_some());
+    let cli = arcs_from(
+        &run(&["arcs", t, "--track", "lines:box", "--from", "0", "--to", "3", "--json"]),
+        "x",
+    )
+    .unwrap();
+    assert_eq!(h.state().checks.arcs.as_ref().unwrap().lines, cli.lines);
+    assert_eq!(cli.lines[0].len(), 4);
+    h.state_mut().invoke(Cmd::ShowParts).unwrap();
+    h.run_steps(2);
+
+    activate(&mut h, "colour");
+    h.state_mut().invoke(Cmd::Refill).unwrap();
+    settle(&mut h, idle(Tag::Edit));
+    run(&["refill", t, "colour", "--frame", "0"]);
+
+    let font = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/Phosphor.ttf");
+    h.state_mut().invoke(Cmd::AddFont).unwrap();
+    h.state_mut().checks.font = font.into();
+    h.run_steps(2);
+    hush(&mut h);
+    h.get_by_role_and_label(Role::Button, "add the font").click();
+    h.run_steps(2);
+    settle(&mut h, idle(Tag::Edit));
+    run(&["font", t, font]);
+    assert_eq!(h.state().fonts(), ["Phosphor.ttf"]);
+
+    h.state_mut().invoke(Cmd::Export).unwrap();
+    h.state_mut().export.out = base.join("ours.png").to_string_lossy().to_string();
+    h.run_steps(2);
+    hush(&mut h);
+    h.get_by_role_and_label(Role::Button, "export").click();
+    h.run_steps(2);
+    settle(&mut h, idle(Tag::Export));
+    run(&[
+        "export",
+        t,
+        "--frame",
+        "0",
+        "-o",
+        base.join("theirs.png").to_str().unwrap(),
+    ]);
+    assert_eq!(
+        std::fs::read(base.join("ours.png")).unwrap(),
+        std::fs::read(base.join("theirs.png")).unwrap()
+    );
+
+    let hash = |p: &str| run(&["hash", p, "--no-cache"]);
+    assert_eq!(hash(o), hash(t));
+    let errors: Vec<String> = h
+        .state()
+        .messages
+        .log()
+        .filter(|m| m.tone == Tone::Error)
+        .map(|m| m.text.clone())
+        .collect();
+    assert!(errors.is_empty(), "{errors:?}");
+    std::fs::remove_dir_all(&base).unwrap();
 }

@@ -432,7 +432,7 @@ pub fn free_name(folder: &Path) -> String {
         .unwrap_or_default()
 }
 
-fn draw_binary() -> Option<PathBuf> {
+pub(crate) fn draw_binary() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     if exe.file_stem().is_some_and(|s| s == "klad") {
         return Some(exe);

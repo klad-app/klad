@@ -2,10 +2,12 @@ mod between;
 mod brushwin;
 mod buffer;
 mod cells;
+mod checks;
 mod clips;
 mod commands;
 mod copy;
 mod depth;
+mod export;
 mod history;
 mod layers;
 mod look;
@@ -499,6 +501,8 @@ struct Windows {
     between: bool,
     import: bool,
     about: bool,
+    export: bool,
+    font: bool,
 }
 
 #[derive(Default)]
@@ -589,6 +593,8 @@ pub(crate) struct Editor {
     pen_width: f32,
     thumbs: layers::Thumbs,
     between: between::Between,
+    checks: checks::Checks,
+    export: export::Form,
     bindings: crate::commands::Bindings,
     capturing: Option<Cmd>,
     key_filter: String,
@@ -740,6 +746,8 @@ impl Editor {
             pen_width: 3.0,
             thumbs: layers::Thumbs::default(),
             between: between::Between::default(),
+            checks: checks::Checks::default(),
+            export: export::Form::default(),
             bindings: crate::commands::Bindings::default(),
             capturing: None,
             key_filter: String::new(),
@@ -887,6 +895,8 @@ impl Editor {
 
     fn reload(&mut self) -> Result<()> {
         let seen = self.external.take();
+        self.checks.gaps = None;
+        self.checks.arcs = None;
         let start = Instant::now();
         self.brushes.refresh(&self.scene.bundle)?;
         self.embedded = self.scene.bundle.brushes()?;
@@ -966,6 +976,8 @@ impl Editor {
     }
 
     fn apply(&mut self, ops: Vec<Op>) -> Result<()> {
+        self.checks.gaps = None;
+        self.checks.arcs = None;
         if ops.is_empty() {
             return Ok(());
         }
@@ -2929,6 +2941,7 @@ impl Editor {
             painter.circle_stroke(knob, HANDLE / 2.0 + 1.0, egui::Stroke::new(1.0, accent));
         }
         self.draw_pins(&painter, |c| self.screen(view, rect, c));
+        self.draw_checks(&painter, |c| self.screen(view, rect, c));
         if let Some(lasso) = self.lasso.as_ref().filter(|l| l.far) {
             let line: Vec<Pos2> = lasso.points.iter().map(|p| self.screen(view, rect, *p)).collect();
             let tint = if matches!(self.tool, Tool::Strokes | Tool::Select) {
@@ -3157,6 +3170,31 @@ impl Editor {
             }
         ));
         ui.small("the bar under the selection edits it; drag inside the box to move, a corner to scale, an edge to stretch (past the other edge flips), the knob to turn; arrows nudge");
+        ui.separator();
+        ui.label(format!("part: {}", self.picked_part_names().join(", ")));
+        let mut name = false;
+        ui.horizontal(|ui| {
+            let label = ui.label("name");
+            let field = ui
+                .add(
+                    egui::TextEdit::singleline(&mut self.checks.part)
+                        .desired_width(120.0)
+                        .hint_text("leaf, near leg"),
+                )
+                .labelled_by(label.id)
+                .hint("the part's name; Return or the button names the selected marks");
+            name = ui
+                .button("make them this part")
+                .hint("name the selected marks as this part, as klad part does")
+                .clicked()
+                || (field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+        });
+        ui.small(
+            "in-betweens pair marks by part and klad arcs tracks them; an empty name takes the marks out of their part",
+        );
+        if name {
+            self.name_part()?;
+        }
         Ok(())
     }
 
@@ -3843,6 +3881,10 @@ impl Editor {
         ui.add(egui::Slider::new(&mut f.opacity, 0.05..=1.0).text("opacity"))
             .hint("the fill's opacity");
         ui.small("click inside lines to fill, drag a loop to lasso fill");
+        ui.horizontal_wrapped(|ui| {
+            self.command_button(ui, Cmd::Refill, Some("refill this drawing"));
+            self.command_button(ui, Cmd::ShowGaps, Some("show gaps"));
+        });
         if !self.scene.can_paint() {
             ui.colored_label(Color32::LIGHT_YELLOW, "pick a paint layer to fill on");
         }

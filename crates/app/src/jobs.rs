@@ -13,6 +13,9 @@ pub const CHANGED: i32 = 75;
 pub enum Tag {
     Inbetween,
     Export,
+    Edit,
+    Gaps,
+    Arcs,
 }
 
 #[derive(Clone)]
