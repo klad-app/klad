@@ -232,6 +232,8 @@ klad export art.draw --layer hero --scale 4 --depth 16 -o hero.png
 
 Transparent PNG of the image or one layer or group, next to the bundle unless `-o`. 8-bit exports are dithered so gradients do not band; `--depth 16` keeps 16 bits; `--background` keeps the canvas colour. Vectors stay sharp at any scale; paint layers are resampled. Sprite sheets, numbered frames and Godot exports are under Time, Animation exports.
 
+Size the canvas for the largest size the art is ever seen at, not for the size it is used at. Paint layers are pixels at the canvas size: `--scale` above 1, a zoomed render, the editor's zoom, a sprite scaled up or a game camera that zooms in all magnify them, and every pixel shows as a block. Work out the largest size on screen (the camera's closest zoom times the sprite's scale, times 2 on a high density display), make the canvas about twice that, and show it scaled down (in Godot with mipmaps on). At that size give inked lines 4 to 8 px and noise or grain effects a `size` of 2 or more: lines of 2 to 3 px and 1 px noise read as pixels the moment anything enlarges them. Check at the size the player sees and at the closest zoom, not only at 1:1 on the canvas.
+
 ## Scripts
 
 For anything with more than a handful of shapes, write a generator that prints ops as JSON lines and pipe it into `klad apply`. Rebuild from scratch each run (copy the source bundle, apply, render) so the script stays the source of truth. A landscape generator of about 18,000 nodes builds and renders in about 4 s this way.
