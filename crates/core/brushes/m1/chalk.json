@@ -1,0 +1,14 @@
+{
+  "format": "draw-anything-brush/1",
+  "name": "Chalk",
+  "tip": { "chalk": { "seed": 7 } },
+  "spacing": 0.15,
+  "angle": "follow",
+  "flow": 0.7,
+  "dynamics": {
+    "size": { "pressure": { "min": 0.7 } },
+    "flow": { "pressure": { "min": 0.3 } }
+  },
+  "jitter": { "size": 0.1, "angle": 0.5, "scatter": 0.05 },
+  "grain": { "paper": { "seed": 23, "feature": 4 }, "strength": 0.45 }
+}

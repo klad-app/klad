@@ -1,0 +1,8 @@
+{
+  "format": "draw-anything-brush/1",
+  "name": "Grass",
+  "tip": { "image": { "image": "grass" } },
+  "spacing": 0.35,
+  "jitter": { "size": 0.3, "angle": 0.2, "scatter": 0.3 },
+  "color": { "hue": 6.0, "value": 0.12 }
+}

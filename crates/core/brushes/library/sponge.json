@@ -1,0 +1,9 @@
+{
+  "format": "draw-anything-brush/1",
+  "name": "Sponge",
+  "tip": { "image": { "image": "sponge" } },
+  "spacing": 0.2,
+  "flow": 0.6,
+  "dynamics": { "flow": { "pressure": { "min": 0.2 } } },
+  "jitter": { "size": 0.2, "angle": 3.14, "scatter": 0.15 }
+}

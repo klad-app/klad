@@ -1,0 +1,9 @@
+{
+  "format": "draw-anything-brush/1",
+  "name": "Wet round",
+  "tip": { "round": { "hardness": 0.5 } },
+  "spacing": 0.05,
+  "flow": 0.5,
+  "dynamics": { "flow": { "pressure": { "min": 0.2 } } },
+  "paint": { "wet": { "wetness": 0.7, "pickup": 0.6, "dilution": 0.25 } }
+}

@@ -1,0 +1,8 @@
+{
+  "format": "draw-anything-brush/1",
+  "name": "Two tone",
+  "tip": { "round": { "hardness": 0.8 } },
+  "spacing": 0.05,
+  "dynamics": { "size": { "pressure": { "min": 0.4 } } },
+  "color": { "pressure": { "min": 0.0 } }
+}

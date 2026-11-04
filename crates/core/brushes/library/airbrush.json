@@ -1,0 +1,12 @@
+{
+  "format": "draw-anything-brush/1",
+  "name": "Airbrush",
+  "tip": { "round": { "hardness": 0.0 } },
+  "spacing": 0.05,
+  "flow": 0.05,
+  "dynamics": {
+    "size": { "pressure": { "min": 0.7 } },
+    "flow": { "pressure": { "min": 0.05, "gamma": 1.8 } }
+  },
+  "smoothing": 20
+}

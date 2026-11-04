@@ -1,0 +1,8 @@
+{
+  "format": "draw-anything-brush/1",
+  "name": "Smudge",
+  "tip": { "round": { "hardness": 0.3 } },
+  "spacing": 0.05,
+  "dynamics": { "flow": { "pressure": { "min": 0.3 } } },
+  "paint": { "smudge": { "strength": 0.8 } }
+}

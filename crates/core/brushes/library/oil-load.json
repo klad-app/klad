@@ -1,0 +1,12 @@
+{
+  "format": "draw-anything-brush/1",
+  "name": "Loaded oil",
+  "tip": {"round": {"hardness": 0.78}},
+  "spacing": 0.04,
+  "roundness": 0.65,
+  "angle": "follow",
+  "opacity": 1.0,
+  "dynamics": {"size": {"pressure": {"min": 0.15}}, "opacity": {"pressure": {"min": 0.65}}},
+  "jitter": {"size": 0.05},
+  "grain": {"paper": {"seed": 29, "feature": 2}, "strength": 0.28}
+}

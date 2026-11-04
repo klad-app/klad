@@ -1,0 +1,12 @@
+{
+  "format": "draw-anything-brush/1",
+  "name": "Inking pen",
+  "tip": { "round": { "hardness": 0.92 } },
+  "spacing": 0.04,
+  "dynamics": {
+    "size": { "pressure": { "min": 0.06, "gamma": 1.5 } }
+  },
+  "taper": [10, 24],
+  "stabilizer": 24,
+  "smoothing": 12
+}

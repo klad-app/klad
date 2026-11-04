@@ -1,0 +1,10 @@
+{
+  "format": "draw-anything-brush/1",
+  "name": "Dry brush",
+  "tip": { "round": { "hardness": 0.8 } },
+  "spacing": 0.08,
+  "angle": "follow",
+  "dynamics": { "flow": { "pressure": { "min": 0.4 } } },
+  "dual": { "tip": { "image": { "image": "bristle-round" } }, "size": 0.6, "scatter": 0.6 },
+  "grain": { "paper": { "seed": 53, "feature": 4 }, "strength": 0.3, "pressure": 0.5 }
+}

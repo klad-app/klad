@@ -1,0 +1,25 @@
+{
+  "format": "draw-anything-brush/1",
+  "name": "Fog",
+  "tip": {
+    "round": {
+      "hardness": 0.0
+    }
+  },
+  "spacing": 0.1,
+  "flow": 0.15,
+  "dynamics": {
+    "size": {
+      "pressure": {
+        "min": 0.8
+      }
+    }
+  },
+  "grain": {
+    "paper": {
+      "seed": 41,
+      "feature": 32
+    },
+    "strength": 0.06
+  }
+}

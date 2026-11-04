@@ -1,0 +1,8 @@
+{
+  "format": "draw-anything-brush/1",
+  "name": "Blender",
+  "tip": { "round": { "hardness": 0.1 } },
+  "spacing": 0.08,
+  "flow": 0.6,
+  "paint": { "blend": { "strength": 0.5 } }
+}

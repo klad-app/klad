@@ -1,0 +1,12 @@
+{
+  "format": "draw-anything-brush/1",
+  "name": "Oil",
+  "tip": {"round": {"hardness": 0.55}},
+  "spacing": 0.05,
+  "roundness": 0.75,
+  "angle": "follow",
+  "opacity": 1.0,
+  "dynamics": {"size": {"pressure": {"min": 0.12}}, "opacity": {"pressure": {"min": 0.5}}},
+  "jitter": {"size": 0.04},
+  "grain": {"paper": {"seed": 11, "feature": 3}, "strength": 0.12}
+}

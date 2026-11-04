@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+root="$(cd "$here/../.." && pwd)"
+klad="${KLAD:-$root/${CARGO_TARGET_DIR:-target}/release/klad}"
+out="${1:-$here/bounce.draw}"
+if [ -e "$out" ] && [ "${FORCE:-0}" != 1 ]; then
+  echo "$out exists and may hold edits made in the editor; give another path, or FORCE=1 to rebuild it from generate.py" >&2
+  exit 1
+fi
+rm -rf "$out"
+"$klad" new "$out" --width 1024 --height 768 --layers 0 --fps 12 --frames 20 --background '#f4efe6' >/dev/null
+python3 "$here/generate.py" | "$klad" apply "$out" >/dev/null
+"$klad" render "$out" --frame 7 -o "${out%.draw}.png"
+"$klad" frames "$out"
+"$klad" hash "$out" --all --no-cache
+echo "sheet and onion (the hash is on each second line):"
+"$klad" render "$out" --sheet all -o "${out%.draw}-sheet.png"
+"$klad" render "$out" --sheet all --drawings -o "${out%.draw}-drawings.png"
+"$klad" render "$out" --frame 5 --overlay onion -o "${out%.draw}-onion.png"
+echo "sprite sheets at 1x and 0.5x and a Godot export (hashes on the lines starting with hash):"
+"$klad" export "$out" --sheet all -o "${out%.draw}-sprites.png"
+"$klad" export "$out" --sheet all --scale 0.5 -o "${out%.draw}-sprites@0.5x.png"
+"$klad" export "$out" --godot "${out%.draw}-godot" >/dev/null

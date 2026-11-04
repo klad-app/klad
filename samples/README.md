@@ -1,0 +1,13 @@
+# Samples
+
+Drawings made from scratch with the `klad` CLI, each from a generator that prints ops as JSON lines into `klad apply`. They show how the pieces fit and give the tests and the parity checks something real to draw. `just samples` builds all of them (after `just build`); each `build.sh` also takes an output path, and refuses to overwrite a drawing that may hold edits unless `FORCE=1`.
+
+| Sample | Shows |
+|---|---|
+| `lantern` | A prop blocked in as shapes, then inked, filled, lit and hatched (`PAINTED=1`: painted by form instead) |
+| `ink-shapes` | The ink options side by side: weight from the light, breaks, gaps, wobble, tapers |
+| `bounce` | Frame-by-frame timing: keys, holds, a clip and the exports |
+| `creature` | A walk and an idle from keys with named parts, in-betweened, coloured from the first drawing, with arcs checked |
+| `solids` | Painting stroke by stroke: a sphere, a cube and a cylinder built in 3D with `docs/skill/drawkit.py`, lit, painted with natural strokes |
+
+The generated `.draw` bundles and pictures stay out of git.

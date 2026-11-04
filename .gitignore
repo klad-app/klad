@@ -1,0 +1,12 @@
+target/
+/examples/
+.DS_Store
+*.draw/.cache/
+/scratch
+/references/
+
+__pycache__/
+/samples/*/*.draw/
+/samples/*/*.png
+/samples/*/*-godot/
+/samples/*/*.json

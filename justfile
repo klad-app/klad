@@ -1,0 +1,53 @@
+target_dir := env("CARGO_TARGET_DIR", "target")
+klad := target_dir + "/release/klad"
+
+default: build
+
+build:
+    cargo build --release -p klad-cli
+
+test:
+    cargo test --workspace
+    python3 docs/skill/drawkit.py --check
+
+lint:
+    cargo fmt --all --check
+    cargo clippy --workspace --all-targets -- -D warnings
+
+samples: build
+    for s in lantern ink-shapes bounce creature solids; do FORCE=1 bash samples/$s/build.sh >/dev/null && echo "samples/$s/$s.draw"; done
+
+notices:
+    bash licenses/notices.sh
+
+notices-check:
+    bash licenses/notices.sh "${TMPDIR:-/tmp}/draw-notices.md"
+    diff -q "${TMPDIR:-/tmp}/draw-notices.md" THIRD-PARTY-NOTICES.md
+
+audit: notices-check
+    cargo deny check
+
+fmt:
+    cargo fmt --all
+
+bench *args: build
+    {{klad}} bench {{args}}
+
+demo bundle="scratch/demo.draw": build
+    {{klad}} demo {{bundle}} --force
+    {{klad}} render {{bundle}}
+
+hash bundle="scratch/demo.draw": build
+    {{klad}} hash {{bundle}} --no-cache
+
+open bundle="scratch/pen.draw": build
+    {{klad}} open {{bundle}}
+
+stress bundle="scratch/stress.draw": build
+    {{klad}} stress {{bundle}}
+
+ui-pictures:
+    cargo test -p klad-app -- --ignored panel_pictures
+
+ui-time:
+    cargo test --release -p klad-app -- --ignored ui_time_per_frame --nocapture

@@ -1,0 +1,15 @@
+{
+  "format": "draw-anything-brush/1",
+  "name": "Marker",
+  "tip": { "round": { "hardness": 0.75 } },
+  "spacing": 0.05,
+  "roundness": 0.45,
+  "angle": { "fixed": -0.6 },
+  "opacity": 0.7,
+  "dynamics": {
+    "size": { "pressure": { "min": 0.85 } },
+    "opacity": { "pressure": { "min": 0.55 } }
+  },
+  "stabilizer": 8,
+  "smoothing": 8
+}

@@ -1,0 +1,14 @@
+{
+  "format": "draw-anything-brush/1",
+  "name": "Flat bristle",
+  "tip": { "image": { "image": "bristle-flat" } },
+  "spacing": 0.05,
+  "angle": "follow",
+  "flow": 0.8,
+  "dynamics": {
+    "size": { "pressure": { "min": 0.6 } },
+    "flow": { "pressure": { "min": 0.35 } }
+  },
+  "jitter": { "angle": 0.05 },
+  "grain": { "paper": { "seed": 31, "feature": 3 }, "strength": 0.25, "pressure": 0.6 }
+}

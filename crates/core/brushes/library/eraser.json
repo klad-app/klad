@@ -1,0 +1,10 @@
+{
+  "format": "draw-anything-brush/1",
+  "name": "Eraser",
+  "tip": { "round": { "hardness": 0.85 } },
+  "spacing": 0.06,
+  "dynamics": {
+    "size": { "pressure": { "min": 0.4 } }
+  },
+  "blend": "erase"
+}

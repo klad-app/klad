@@ -1,0 +1,33 @@
+[package]
+name = "klad-app"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+bytemuck = "1.25.2"
+klad-brush = { version = "0.1.0", path = "../brush" }
+klad-core = { version = "0.1.0", path = "../core" }
+klad-render = { version = "0.1.0", path = "../render" }
+eframe = { version = "0.37.0", default-features = false, features = ["wgpu", "default_fonts", "accesskit", "clipboard", "wayland", "x11"] }
+egui = "0.37.0"
+egui-wgpu = "0.37.0"
+half = { version = "2.7.1", features = ["bytemuck"] }
+notify = "8"
+png = "0.18.1"
+pollster = "1.0.1"
+rayon = "1.12.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+zstd = "0.14.3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSResponder", "NSGraphics", "NSApplication", "NSWindow", "NSPanel", "NSSavePanel", "NSOpenPanel"] }
+objc2-foundation = "0.3"
+
+[dev-dependencies]
+egui_kittest = { version = "0.37.0", features = ["wgpu"] }

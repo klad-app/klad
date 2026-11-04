@@ -1,0 +1,50 @@
+[graph]
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+all-features = false
+
+[advisories]
+unmaintained = "all"
+yanked = "deny"
+ignore = [
+    { id = "RUSTSEC-2026-0370", reason = "zvariant: Linux accessibility through eframe (accesskit_unix); waits on eframe moving to zbus 6" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names: as zvariant" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive: as zvariant" },
+    { crate = "async-executor@1.14.0", reason = "yanked; reached only through accesskit_unix and zbus 5 on Linux, waits on eframe" },
+]
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "BSL-1.0",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "0BSD",
+    "Unlicense",
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
+]
+confidence-threshold = 0.9
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

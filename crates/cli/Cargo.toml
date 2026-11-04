@@ -1,0 +1,28 @@
+[package]
+name = "klad-cli"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+klad-brush = { version = "0.1.0", path = "../brush" }
+klad-core = { version = "0.1.0", path = "../core" }
+klad-render = { version = "0.1.0", path = "../render" }
+libm = "0.2.16"
+notify = "8"
+rayon = "1.12.0"
+serde_json = "1.0.154"
+zstd = "0.14.3"
+
+[[bin]]
+name = "klad"
+path = "src/main.rs"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+klad-app = { version = "0.1.0", path = "../app" }
+
+[target."cfg(unix)".dependencies]
+libc = "0.2.191"

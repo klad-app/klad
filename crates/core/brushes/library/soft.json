@@ -1,0 +1,10 @@
+{
+  "format": "draw-anything-brush/1",
+  "name": "Soft",
+  "tip": { "round": { "hardness": 0.0 } },
+  "spacing": 0.08,
+  "flow": 0.08,
+  "dynamics": {
+    "flow": { "pressure": { "min": 0.2, "gamma": 1.5 } }
+  }
+}
