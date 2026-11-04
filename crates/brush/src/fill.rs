@@ -311,10 +311,39 @@ pub fn flood(reference: &Raster, seed: &Seed) -> Coverage {
         let wide = dilate(&region, w, h, seed.expand);
         and(&wide, |i| region[i] != 0 || lines[i] != 0)
     } else {
-        region
+        region.clone()
     };
-    let alpha: Vec<u8> = grown.par_iter().map(|&v| v * 255).collect();
+    let alpha = match seed.expand > 0.0 {
+        true => feathered(&region, &grown, w, h),
+        false => grown.par_iter().map(|&v| v * 255).collect(),
+    };
     Coverage::from_mask(reference.width, reference.height, &alpha)
+}
+
+fn feathered(region: &[u8], grown: &[u8], w: usize, h: usize) -> Vec<u8> {
+    const WEIGHTS: [[u32; 3]; 3] = [[1, 2, 1], [2, 4, 2], [1, 2, 1]];
+    let near = |x: usize, y: usize, of: &[u8]| -> u32 {
+        (0..3)
+            .flat_map(|dy| (0..3).map(move |dx| (dx, dy)))
+            .filter_map(|(dx, dy)| {
+                let (nx, ny) = ((x + dx).checked_sub(1)?, (y + dy).checked_sub(1)?);
+                (nx < w && ny < h && of[ny * w + nx] != 0).then_some(WEIGHTS[dy][dx])
+            })
+            .sum()
+    };
+    (0..w * h)
+        .into_par_iter()
+        .map(|i| match grown[i] != 0 {
+            true => 255,
+            false => {
+                let (x, y) = (i % w, i / w);
+                match near(x, y, region) {
+                    0 => 0,
+                    _ => ((near(x, y, grown) * 255 + 8) / 16).min(127) as u8,
+                }
+            }
+        })
+        .collect()
 }
 
 pub fn polygon(points: &[[f32; 2]], width: u32, height: u32) -> Coverage {
@@ -852,7 +881,11 @@ mod tests {
             );
             let first_inside = column.iter().position(|(a, _)| *a > 0).unwrap();
             let last_outside = column.iter().rposition(|(_, b)| *b > 0).unwrap();
-            assert!(last_outside <= first_inside + 1, "x {x}: {column:?}");
+            assert!(last_outside <= first_inside + 2, "x {x}: {column:?}");
+            assert!(
+                column[first_inside].0 < 255 && column[last_outside].1 < 255,
+                "each edge across the gap is feathered by a pixel: {column:?}"
+            );
             assert!(
                 (40..=44).contains(&(34 + first_inside)),
                 "x {x}: inside starts at {}",
