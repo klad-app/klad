@@ -52,6 +52,7 @@ pub struct Brush {
     pub grain: Option<Texture>,
     pub dual: Option<Dual>,
     pub blend: StrokeBlend,
+    pub scale: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -223,6 +224,7 @@ impl Brush {
                 BrushBlend::Normal => StrokeBlend::Normal,
                 BrushBlend::Erase => StrokeBlend::Erase,
             },
+            scale: 1.0,
         })
     }
 
@@ -258,6 +260,7 @@ impl Entry {
 pub struct BrushSet {
     entries: BTreeMap<String, Entry>,
     pictures: Arc<Pictures>,
+    scale: f32,
 }
 
 impl BrushSet {
@@ -268,6 +271,26 @@ impl BrushSet {
                 .filter_map(|id| brushes::library(id).map(|def| (id.to_string(), Entry::new(def))))
                 .collect(),
             pictures: Arc::new(Pictures::new()),
+            scale: 1.0,
+        }
+    }
+
+    pub fn at_scale(&self, scale: f32) -> Self {
+        let entries = self
+            .entries
+            .iter()
+            .map(|(id, e)| {
+                let mut def = e.def.clone();
+                if let Some(grain) = def.grain.as_mut() {
+                    grain.scale *= scale;
+                }
+                (id.clone(), Entry::new(def))
+            })
+            .collect();
+        Self {
+            entries,
+            pictures: self.pictures.clone(),
+            scale: self.scale * scale,
         }
     }
 
@@ -331,7 +354,14 @@ impl BrushSet {
         })?;
         entry
             .built
-            .get_or_init(|| Brush::with_pictures(&entry.def, &self.pictures).map_err(|e| format!("brush {id}: {e:#}")))
+            .get_or_init(|| {
+                Brush::with_pictures(&entry.def, &self.pictures)
+                    .map(|brush| Brush {
+                        scale: self.scale,
+                        ..brush
+                    })
+                    .map_err(|e| format!("brush {id}: {e:#}"))
+            })
             .as_ref()
             .map_err(|e| anyhow!("{e}"))
     }

@@ -133,7 +133,8 @@ impl StrokePainter {
             reservoir: None,
             reservoir_height: None,
             previous: None,
-            bristles: (brush.def.body > 0.0).then(|| Box::new(Bristles::new(stroke.seed ^ 0x5bd1_e995, stroke.size))),
+            bristles: (brush.def.body > 0.0)
+                .then(|| Box::new(Bristles::new(stroke.seed ^ 0x5bd1_e995, stroke.size, brush.scale))),
         }
     }
 
@@ -175,7 +176,7 @@ impl StrokePainter {
             return;
         }
         if sample.dt_ms > 0 {
-            let now = length / sample.dt_ms as f32;
+            let now = length / sample.dt_ms as f32 / self.brush.scale;
             self.speed += (now - self.speed) * SPEED_EASE;
         }
         self.heading = libm::atan2f(next.y - prev.y, next.x - prev.x);
@@ -456,8 +457,8 @@ struct Bristles {
 }
 
 impl Bristles {
-    fn new(seed: u32, size: f32) -> Self {
-        let count = (size / 3.5).clamp(3.0, 48.0);
+    fn new(seed: u32, size: f32, scale: f32) -> Self {
+        let count = (size / scale / 3.5).clamp(3.0, 48.0);
         let wave = |x: f32, row: i32| {
             let i = libm::floorf(x);
             let f = x - i;

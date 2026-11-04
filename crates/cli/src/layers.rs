@@ -5,7 +5,7 @@ use klad_core::bundle::Bundle;
 use klad_core::doc::{Document, Kind, Node};
 use klad_core::rng::{FNV_OFFSET, fnv};
 use klad_core::stroke::decode_cel;
-use klad_render::{Rasters, rasterize_nodes};
+use klad_render::{Rasters, rasterize_nodes, rasterize_nodes_at};
 use rayon::prelude::*;
 use std::collections::BTreeMap;
 use std::fs;
@@ -78,16 +78,60 @@ pub fn load_one(bundle: &Bundle, brushes: &BrushSet, layer: &str, cel: &str) -> 
 }
 
 pub fn load_cels(bundle: &Bundle, brushes: &BrushSet, cels: &[(String, String, Kind)]) -> Result<Rasters> {
+    load_cels_at(bundle, brushes, cels, 1.0)
+}
+
+pub fn load_cels_at(
+    bundle: &Bundle,
+    brushes: &BrushSet,
+    cels: &[(String, String, Kind)],
+    detail: f32,
+) -> Result<Rasters> {
     let (w, h) = (bundle.doc.canvas.width, bundle.doc.canvas.height);
+    let scaled = (detail != 1.0).then(|| brushes.at_scale(detail));
     cels.par_iter()
         .map(|(layer, cel, kind)| {
-            let raster = match kind {
-                Kind::Vector => rasterize_nodes(&nodes_of(&bundle.doc, cel), w, h)?,
-                _ => load_cel(bundle, brushes, layer, cel, true)?.raster,
+            let raster = match (kind, &scaled) {
+                (Kind::Vector, None) => rasterize_nodes(&nodes_of(&bundle.doc, cel), w, h)?,
+                (Kind::Vector, Some(_)) => rasterize_nodes_at(&nodes_of(&bundle.doc, cel), w, h, detail)?,
+                (_, None) => load_cel(bundle, brushes, layer, cel, true)?.raster,
+                (_, Some(scaled)) => replay_at(bundle, scaled, layer, cel, detail)?,
             };
             Ok((cel.clone(), raster))
         })
         .collect()
+}
+
+pub fn load_at(bundle: &Bundle, frame: u32, brushes: &BrushSet, detail: f32) -> Result<Rasters> {
+    if detail == 1.0 {
+        return Ok(load(bundle, frame, brushes, true)?.rasters);
+    }
+    let cels: Vec<(String, String, Kind)> = bundle
+        .doc
+        .paint_content_at(frame)
+        .iter()
+        .map(|(layer, cel)| (layer.id.clone(), cel.id.clone(), Kind::Paint))
+        .collect();
+    load_cels_at(bundle, brushes, &cels, detail)
+}
+
+fn replay_at(bundle: &Bundle, brushes: &BrushSet, layer: &str, cel: &str, detail: f32) -> Result<Raster> {
+    let path = bundle.strokes_path(layer, cel);
+    let bytes = if path.exists() { fs::read(&path)? } else { Vec::new() };
+    let mut marks = match bytes.is_empty() {
+        true => Vec::new(),
+        false => decode_cel(&bytes).with_context(|| format!("cel {cel}"))?,
+    };
+    marks
+        .iter_mut()
+        .for_each(|m| klad_core::markedit::transform_mark(m, [detail, 0.0, 0.0, detail, 0.0, 0.0]));
+    let (w, h) = (
+        (bundle.doc.canvas.width as f32 * detail).ceil() as u32,
+        (bundle.doc.canvas.height as f32 * detail).ceil() as u32,
+    );
+    Ok(klad_brush::replay(w, h, &marks, brushes)
+        .with_context(|| format!("cel {cel} at {detail}x"))?
+        .raster)
 }
 
 fn nodes_of(doc: &Document, cel: &str) -> Vec<Node> {

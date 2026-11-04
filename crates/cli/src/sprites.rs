@@ -1,11 +1,11 @@
 use crate::export::scale_tag;
-use crate::layers::load_cels;
+use crate::layers::load_cels_at;
 use crate::sheet::{batches, frame_cels, shown};
 use anyhow::{Context, Result, anyhow, bail};
 use klad_brush::BrushSet;
 use klad_core::bundle::{Bundle, write_atomic};
 use klad_core::ops::Op;
-use klad_render::export::{Options, Target, render};
+use klad_render::export::{Options, Target, detail_for, render};
 use klad_render::sprites::{self, Animation, Pixels, Placed, Rect, Run, Scene, Sheet, SpriteFrames, Texture};
 use rayon::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -86,6 +86,7 @@ pub fn pictures(bundle: &Bundle, animations: Vec<Animation>, look: &Look) -> Res
         scale: look.scale,
         background: look.background,
         references: false,
+        detail: detail_for(look.scale),
     };
     let frames: BTreeSet<u32> = animations.iter().flat_map(|a| a.from..=a.to).collect();
     let mut firsts: BTreeMap<Vec<String>, u32> = BTreeMap::new();
@@ -107,7 +108,7 @@ pub fn pictures(bundle: &Bundle, animations: Vec<Animation>, look: &Look) -> Res
                 .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect();
-            let rasters = load_cels(bundle, &brushes, &needed)?;
+            let rasters = load_cels_at(bundle, &brushes, &needed, options.detail)?;
             let done = batch
                 .par_iter()
                 .map(|(frame, _)| {

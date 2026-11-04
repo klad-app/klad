@@ -26,6 +26,14 @@ pub struct Options {
     pub scale: f32,
     pub background: bool,
     pub references: bool,
+    pub detail: f32,
+}
+
+pub fn detail_for(scale: f32) -> f32 {
+    match scale > 1.0 {
+        true => scale,
+        false => 1.0,
+    }
 }
 
 pub fn render(doc: &Document, frame: u32, rasters: &Rasters, target: &Target, options: Options) -> Result<Image> {
@@ -57,6 +65,7 @@ pub fn render(doc: &Document, frame: u32, rasters: &Rasters, target: &Target, op
         sampling,
         doc: Some(doc),
         references: options.references,
+        detail: options.detail,
         ..Ctx::full(frame, rasters)
     };
     match target {
@@ -199,6 +208,7 @@ mod tests {
             scale: 1.0,
             background: false,
             references: false,
+            detail: 1.0,
         };
         let image = render(&doc, 0, &Rasters::new(), &Target::Frame, options).unwrap();
         let dithered = dither8(&image).unwrap();
@@ -240,6 +250,7 @@ mod tests {
             scale: 1.0,
             background: false,
             references: false,
+            detail: 1.0,
         };
         let image = render(&doc, 0, &Rasters::new(), &Target::Frame, options).unwrap();
         let rgba = dither8(&image).unwrap();
@@ -287,6 +298,7 @@ mod tests {
                 scale: 2.0,
                 background: false,
                 references: false,
+                detail: 1.0,
             },
         )
         .unwrap();
@@ -308,6 +320,7 @@ mod tests {
                     scale: 20.0,
                     background: false,
                     references: false,
+                    detail: 1.0,
                 }
             )
             .is_err()

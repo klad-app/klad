@@ -156,6 +156,21 @@ pub fn raster_image(raster: &Raster) -> Result<Image> {
 }
 
 fn draw_raster(canvas: &Canvas, raster: &Raster, ctx: Ctx) -> Result<()> {
+    if ctx.detail != 1.0 {
+        canvas.save();
+        canvas.scale((1.0 / ctx.detail, 1.0 / ctx.detail));
+        let drawn = draw_raster(
+            canvas,
+            raster,
+            Ctx {
+                detail: 1.0,
+                sampling: None,
+                ..ctx
+            },
+        );
+        canvas.restore();
+        return drawn;
+    }
     match (ctx.area, ctx.sampling) {
         (Some(area), _) => tiles_in(raster.cols, raster.rows, area)
             .into_iter()
@@ -200,6 +215,7 @@ pub struct Ctx<'a> {
     pub flat: bool,
     pub doc: Option<&'a Document>,
     pub references: bool,
+    pub detail: f32,
 }
 
 impl<'a> Ctx<'a> {
@@ -214,6 +230,7 @@ impl<'a> Ctx<'a> {
             flat: true,
             doc: None,
             references: false,
+            detail: 1.0,
         }
     }
 
@@ -499,8 +516,8 @@ fn height_img(window: IRect, space: Space, layer: &Layer, ctx: Ctx) -> Option<Im
         return None;
     }
     let (w, h) = (window.width().max(0) as usize, window.height().max(0) as usize);
-    let taps = ((1.0 / space.scale).ceil() as usize).clamp(1, 4);
-    let step = 1.0 / (space.scale * taps as f32);
+    let taps = ((ctx.detail / space.scale).ceil() as usize).clamp(1, 4);
+    let step = ctx.detail / (space.scale * taps as f32);
     let px = (0..h)
         .into_par_iter()
         .flat_map_iter(|row| {
@@ -508,8 +525,8 @@ fn height_img(window: IRect, space: Space, layer: &Layer, ctx: Ctx) -> Option<Im
             (0..w).map(move |col| {
                 let (gx, gy) = (window.left + col as i32, window.top + row as i32);
                 let (cx, cy) = (
-                    (gx as f32 - space.tx) / space.scale,
-                    (gy as f32 - space.ty) / space.scale,
+                    (gx as f32 - space.tx) / space.scale * ctx.detail,
+                    (gy as f32 - space.ty) / space.scale * ctx.detail,
                 );
                 let sum: f32 = (0..taps * taps)
                     .map(|k| {
@@ -714,8 +731,17 @@ pub fn rasterize_region(nodes: &[klad_core::doc::Node], rect: [f32; 4], max_side
 }
 
 pub fn rasterize_nodes(nodes: &[klad_core::doc::Node], width: u32, height: u32) -> Result<Raster> {
+    rasterize_nodes_at(nodes, width, height, 1.0)
+}
+
+pub fn rasterize_nodes_at(nodes: &[klad_core::doc::Node], width: u32, height: u32, detail: f32) -> Result<Raster> {
+    let (width, height) = (
+        (width as f32 * detail).ceil() as u32,
+        (height as f32 * detail).ceil() as u32,
+    );
     let info = f16_info(width, height);
     let mut surface = surfaces::raster(&info, None, None).ok_or_else(|| anyhow!("cannot allocate {width}x{height}"))?;
+    surface.canvas().scale((detail, detail));
     vector::draw_nodes(surface.canvas(), nodes)?;
     let (w, h) = (width as usize, height as usize);
     let mut pixels = vec![half::f16::ZERO; w * h * 4];
@@ -995,6 +1021,7 @@ pub fn compose_tile(items: &[TileItem], job: &TileJob) -> Result<Vec<half::f16>>
         flat: true,
         doc: Some(job.doc),
         references: job.references,
+        detail: 1.0,
     };
     units(items).into_iter().try_for_each(|unit| match unit {
         Unit::Pixels { tile, opacity, blend } => {

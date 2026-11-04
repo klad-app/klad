@@ -2,7 +2,7 @@ use crate::layers;
 use anyhow::{Result, bail};
 use klad_brush::BrushSet;
 use klad_core::bundle::{Bundle, write_atomic};
-use klad_render::export::{Options, Target, png8, png16, render};
+use klad_render::export::{Options, Target, detail_for, png8, png16, render};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -52,7 +52,8 @@ pub fn run(path: &Path, opts: Export) -> Result<()> {
         );
     }
     let layer = opts.layer.as_deref().map(|key| doc.find_layer(key)).transpose()?;
-    let rasters = layers::load(&bundle, opts.frame, &BrushSet::for_bundle(&bundle)?, true)?.rasters;
+    let detail = detail_for(opts.scale);
+    let rasters = layers::load_at(&bundle, opts.frame, &BrushSet::for_bundle(&bundle)?, detail)?;
     let target = match layer {
         Some(l) => Target::Layer(l),
         None => Target::Frame,
@@ -61,6 +62,7 @@ pub fn run(path: &Path, opts: Export) -> Result<()> {
         scale: opts.scale,
         background: opts.background,
         references: opts.references,
+        detail,
     };
     let image = render(doc, opts.frame, &rasters, &target, options)?;
     let rendered = start.elapsed().as_secs_f64() * 1000.0;
@@ -127,6 +129,46 @@ mod tests {
             (png[24], u32::from_be_bytes(png[16..20].try_into().unwrap())),
             (16, 256)
         );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_export_above_full_size_draws_the_strokes_again_at_that_size() {
+        let dir = std::env::temp_dir().join(format!("draw-export-sharp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut doc = Document::new(120, 60);
+        doc.layers.push(Layer::paint("l1", "ink", "c1"));
+        let mut bundle = Bundle::create(dir.join("art.draw/"), doc).unwrap();
+        bundle
+            .apply(
+                &klad_core::ops::parse_lines(
+                    r##"{"op":"stroke","layer":"l1","brush":"ink","size":6,"color":"#101010","path":"M10 20 L110 26","taper":[0,0]}"##,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let brushes = BrushSet::for_bundle(&bundle).unwrap();
+        let edge = |detail: f32| {
+            let rasters = layers::load_at(&bundle, 0, &brushes, detail).unwrap();
+            let options = Options {
+                scale: 4.0,
+                background: false,
+                references: false,
+                detail,
+            };
+            let image = render(&bundle.doc, 0, &rasters, &Target::Frame, options).unwrap();
+            let frame = klad_render::read_rgba8(&image).unwrap();
+            (40..140)
+                .filter(|&y| (12..243).contains(&frame.pixel(240, y)[3]))
+                .count()
+        };
+        let (stretched, drawn) = (edge(1.0), edge(4.0));
+        assert!(
+            drawn <= 4 && stretched >= drawn + 3,
+            "soft pixels across the line: stretched {stretched}, drawn {drawn}"
+        );
+        assert_eq!(detail_for(4.0), 4.0);
+        assert_eq!(detail_for(0.5), 1.0);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
