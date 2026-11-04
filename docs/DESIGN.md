@@ -1,4 +1,4 @@
-_Last updated: 2026-11-04 15:05_
+_Last updated: 2026-11-04 18:46_
 
 # klad: design
 
@@ -342,6 +342,8 @@ A brush is JSON. The library is built in (`crates/core/brushes/library/`: `ink` 
 ## The agent interface: `klad` CLI
 
 Stateless: read the bundle, apply, write atomically, optionally render. Output is short text by default, `--json` for structure.
+
+An error is one line on stderr (`error: reading a.draw/doc.json: No such file or directory`) and exit code 1, whatever `RUST_BACKTRACE` says; a bug (a panic) is one line too, with where it happened and where to report it. `KLAD_BACKTRACE=1` prints the whole chain and the backtrace instead.
 
 | Command | Purpose |
 |---|---|

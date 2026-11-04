@@ -1462,15 +1462,40 @@ fn parse_points(text: &str) -> Result<Vec<[f32; 3]>> {
 const CHANGED_EXIT: i32 = 75;
 
 fn main() {
+    let traced = std::env::var_os("KLAD_BACKTRACE").is_some_and(|v| v != "0");
     #[cfg(unix)]
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
+    match traced {
+        true => unsafe { std::env::set_var("RUST_BACKTRACE", "1") },
+        false => std::panic::set_hook(Box::new(|info| eprintln!("error: {}", bug(info)))),
+    }
     if let Err(e) = run() {
-        eprintln!("Error: {e:?}");
+        match traced {
+            true => eprintln!("error: {e:?}"),
+            false => eprintln!("error: {e:#}"),
+        }
         let changed = e.downcast_ref::<klad_core::bundle::Changed>().is_some();
         std::process::exit(if changed { CHANGED_EXIT } else { 1 });
     }
+}
+
+fn bug(info: &std::panic::PanicHookInfo) -> String {
+    let what = info
+        .payload()
+        .downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| info.payload().downcast_ref::<String>().cloned())
+        .unwrap_or_default();
+    let place = info
+        .location()
+        .map(|l| format!(" at {}:{}", l.file(), l.line()))
+        .unwrap_or_default();
+    format!(
+        "klad hit a bug: {}{place}. KLAD_BACKTRACE=1 shows the details; please report it at https://github.com/klad-app/klad/issues",
+        what.replace('\n', " ")
+    )
 }
 
 fn run() -> Result<()> {

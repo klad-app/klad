@@ -4,7 +4,7 @@ Thank you for looking. klad is young and changes fast; issues with a drawing tha
 
 ## Before you start
 
-- Bugs: open an issue with what you did, what you saw, `klad --version`, your OS, and if you can the `.draw` folder (zipped) or the commands that make it.
+- Bugs: open an issue with what you did, what you saw (run the command again with `KLAD_BACKTRACE=1` for the details of an error), `klad --version`, your OS, and if you can the `.draw` folder (zipped) or the commands that make it.
 - Larger changes: open an issue first, so we can agree on the shape before you build it.
 - Security problems: see `SECURITY.md`, not the issue tracker.
 

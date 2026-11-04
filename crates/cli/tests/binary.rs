@@ -42,3 +42,30 @@ fn a_drawing_moves_and_a_layer_duplicates_from_the_command_line() {
     assert_eq!(starts(&layers[1]), [2, 10]);
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn an_error_is_one_line_and_the_backtrace_waits_for_klad_backtrace() {
+    let missing = std::env::temp_dir().join(format!("draw-binary-missing-{}.draw", std::process::id()));
+    let run = |backtrace: Option<&str>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_klad"));
+        command
+            .args(["ls", missing.to_str().unwrap()])
+            .env("RUST_BACKTRACE", "1");
+        match backtrace {
+            Some(v) => command.env("KLAD_BACKTRACE", v),
+            None => command.env_remove("KLAD_BACKTRACE"),
+        };
+        let out = command.output().unwrap();
+        assert_eq!(out.status.code(), Some(1));
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    let plain = run(None);
+    assert_eq!(plain.lines().count(), 1, "{plain}");
+    assert!(
+        plain.starts_with("error: reading ") && plain.contains("doc.json: "),
+        "{plain}"
+    );
+    assert_eq!(run(Some("0")), plain);
+    let traced = run(Some("1"));
+    assert!(traced.contains("Caused by") && traced.contains("backtrace"), "{traced}");
+}
