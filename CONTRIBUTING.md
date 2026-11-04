@@ -13,7 +13,7 @@ Thank you for looking. klad is young and changes fast; issues with a drawing tha
 - Rust through [rustup](https://rustup.rs); `rust-toolchain.toml` picks the version. [`just`](https://github.com/casey/just) runs the recipes.
 - macOS: the Xcode command line tools. Linux: `pkg-config`, `libfreetype-dev` and `libfontconfig1-dev`. Windows is not tested yet.
 - The first build downloads a prebuilt Skia for your platform (`skia-bindings` does this), so it needs network once.
-- `just build`, `just test`, `just lint`. `just audit` needs [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny) and [`cargo-about`](https://github.com/EmbarkStudios/cargo-about) (`cargo install cargo-deny --locked` and `cargo install cargo-about --locked --features cli`).
+- `just build`, `just test`, `just lint`. They build into `target/` on macOS and `target/linux` on Linux, so one checkout can be built from both. `just audit` needs [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny) and [`cargo-about`](https://github.com/EmbarkStudios/cargo-about) (`cargo install cargo-deny --locked` and `cargo install cargo-about --locked --features cli`).
 - The editor is `klad open`. Its panels are tested headless with `egui_kittest`; `cargo test -p klad-app -- --ignored editor_picture` (the editor with a sample drawing on its canvas), `start_pictures` and `just ui-pictures` write pictures of the UI to `scratch/ui/`.
 
 ## The rules the code follows

@@ -39,7 +39,7 @@ Early, and open for testing. What works today:
 There are no downloads yet; build it from source (about ten minutes the first time).
 
 1. Install Rust with [rustup](https://rustup.rs) and [`just`](https://github.com/casey/just) (`brew install just`, or `cargo install just`). On Linux also `pkg-config`, `libfreetype-dev` and `libfontconfig1-dev`.
-2. `git clone https://github.com/klad-app/klad && cd klad`, then `just build` makes the `klad` binary in `target/release/`.
+2. `git clone https://github.com/klad-app/klad && cd klad`, then `just build` makes the `klad` binary in `target/release/` (on Linux in `target/linux/release/`).
 3. On a Mac, `target/release/klad open` starts the editor on its start window: make a drawing and start painting.
 4. `just samples` builds the sample drawings in `samples/` (a lantern, a walking creature, painted solids, a bouncing ball, ink examples); open one with `target/release/klad open samples/lantern/lantern.draw`.
 

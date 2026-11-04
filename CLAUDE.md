@@ -1,12 +1,12 @@
 # klad
 
-_Last updated: 2026-11-04 19:35_
+_Last updated: 2026-11-04 19:41_
 
 Agent-first 2D art application in Rust: a `klad` CLI for agents and a native editor for people with a pen, sharing one document bundle on disk. What and why: `docs/DESIGN.md`. How to build, test and send a change: `CONTRIBUTING.md`. How an agent draws with it: `docs/skill/SKILL.md`.
 
 ## Toolchain
 
-- Rust stable through rustup with clippy and rustfmt (`rust-toolchain.toml`), `just` for recipes. Builds go to `target/` or to `$CARGO_TARGET_DIR`; run cargo from the repository root.
+- Rust stable through rustup with clippy and rustfmt (`rust-toolchain.toml`), `just` for recipes. `just` builds into a folder per platform, `target/` on macOS and `target/linux` (or `target/windows`) elsewhere, whatever `CARGO_TARGET_DIR` says, so a checkout shared between a Mac and a Linux machine never mixes their binaries (`KLAD_TARGET_DIR` overrides it); `just build` ends by running the binary, so a binary for the wrong platform fails there. Run cargo from the repository root, with `CARGO_TARGET_DIR` set to the same folder when calling cargo directly.
 - The editor (`crates/app`, `klad open`) runs on macOS for now. It compiles and its tests run on Linux too; `klad open` exists only in the macOS build.
 - The editor's panels run headless in tests through `egui_kittest` (`Editor::open` needs no GPU): click, type, drag, read sizes and accessible names. `just ui-pictures` and `cargo test -p klad-app -- --ignored start_pictures` render the UI into `scratch/ui/` with a blank canvas; `editor_picture` draws the canvas too (the kittest renderer gets the canvas resources, and the canvas is redrawn once it has caught up, since uploads made in a pass kittest did not render are lost). `just ui-time` measures UI work per frame.
 - `cargo test -p klad-app` alone does not rebuild the `klad` binary that the job and thumbnail tests run; `just test` (the workspace) does.

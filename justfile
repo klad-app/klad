@@ -1,10 +1,14 @@
-target_dir := env("CARGO_TARGET_DIR", "target")
-klad := target_dir + "/release/klad"
+target_dir := env("KLAD_TARGET_DIR", if os() == "macos" { "target" } else { "target/" + os() })
+klad := target_dir / "release" / "klad" + if os() == "windows" { ".exe" } else { "" }
+
+export CARGO_TARGET_DIR := target_dir
+export KLAD_TARGET_DIR := target_dir
 
 default: build
 
 build:
     cargo build --release -p klad-cli
+    {{klad}} --version
 
 test:
     cargo test --workspace

@@ -2,7 +2,12 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
-klad="${KLAD:-$root/${CARGO_TARGET_DIR:-target}/release/klad}"
+case "$(uname -s)" in
+  Darwin) built=target ;;
+  Linux) built=target/linux ;;
+  *) built=target/windows ;;
+esac
+klad="${KLAD:-$root/${KLAD_TARGET_DIR:-$built}/release/klad}"
 out="${1:-$here/creature.draw}"
 if ! "$klad" arcs --help >/dev/null 2>&1; then
   echo "$klad is older than this example (it has no klad arcs): run just build first" >&2
