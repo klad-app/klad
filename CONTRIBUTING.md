@@ -25,7 +25,7 @@ These come from `CLAUDE.md`, which is also the guide for coding agents working o
 - Determinism: `core`, `brush` and `render` give the same pixels on every machine. Transcendental math goes through `libm`, randomness through the seeded `klad_core::rng`, no clock, no `HashMap` order in output, parallelism only over independent tiles or rows. A change that moves a sample's hash says why.
 - Bundles never break: a format change bumps the format version and adds a migration, so older drawings open unchanged.
 - Dependencies are permissive only (MIT, Apache-2.0, BSD, ISC, Zlib and the others in `deny.toml`). Adding one means `just audit` passes and `just notices` regenerates `THIRD-PARTY-NOTICES.md` in the same change.
-- Every feature has a CLI form and an editor form: a new command or op also gets its place in the editor, and an editor feature gets its command or op, with tests on both sides.
+- Every feature has a CLI form and an editor form: a new command or op also gets its place in the editor, and an editor feature gets its command or op, with tests on both sides. The ops that draw from shapes (`ink`, `light`, `hatch`, `paint`, `scatter`) are the exception and stay CLI only.
 - New behaviour comes with tests in the crate that owns it. `just lint` and `just test` are clean before a pull request.
 - No em-dashes in docs or messages; every doc in `docs/` starts with a `_Last updated:_` line.
 

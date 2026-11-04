@@ -1,6 +1,6 @@
 # klad
 
-_Last updated: 2026-11-04 19:31_
+_Last updated: 2026-11-04 19:35_
 
 Agent-first 2D art application in Rust: a `klad` CLI for agents and a native editor for people with a pen, sharing one document bundle on disk. What and why: `docs/DESIGN.md`. How to build, test and send a change: `CONTRIBUTING.md`. How an agent draws with it: `docs/skill/SKILL.md`.
 
@@ -26,7 +26,7 @@ Agent-first 2D art application in Rust: a `klad` CLI for agents and a native edi
 
 ## Standing rules
 
-- Every feature has a CLI form and an editor form (DESIGN principle 7): a change that adds one adds the other, with tests on both sides, unless it only makes sense on one side (the editor's view and settings; the CLI's batch, hash and test tools).
+- Every feature has a CLI form and an editor form (DESIGN principle 7): a change that adds one adds the other, with tests on both sides, unless it only makes sense on one side (the editor's view and settings; the CLI's batch, hash and test tools; the ops that draw from shapes, `ink`, `light`, `hatch`, `paint`, `scatter` and `fill --shape`, which stay CLI only).
 - No comments in code except `// TODO:`.
 - Iterator chains over `for` loops where they read better; plain loops in hot pixel paths where they are clearer or faster.
 - Determinism in `core`, `brush` and `render`: transcendental math through `libm`, one seeded RNG (`klad_core::rng`), no wall clock, no `HashMap` iteration order in output, parallelism only over independent units (tiles, image rows).

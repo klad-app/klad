@@ -1,4 +1,4 @@
-_Last updated: 2026-11-04 19:31_
+_Last updated: 2026-11-04 19:35_
 
 # klad: design
 
@@ -14,7 +14,7 @@ An agent drives it through a CLI and sees results as PNG renders. A person with 
 4. **Time is in the model from the start.** Every layer's content lives in cels on a timeline. A still image is a one-frame document.
 5. **Edit and see in one call.** Every mutating CLI command can render and return the PNG path.
 6. **Professional output.** 16-bit float layers, colour management, proper blend modes, exports a game engine can use as they are.
-7. **Both hands can do everything.** Every feature has a CLI form (a command or an `apply` op) and an editor form (a tool, pane, window or command), doing the same thing through the same code. Only what makes sense on one side alone is exempt: the editor's view, pen calibration and keys; the CLI's batch, hash and test tools.
+7. **Both hands can do everything.** Every feature has a CLI form (a command or an `apply` op) and an editor form (a tool, pane, window or command), doing the same thing through the same code. Only what makes sense on one side alone is exempt: the editor's view, pen calibration and keys; the CLI's batch, hash and test tools; and the ops that draw from shapes (`ink`, `light`, `hatch`, `paint`, `scatter`, `fill --shape`), which are how an agent draws what a person draws by hand.
 
 ## Architecture
 
