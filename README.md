@@ -10,6 +10,20 @@ A 2D art app you share with an AI agent. You draw and paint in the editor with a
 
 It is made for game art: props, characters, backgrounds and frame-by-frame animation, exported as PNGs, sprite sheets or straight into Godot.
 
+## Animation
+
+Drawings live on a timeline, frame by frame: holds, onion skins, loops and clips. Draw the key poses with their parts named and klad makes the drawings in between, paired part by part, while lines drawn by hand stay where they were drawn. It checks the arcs (a foot that slides, a part that sinks under the ground), colours every drawing from the first one, and exports sprite sheets or a Godot `SpriteFrames` scene with each clip's timing.
+
+![The creature's idle, on threes](docs/images/creature-idle.gif) ![The creature's walk, on twos](docs/images/creature-walk.gif)
+
+The creature in `samples/creature` is six keys on six layers (lines, colour, a clipped shade and rim light, the far leg, a shadow): an idle and a walk, in-betweened by part, coloured from the first drawing and timed on threes and twos.
+
+```sh
+klad inbetween creature.draw --layers lines,colour --from 3 --to 5 --spacing in-out
+klad arcs creature.draw --track 'lines:near leg' --clip walk --check
+klad export creature.draw --godot ../game/art
+```
+
 ## Status
 
 Early, and open for testing. What works today:
