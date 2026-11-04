@@ -330,6 +330,18 @@ fn draw_clipped(canvas: &Canvas, base: &Layer, clipped: &[&Layer], ctx: Ctx) -> 
     drawn
 }
 
+pub(crate) fn draw_clipped_alone(canvas: &Canvas, base: &Layer, layer: &Layer, ctx: Ctx) -> Result<()> {
+    layer_paint_isolated(canvas, layer.opacity, Blend::Normal);
+    let drawn = draw_styled(canvas, layer, ctx).and_then(|_| {
+        mode_layer(canvas, BlendMode::DstIn);
+        let base_drawn = draw_content(canvas, base, ctx.nested());
+        canvas.restore();
+        base_drawn
+    });
+    canvas.restore();
+    drawn.with_context(|| format!("layer {} clipped to {}", layer.id, base.id))
+}
+
 fn draw_clip(canvas: &Canvas, base: &Layer, layer: &Layer, ctx: Ctx) -> Result<()> {
     layer_paint_isolated(canvas, layer.opacity, layer.blend);
     let drawn = draw_styled(canvas, layer, ctx).and_then(|_| {

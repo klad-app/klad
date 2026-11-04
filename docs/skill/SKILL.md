@@ -343,7 +343,7 @@ Cell labels read like `klad frames`: `c5` starts a drawing, `|c5` holds it, `c9>
 - `klad path` numbers points across all subpaths of the shape; re-read the list after `--add`, `--insert` or `--rm`.
 - A layer created with `lockAlpha=true` takes no paint at all until something without the lock lands on it first; paint the flats, then lock.
 - A clipped layer at the bottom of its list has no base and draws unclipped. Hiding a base hides its clipped layers.
-- `klad export --layer` on a clipped layer draws it alone, unclipped; export the group or the whole image to see the clip.
+- `klad export --layer` on a clipped layer draws it alone but still clipped to its base (without the base's own colour).
 - Animation exports draw every visible layer, so a held background (a floor) is in every picture and trimming keeps its width. Hide it, or pass `--layer <character group>`, for a sprite.
 - `--sheet` on `render` is a labelled look at the frames; `--sheet` on `export` is the game asset. They take the same specs.
 - `klad inbetween --to` is the frame where the second key starts; a frame inside its exposure is refused with the right frame named.

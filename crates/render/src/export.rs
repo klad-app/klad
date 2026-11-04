@@ -1,4 +1,4 @@
-use crate::{Ctx, Rasters, background, draw_layer, draw_layers, f16_info, rgba8_info};
+use crate::{Ctx, Rasters, background, draw_clipped_alone, draw_layer, draw_layers, f16_info, rgba8_info};
 use anyhow::{Result, anyhow, bail};
 use klad_core::doc::{Blend, Document, Layer};
 use rayon::prelude::*;
@@ -74,10 +74,23 @@ pub fn render(doc: &Document, frame: u32, rasters: &Rasters, target: &Target, op
             let mut alone = (*layer).clone();
             alone.visible = true;
             alone.blend = Blend::Normal;
-            draw_layer(canvas, &alone, ctx)?;
+            match clip_base(&doc.layers, &layer.id).filter(|_| layer.clip) {
+                Some(base) => {
+                    alone.clip = false;
+                    draw_clipped_alone(canvas, base, &alone, ctx)?
+                }
+                None => draw_layer(canvas, &alone, ctx)?,
+            }
         }
     }
     Ok(surface.image_snapshot())
+}
+
+fn clip_base<'a>(layers: &'a [Layer], id: &str) -> Option<&'a Layer> {
+    match layers.iter().position(|l| l.id == id) {
+        Some(at) => layers[..at].iter().rev().find(|l| !l.clip),
+        None => layers.iter().find_map(|l| clip_base(l.children(), id)),
+    }
 }
 
 pub(crate) fn f16_pixels(image: &Image, alpha: AlphaType) -> Result<Vec<half::f16>> {
@@ -325,5 +338,47 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn a_clipped_layer_exported_alone_keeps_its_clip() {
+        let rect = |id: &str, x: f32, w: f32, colour: &str| {
+            Node::new(
+                id,
+                Shape::Rect {
+                    x,
+                    y: 0.0,
+                    w,
+                    h: 32.0,
+                    radius: 0.0,
+                },
+            )
+            .filled(colour)
+        };
+        let mut doc = Document::new(64, 32);
+        doc.layers.push(Layer::vector(
+            "base",
+            "base",
+            "c1",
+            vec![rect("n1", 0.0, 32.0, "#ff0000")],
+        ));
+        let mut shade = Layer::vector("shade", "shade", "c2", vec![rect("n2", 0.0, 64.0, "#0000ff")]);
+        shade.clip = true;
+        doc.layers.push(shade);
+        let options = Options {
+            scale: 1.0,
+            background: false,
+            references: false,
+            detail: 1.0,
+        };
+        let layer = doc.layers[1].clone();
+        let image = render(&doc, 0, &Rasters::new(), &Target::Layer(&layer), options).unwrap();
+        let frame = crate::read_rgba8(&image).unwrap();
+        assert_eq!(
+            frame.pixel(16, 16),
+            [0, 0, 255, 255],
+            "inside the base: the layer's own colour"
+        );
+        assert_eq!(frame.pixel(48, 16)[3], 0, "outside the base: clipped away");
     }
 }
