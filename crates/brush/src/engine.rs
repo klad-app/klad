@@ -428,6 +428,47 @@ fn tip_value(tip: &Tip, u: f32, v: f32, d2: f32, radius: f32) -> f32 {
     }
 }
 
+struct Edge {
+    solid: f32,
+    fade: f32,
+    soft: f32,
+}
+
+impl Edge {
+    fn of(tip: &Tip, radius: f32) -> Option<Edge> {
+        match tip {
+            Tip::Round { hardness } => {
+                let solid = hardness * radius;
+                let fade = (radius - solid).max(1e-4);
+                Some(Edge {
+                    solid,
+                    fade,
+                    soft: smoothstep(0.5, 2.0, fade),
+                })
+            }
+            Tip::Mask(_) => None,
+        }
+    }
+
+    fn cover(&self, reach: f32) -> (f32, f32) {
+        if reach + 0.5 <= self.solid {
+            return (1.0, 1.0);
+        }
+        if reach - 0.5 >= self.solid + self.fade {
+            return (0.0, self.soft);
+        }
+        let ramp = |t: f32| match t {
+            t if t <= 0.0 => 0.0,
+            t if t >= 1.0 => t - 0.5,
+            t => t * t * t * (1.0 - 0.5 * t),
+        };
+        let seen =
+            self.fade * (ramp((reach + 0.5 - self.solid) / self.fade) - ramp((reach - 0.5 - self.solid) / self.fade));
+        let cover = (1.0 - seen).clamp(0.0, 1.0);
+        (cover, cover + (1.0 - cover) * self.soft)
+    }
+}
+
 fn dual_value(brush: &Brush, dab: &Dab, u: f32, v: f32, radius: f32) -> f32 {
     let Some(dual) = brush.dual.as_ref() else {
         return 1.0;
@@ -514,8 +555,8 @@ fn stamp(buffer: &mut StrokeBuffer, brush: &Brush, dab: Dab) {
     let (sin, cos) = (libm::sinf(dab.angle), libm::cosf(dab.angle));
     let inv_radius = 1.0 / radius;
     let inv_round = 1.0 / brush.def.roundness;
-    let full = cap >= 1.0;
     let cols = buffer.grid().cols;
+    let edge = Edge::of(&brush.tip, radius);
     for ty in y0 / TILE..=(y1 - 1) / TILE {
         for tx in x0 / TILE..=(x1 - 1) / TILE {
             if buffer.skip(ty * cols + tx) {
@@ -534,18 +575,26 @@ fn stamp(buffer: &mut StrokeBuffer, brush: &Brush, dab: Dab) {
                     if d2 >= reach2 {
                         continue;
                     }
-                    let mut a = tip_value(&brush.tip, u, v, d2, radius) * flow;
+                    let (cover, reach) = match &edge {
+                        Some(edge) => edge.cover(libm::sqrtf(d2) * radius),
+                        None => (tip_value(&brush.tip, u, v, d2, radius), 1.0),
+                    };
+                    let mut a = cover * flow;
                     if dab.count > 0 {
                         a *= dual_value(brush, &dab, u, v, radius);
                     }
                     if let Some(texture) = &brush.grain {
                         a = (a - texture_value(texture, x, y, dab.p)).max(0.0);
                     }
-                    if a > 0.0 {
+                    if a > 0.0 && reach > 0.0 {
                         let at = row + x - ox;
                         let c = &mut tile[at];
-                        let gain = (cap - *c) * a.min(1.0);
-                        if full || gain > 0.0 {
+                        let rate = match reach < 1.0 {
+                            true => (a / reach).min(1.0),
+                            false => a.min(1.0),
+                        };
+                        let gain = (cap * reach - *c) * rate;
+                        if gain > 0.0 {
                             *c += gain;
                             if let (Some(paint), Some(colour)) = (paint.as_deref_mut(), dab.color)
                                 && gain > 0.0
@@ -932,6 +981,46 @@ mod tests {
     }
 
     #[test]
+    fn a_hard_line_keeps_its_antialiased_edge() {
+        let brushes = BrushSet::presets();
+        [3.0, 5.0, 12.0].iter().for_each(|&size| {
+            let stroke = line("ink", size, (10.0, 20.0), (250.0, 60.0), (1.0, 1.0));
+            let out = replay(260, 80, &[stroke.into()], &brushes).unwrap();
+            let soft = (60..200)
+                .filter(|&x| {
+                    let column: Vec<f32> = (0..80).map(|y| alpha(&out.raster, x, y)).collect();
+                    let top = column.iter().position(|&a| a > 0.02).unwrap();
+                    let bottom = column.iter().rposition(|&a| a > 0.02).unwrap();
+                    column[top] < 0.95 && column[bottom] < 0.95
+                })
+                .count();
+            assert!(soft > 130, "size {size}: {soft} of 140 columns have soft edges");
+        });
+    }
+
+    #[test]
+    fn soft_tips_build_up_where_a_stroke_comes_back_and_hard_tips_do_not() {
+        let brushes = BrushSet::presets();
+        let there = |brush: &str, size: f32| line(brush, size, (20.0, 64.0), (300.0, 64.0), (1.0, 1.0));
+        let back = |brush: &str, size: f32| {
+            let points: Vec<(f32, f32, f32)> = (0..=80)
+                .map(|i| match i <= 40 {
+                    true => (20.0 + 7.0 * i as f32, 64.0, 1.0),
+                    false => (300.0 - 7.0 * (i - 40) as f32, 64.0, 1.0),
+                })
+                .collect();
+            Stroke::new(1, brush, [0.0, 0.0, 0.0, 1.0], size, 9).with_points(&points, 5.0)
+        };
+        let at = |stroke: Stroke, x: usize, y: usize| {
+            alpha(&replay(320, 128, &[stroke.into()], &brushes).unwrap().raster, x, y)
+        };
+        assert!(at(back("airbrush", 40.0), 160, 76) > at(there("airbrush", 40.0), 160, 76) + 0.02);
+        let edge = at(there("ink", 12.0), 160, 69);
+        assert!(edge > 0.1 && edge < 0.9, "edge {edge}");
+        assert!((at(back("ink", 12.0), 160, 69) - edge).abs() < 0.01);
+    }
+
+    #[test]
     fn dab_count_follows_spacing() {
         let brushes = BrushSet::presets();
         let stroke = line("ink", 20.0, (10.0, 50.0), (410.0, 50.0), (1.0, 1.0));
@@ -976,11 +1065,11 @@ mod tests {
     #[test]
     fn m1_brushes_as_data_paint_the_m1_pixels() {
         let fixtures = [
-            ("pencil", 0xdcb685af511515ed_u64, 10166),
-            ("ink", 0x8a42ee6868d7dbf4, 11493),
-            ("soft", 0x1155c92abc144952, 9921),
-            ("chalk", 0x76b8675240bf4ea5, 9239),
-            ("eraser", 0xe01fb6ff82ad3584, 10880),
+            ("pencil", 0xfb2d7140ad2324e6_u64, 10166),
+            ("ink", 0xf2a6edba413a1461, 11493),
+            ("soft", 0xd8ba2d80b00ee7d8, 9921),
+            ("chalk", 0x3820705eaab7d054, 9239),
+            ("eraser", 0xe76b9c2658038834, 10880),
         ];
         let brushes = m1();
         fixtures.iter().for_each(|&(name, hash, dabs)| {
