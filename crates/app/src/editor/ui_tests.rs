@@ -2263,3 +2263,69 @@ fn the_cli_only_features_run_from_the_editor_and_give_what_the_cli_gives() {
     assert!(errors.is_empty(), "{errors:?}");
     std::fs::remove_dir_all(&base).unwrap();
 }
+
+#[test]
+fn paint_with_body_from_the_brush_window_lit_by_a_relief_turned_with_its_dial() {
+    use klad_core::look::Effect;
+    let path = sample("body");
+    let mut h = harness(editor(&path), vec2(1440.0, 1400.0));
+    [
+        (Pane::Inspector, false),
+        (Pane::Notes, true),
+        (Pane::History, true),
+        (Pane::Layers, true),
+        (Pane::Tool, true),
+    ]
+    .into_iter()
+    .for_each(|(pane, collapsed)| {
+        if let Some(p) = h.state_mut().settings.layout.pane_mut(pane) {
+            p.collapsed = collapsed;
+        }
+    });
+    activate(&mut h, "lines");
+    h.state_mut().pick("oil");
+    h.key_press(Key::F5);
+    h.run_steps(3);
+    assert!(h.state().windows.brush);
+    let track = h.get_by_role_and_label(Role::Slider, "body").rect();
+    let at = egui::pos2(track.left() + track.width() * 0.9, track.center().y);
+    drag(&mut h, at, at);
+    h.run_steps(2);
+    let body = h.state().custom.as_ref().map_or(0.0, |d| d.body);
+    assert!(body > 0.7, "the slider sets the body: {body}");
+    h.key_press(Key::F5);
+    h.run_steps(2);
+    let rect = h.state().canvas_rect;
+    h.key_press(Key::B);
+    h.run_steps(1);
+    drag(
+        &mut h,
+        rect.center() + vec2(-120.0, 0.0),
+        rect.center() + vec2(120.0, 10.0),
+    );
+    h.run_steps(3);
+    assert!(
+        h.state().scene.active_raster().is_some_and(|r| r.has_height()),
+        "the stroke left paint height"
+    );
+    h.get_by_label_contains("applied after the ones above").click();
+    h.run_steps(2);
+    h.get_by_label("relief").click();
+    h.run_steps(3);
+    let relief = |h: &Harness<'static, Editor>| match h.state().scene.active_layer().unwrap().effects.first() {
+        Some(Effect::Relief(r)) => r.clone(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(relief(&h).light, [-1.0, -1.0]);
+    let dial = h.get_by_label(super::look::DIAL).rect();
+    let right = egui::pos2(dial.right() - 4.0, dial.center().y);
+    drag(&mut h, right, right);
+    h.run_steps(3);
+    let light = relief(&h).light;
+    assert!(
+        light[0] > 0.9 && light[1].abs() < 0.2,
+        "the light comes from the right: {light:?}"
+    );
+    checked_audit(&mut h);
+    let _ = std::fs::remove_dir_all(&path);
+}

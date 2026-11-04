@@ -1,7 +1,7 @@
 use crate::brush::{BrushSet, StrokeBlend};
 use crate::engine::{commit, draw_stroke_on, land_stroke};
 use crate::fill::{fill_tiles, paint_fill_where};
-use crate::tiles::{Raster, StrokeBuffer, TILE_PX};
+use crate::tiles::{Raster, StrokeBuffer, TILE_PX, Tile};
 use anyhow::Result;
 use half::f16;
 use klad_core::stroke::{Mark, Stroke, fingerprint};
@@ -10,8 +10,6 @@ use std::sync::Arc;
 
 pub const EVERY: usize = 128;
 pub const BUDGET: usize = 128 << 20;
-
-type Tile = Option<Arc<[f16]>>;
 
 #[derive(Clone)]
 struct Checkpoint {
@@ -53,10 +51,7 @@ fn painted(
 }
 
 fn put(raster: &mut Raster, index: usize, tile: &Tile) {
-    match tile {
-        Some(data) => raster.put(index, Box::from(&data[..])),
-        None => raster.clear(index),
-    }
+    raster.restore(index, tile);
 }
 
 impl CelReplay {
@@ -70,7 +65,7 @@ impl CelReplay {
             footprints: Vec::new(),
             checkpoints: vec![Checkpoint {
                 at: 0,
-                tiles: vec![None; tiles.cols * tiles.rows],
+                tiles: vec![(None, None); tiles.cols * tiles.rows],
             }],
         }
     }
@@ -142,7 +137,7 @@ impl CelReplay {
         let mut tiles = last.tiles.clone();
         changed
             .iter()
-            .for_each(|&t| tiles[t as usize] = raster.at(t as usize).map(Arc::from));
+            .for_each(|&t| tiles[t as usize] = raster.tile(t as usize));
         self.checkpoints.push(Checkpoint {
             at: self.keys.len(),
             tiles,
@@ -161,13 +156,17 @@ impl CelReplay {
     }
 
     pub fn checkpoint_bytes(&self) -> usize {
-        let unique: BTreeSet<usize> = self
+        let unique: BTreeSet<(usize, usize)> = self
             .checkpoints
             .iter()
-            .flat_map(|c| c.tiles.iter().flatten())
-            .map(|t| Arc::as_ptr(t) as *const f16 as usize)
+            .flat_map(|c| c.tiles.iter())
+            .flat_map(|(colour, height)| {
+                let colour = colour.as_ref().map(|t| (Arc::as_ptr(t) as *const f16 as usize, 4));
+                let height = height.as_ref().map(|t| (Arc::as_ptr(t) as *const f16 as usize, 1));
+                colour.into_iter().chain(height)
+            })
             .collect();
-        unique.len() * TILE_PX * 4 * std::mem::size_of::<f16>()
+        unique.iter().map(|(_, c)| c).sum::<usize>() * TILE_PX * std::mem::size_of::<f16>()
     }
 
     pub fn commit_stroke(
@@ -259,7 +258,7 @@ impl CelReplay {
             let mut tiles = old;
             (0..dirty.len())
                 .filter(|&t| dirty[t])
-                .for_each(|t| tiles[t] = raster.at(t).map(Arc::from));
+                .for_each(|t| tiles[t] = raster.tile(t));
             out.push(Checkpoint { at, tiles });
         };
         let mut last_kept = vec![0usize; tiles];

@@ -1,16 +1,18 @@
 use crate::brush::{Angle, Brush, BrushSet, StrokeBlend, Texture, Tip, smoothstep, speed_amount, tilt_amount};
 use crate::cut;
-use crate::tiles::{Mode, Raster, StrokeBuffer, TILE};
+use crate::tiles::{Mode, Raster, StrokeBuffer, TILE, Tiles};
 use anyhow::Result;
 use half::f16;
 use klad_core::brushes::PaintDef;
 use klad_core::color::Rgba;
 use klad_core::cut::Cut;
-use klad_core::rng::Rng;
+use klad_core::rng::{Rng, hash2_unit};
 use klad_core::stroke::{Mark, Sample, Stroke};
 
 const MIN_RADIUS: f32 = 0.6;
 const SPEED_EASE: f32 = 0.5;
+const SQUASH: f32 = 0.55;
+const DEEPEST: f32 = 32.0;
 
 #[derive(Clone, Copy, Debug)]
 struct Point {
@@ -77,7 +79,9 @@ pub struct StrokePainter {
     second: [f32; 3],
     shift: [f32; 3],
     reservoir: Option<[f32; 3]>,
+    reservoir_height: Option<f32>,
     previous: Option<(f32, f32)>,
+    bristles: Option<Box<Bristles>>,
 }
 
 const STROKE_COLOUR_SEED: u64 = 0x9e37_79b9_7f4a_7c15;
@@ -127,7 +131,9 @@ impl StrokePainter {
             second,
             shift,
             reservoir: None,
+            reservoir_height: None,
             previous: None,
+            bristles: (brush.def.body > 0.0).then(|| Box::new(Bristles::new(stroke.seed ^ 0x5bd1_e995, stroke.size))),
         }
     }
 
@@ -145,6 +151,8 @@ impl StrokePainter {
 
     pub fn push_on(&mut self, sample: &Sample, buffer: &mut StrokeBuffer, under: Option<&Raster>) {
         buffer.mode = self.mode();
+        buffer.body = self.brush.def.body;
+        buffer.lifting = buffer.mode != Mode::Flat && under.is_some_and(Raster::has_height);
         let (x, y) = sample.pos();
         let next = Point {
             x,
@@ -274,6 +282,7 @@ impl StrokePainter {
         });
         let mut color = self.colour_here(at, along);
         let mut flow = flow;
+        let mut lift = None;
         if let Some(PaintDef::Wet {
             wetness,
             pickup,
@@ -289,6 +298,12 @@ impl StrokePainter {
             }
             color = Some(std::array::from_fn(|i| base[i] + (reservoir[i] - base[i]) * wetness));
             flow *= 1.0 - dilution * 0.9;
+            if buffer.lifting {
+                let picked_height = pick_height(buffer, under, cx, cy, size * 0.5);
+                let held = self.reservoir_height.get_or_insert(picked_height);
+                *held += (picked_height - *held) * pickup * picked[3].min(1.0);
+                lift = Some(picked_height + (*held - picked_height) * wetness);
+            }
         }
         let shift = self.previous.map_or((0.0, 0.0), |(px, py)| (cx - px, cy - py));
         self.previous = Some((cx, cy));
@@ -304,6 +319,7 @@ impl StrokePainter {
             dual,
             count,
             color,
+            lift,
         };
         match self.brush.def.paint {
             Some(PaintDef::Smudge { strength }) => {
@@ -312,7 +328,10 @@ impl StrokePainter {
             Some(PaintDef::Blend { strength }) => {
                 stamp_replace(buffer, &self.brush, dab, under, Replace::Blend, strength)
             }
-            _ => stamp(buffer, &self.brush, dab),
+            _ => {
+                let bristles = self.bristles.as_deref().map(|b| (b, b.load(along)));
+                stamp(buffer, &self.brush, dab, bristles)
+            }
         }
     }
 }
@@ -377,6 +396,31 @@ fn state_at(buffer: &StrokeBuffer, under: Option<&Raster>, x: i64, y: i64) -> [f
     }
 }
 
+fn height_at(buffer: &StrokeBuffer, under: Option<&Raster>, x: i64, y: i64) -> f32 {
+    let grid = buffer.grid();
+    if x < 0 || y < 0 || x >= grid.width as i64 || y >= grid.height as i64 {
+        return 0.0;
+    }
+    let (x, y) = (x as usize, y as usize);
+    let index = (y / TILE) * grid.cols + x / TILE;
+    let px = (y % TILE) * TILE + x % TILE;
+    let replaced = buffer.mode == Mode::Replace && buffer.coverage(index).is_some_and(|c| c[px] > 0.0);
+    match (replaced, buffer.lift(index)) {
+        (true, Some(lift)) => lift[px],
+        _ => under.and_then(|r| r.height_tile(index)).map_or(0.0, |t| t[px].to_f32()),
+    }
+}
+
+fn pick_height(buffer: &StrokeBuffer, under: Option<&Raster>, cx: f32, cy: f32, radius: f32) -> f32 {
+    let r = radius * 0.4;
+    let points = [(0.0, 0.0), (r, 0.0), (-r, 0.0), (0.0, r), (0.0, -r)];
+    points
+        .iter()
+        .map(|(dx, dy)| height_at(buffer, under, (cx + dx).floor() as i64, (cy + dy).floor() as i64))
+        .sum::<f32>()
+        / points.len() as f32
+}
+
 fn pick(buffer: &StrokeBuffer, under: Option<&Raster>, cx: f32, cy: f32, radius: f32) -> [f32; 4] {
     let r = radius * 0.4;
     let points = [(0.0, 0.0), (r, 0.0), (-r, 0.0), (0.0, r), (0.0, -r)];
@@ -398,6 +442,48 @@ struct Dab {
     dual: [[f32; 3]; 8],
     count: usize,
     color: Option<[f32; 3]>,
+    lift: Option<f32>,
+}
+
+const GROOVES: usize = 256;
+const RUN: f32 = 8.0;
+const LIPS: usize = 64;
+
+struct Bristles {
+    grooves: [f32; GROOVES + 1],
+    lips: [f32; LIPS + 1],
+    run: f32,
+}
+
+impl Bristles {
+    fn new(seed: u32, size: f32) -> Self {
+        let count = (size / 3.5).clamp(3.0, 48.0);
+        let wave = |x: f32, row: i32| {
+            let i = libm::floorf(x);
+            let f = x - i;
+            let t = f * f * (3.0 - 2.0 * f);
+            let at = |k: f32| hash2_unit(k as i32, row, seed);
+            at(i) + (at(i + 1.0) - at(i)) * t
+        };
+        Self {
+            grooves: std::array::from_fn(|k| {
+                let x = k as f32 / GROOVES as f32 * count;
+                0.45 + 0.55 * (wave(x, 0) * 0.65 + wave(x * 2.3, 1) * 0.35)
+            }),
+            lips: std::array::from_fn(|k| 0.9 + 0.2 * smoothstep(0.5, 0.9, k as f32 / LIPS as f32)),
+            run: size * RUN,
+        }
+    }
+
+    fn load(&self, along: f32) -> f32 {
+        1.0 - 0.45 * smoothstep(0.0, self.run.max(1.0), along)
+    }
+
+    fn thickness(&self, d: f32, v: f32, load: f32) -> f32 {
+        let groove = self.grooves[((v.clamp(-1.0, 1.0) * 0.5 + 0.5) * GROOVES as f32) as usize];
+        let lip = self.lips[(d.min(1.0) * LIPS as f32) as usize];
+        lip * groove * load
+    }
 }
 
 const RING: [(f32, f32); 8] = [
@@ -538,7 +624,7 @@ fn area(buffer: &StrokeBuffer, dab: &Dab) -> Option<Area> {
     })
 }
 
-fn stamp(buffer: &mut StrokeBuffer, brush: &Brush, dab: Dab) {
+fn stamp(buffer: &mut StrokeBuffer, brush: &Brush, dab: Dab, bristles: Option<(&Bristles, f32)>) {
     let Some(Area {
         x0,
         y0,
@@ -562,7 +648,12 @@ fn stamp(buffer: &mut StrokeBuffer, brush: &Brush, dab: Dab) {
             if buffer.skip(ty * cols + tx) {
                 continue;
             }
-            let (tile, mut paint) = buffer.tiles_mut(ty * cols + tx);
+            let Tiles {
+                coverage: tile,
+                mut paint,
+                mut lift,
+                mut ridge,
+            } = buffer.tiles_mut(ty * cols + tx);
             let (ox, oy) = (tx * TILE, ty * TILE);
             for y in y0.max(oy)..y1.min(oy + TILE) {
                 let py = y as f32 + 0.5 - cy;
@@ -586,6 +677,12 @@ fn stamp(buffer: &mut StrokeBuffer, brush: &Brush, dab: Dab) {
                     if let Some(texture) = &brush.grain {
                         a = (a - texture_value(texture, x, y, dab.p)).max(0.0);
                     }
+                    if let (Some(ridge), Some((bristles, load))) = (ridge.as_deref_mut(), bristles)
+                        && a > 0.0
+                    {
+                        let r = &mut ridge[row + x - ox];
+                        *r = r.max(bristles.thickness(libm::sqrtf(d2), v, load));
+                    }
                     if a > 0.0 && reach > 0.0 {
                         let at = row + x - ox;
                         let c = &mut tile[at];
@@ -602,6 +699,9 @@ fn stamp(buffer: &mut StrokeBuffer, brush: &Brush, dab: Dab) {
                                 let w = &mut paint[at * 4..at * 4 + 4];
                                 (0..3).for_each(|i| w[i] += colour[i] * gain);
                                 w[3] += gain;
+                            }
+                            if let (Some(lift), Some(height)) = (lift.as_deref_mut(), dab.lift) {
+                                lift[at] += height * gain;
                             }
                         }
                     }
@@ -637,7 +737,8 @@ fn stamp_replace(
     let (sin, cos) = (libm::sinf(dab.angle), libm::cosf(dab.angle));
     let (inv_radius, inv_round) = (1.0 / radius, 1.0 / brush.def.roundness);
     let cols = buffer.grid().cols;
-    let changes: Vec<(usize, usize, [f32; 4])> = (y0..y1)
+    let lifting = buffer.lifting;
+    let changes: Vec<(usize, usize, [f32; 4], f32)> = (y0..y1)
         .flat_map(|y| (x0..x1).map(move |x| (x, y)))
         .filter(|&(x, y)| buffer.allowed((y / TILE) * cols + x / TILE))
         .filter_map(|(x, y)| {
@@ -659,20 +760,21 @@ fn stamp_replace(
             if a <= 0.0 {
                 return None;
             }
-            let here = state_at(buffer, under, x as i64, y as i64);
+            let state = |x: i64, y: i64| {
+                let s = state_at(buffer, under, x, y);
+                let h = match lifting {
+                    true => height_at(buffer, under, x, y),
+                    false => 0.0,
+                };
+                [s[0], s[1], s[2], s[3], h]
+            };
+            let here = state(x as i64, y as i64);
             let from = match how {
-                Replace::Smudge((dx, dy)) => state_at(
-                    buffer,
-                    under,
-                    (x as f32 - dx).round() as i64,
-                    (y as f32 - dy).round() as i64,
-                ),
+                Replace::Smudge((dx, dy)) => state((x as f32 - dx).round() as i64, (y as f32 - dy).round() as i64),
                 Replace::Blend => {
                     let reach = (radius * 0.3).max(1.0);
                     let sum = RING.iter().fold(here, |acc, (dx, dy)| {
-                        let s = state_at(
-                            buffer,
-                            under,
+                        let s = state(
                             (x as f32 + dx * reach).round() as i64,
                             (y as f32 + dy * reach).round() as i64,
                         );
@@ -681,16 +783,23 @@ fn stamp_replace(
                     sum.map(|v| v / (RING.len() + 1) as f32)
                 }
             };
-            Some((x, y, std::array::from_fn(|c| here[c] + (from[c] - here[c]) * a)))
+            let next: [f32; 5] = std::array::from_fn(|c| here[c] + (from[c] - here[c]) * a);
+            Some((x, y, [next[0], next[1], next[2], next[3]], next[4]))
         })
         .collect();
-    changes.into_iter().for_each(|(x, y, value)| {
+    changes.into_iter().for_each(|(x, y, value, height)| {
         let index = (y / TILE) * cols + x / TILE;
         let at = (y % TILE) * TILE + x % TILE;
-        let (tile, paint) = buffer.tiles_mut(index);
-        tile[at] = 1.0;
-        if let Some(paint) = paint {
+        let tiles = buffer.tiles_mut(index);
+        tiles.coverage[at] = 1.0;
+        if let Some(paint) = tiles.paint {
             paint[at * 4..at * 4 + 4].copy_from_slice(&value);
+        }
+        if let Some(lift) = tiles.lift {
+            lift[at] = height;
+        }
+        if let Some(ridge) = tiles.ridge {
+            ridge[at] = 1.0;
         }
     });
 }
@@ -844,9 +953,71 @@ fn commit_cut(
         if let (Some(target), Some(coverage)) = (target, buffer.coverage(index)) {
             land(target, coverage, buffer.paint(index), mode, color, opacity, blend);
         }
+        land_body(raster, buffer, index, color, opacity, blend);
     });
     buffer.reset();
     touched
+}
+
+fn land_body(raster: &mut Raster, buffer: &StrokeBuffer, index: usize, color: Rgba, opacity: f32, blend: StrokeBlend) {
+    let (body, lift, ridge) = (buffer.body, buffer.lift(index), buffer.ridge(index));
+    let Some(coverage) = buffer.coverage(index) else {
+        return;
+    };
+    let erase = blend == StrokeBlend::Erase && buffer.mode != Mode::Replace;
+    if !erase && body <= 0.0 && lift.is_none() {
+        return;
+    }
+    if erase && raster.height_tile(index).is_none() {
+        return;
+    }
+    let alpha = match buffer.mode {
+        Mode::Replace => opacity.clamp(0.0, 1.0),
+        _ => (opacity * color[3]).clamp(0.0, 1.0),
+    };
+    let atop = blend == StrokeBlend::Atop;
+    let under: Option<Vec<f32>> = atop.then(|| match raster.at(index) {
+        Some(t) => t.as_chunks::<4>().0.iter().map(|p| p[3].to_f32()).collect(),
+        None => vec![0.0; TILE * TILE],
+    });
+    let weights: Option<Vec<f32>> = match buffer.mode {
+        Mode::Colour => buffer
+            .paint(index)
+            .map(|p| p.as_chunks::<4>().0.iter().map(|w| w[3]).collect()),
+        _ => None,
+    };
+    let mode = buffer.mode;
+    let heights = raster.heights_mut().ensure(index);
+    coverage
+        .iter()
+        .zip(heights.iter_mut())
+        .enumerate()
+        .filter(|(_, (c, _))| **c > 0.0)
+        .for_each(|(px, (&c, h))| {
+            let mut a = (c * alpha).clamp(0.0, 1.0);
+            if let Some(under) = &under {
+                a *= under[px];
+            }
+            let mut value = h.to_f32();
+            if erase {
+                value *= 1.0 - a;
+            } else {
+                if let Some(lift) = lift {
+                    let target = match (mode, &weights) {
+                        (Mode::Colour, Some(w)) if w[px] > 0.0 => lift[px] / w[px],
+                        (Mode::Colour, _) => value,
+                        _ => lift[px],
+                    };
+                    value += (target - value) * a;
+                }
+                if body > 0.0 {
+                    let thick = ridge.map_or(1.0, |r| r[px]);
+                    let laid = (c * (0.5 + 0.5 * alpha)).clamp(0.0, 1.0) * under.as_ref().map_or(1.0, |u| u[px]);
+                    value = value * (1.0 - SQUASH * a) + body * laid * thick;
+                }
+            }
+            *h = f16::from_f32(value.clamp(0.0, DEEPEST));
+        });
 }
 
 pub fn stroke_blend(brush: &Brush, lock: bool) -> Option<StrokeBlend> {
@@ -1342,6 +1513,100 @@ mod tests {
             .for_each(|s| live.push_on(s, &mut buffer, Some(&raster)));
         commit(&mut raster, &mut buffer, wet.color(), wet.opacity, brush.blend);
         assert_eq!(raster.hash(), replay(512, 128, &marks, &brushes).unwrap().raster.hash());
+    }
+
+    fn height(raster: &Raster, x: usize, y: usize) -> f32 {
+        raster
+            .height_tile(raster.index(x / TILE, y / TILE))
+            .map_or(0.0, |t| t[(y % TILE) * TILE + x % TILE].to_f32())
+    }
+
+    fn thick_and(brush: &str) -> Vec<Mark> {
+        let oil = coloured("oil-load", 60.0, (40.0, 64.0), (220.0, 64.0), [0.8, 0.6, 0.2, 1.0], 1);
+        let mut over = coloured(brush, 24.0, (100.0, 64.0), (400.0, 64.0), [0.2, 0.3, 0.8, 1.0], 2);
+        over.id = 2;
+        vec![oil.into(), over.into()]
+    }
+
+    #[test]
+    fn a_brush_without_body_leaves_no_height() {
+        let brushes = BrushSet::presets();
+        ["ink", "pencil", "soft", "wet", "smudge", "chalk"]
+            .iter()
+            .for_each(|b| {
+                let out = replay(512, 128, &base_and(b), &brushes).unwrap().raster;
+                assert!(!out.has_height(), "{b} left height");
+            });
+    }
+
+    #[test]
+    fn paint_with_body_ridges_at_its_edges_builds_where_strokes_overlap_and_replays_the_same() {
+        let brushes = BrushSet::presets();
+        let one = replay(512, 128, &thick_and("ink")[..1], &brushes).unwrap().raster;
+        assert!(one.has_height());
+        let column: Vec<f32> = (0..128).map(|y| height(&one, 130, y)).collect();
+        let top = column.iter().position(|&h| h > 0.05).unwrap();
+        let bottom = column.iter().rposition(|&h| h > 0.05).unwrap();
+        let reach = (bottom - top) as f32 / 2.0;
+        let centre = (top + bottom) as f32 / 2.0;
+        let band = |from: f32, to: f32| {
+            let ys: Vec<usize> = (top..=bottom)
+                .filter(|&y| ((y as f32 - centre).abs() / reach) >= from && ((y as f32 - centre).abs() / reach) < to)
+                .collect();
+            let n = ys.len() * 80;
+            ys.iter()
+                .flat_map(|&y| (100..180).map(move |x| (x, y)))
+                .map(|(x, y)| height(&one, x, y))
+                .sum::<f32>()
+                / n as f32
+        };
+        let (middle, rim) = (band(0.0, 0.3), band(0.55, 0.8));
+        assert!(middle > 0.3, "middle {middle}");
+        assert!(rim > middle * 1.08, "a lip at the edge: rim {rim} middle {middle}");
+        assert_eq!(height(&one, 130, 110), 0.0);
+        let column: Vec<f32> = (40..88).map(|y| height(&one, 130, y)).collect();
+        let grooves = column.windows(3).filter(|w| w[1] < w[0] && w[1] < w[2]).count();
+        assert!(grooves >= 4, "bristles leave grooves along the stroke: {grooves}");
+        let middle = height(&one, 130, 64);
+        let mut twice = thick_and("oil-load");
+        twice[1] = coloured("oil-load", 60.0, (130.0, 64.0), (300.0, 64.0), [0.8, 0.6, 0.2, 1.0], 2).into();
+        let two = replay(512, 128, &twice, &brushes).unwrap().raster;
+        assert!(height(&two, 175, 64) > middle * 1.2, "overlap builds up");
+        assert_eq!(two.hash(), replay(512, 128, &twice, &brushes).unwrap().raster.hash());
+        let (mut cel, mut raster, _) = crate::replay::CelReplay::replay(512, 128, twice.clone(), &brushes).unwrap();
+        let mut edited = twice.clone();
+        if let Mark::Stroke(s) = &mut edited[1] {
+            s.size = 40.0;
+        }
+        cel.update(&mut raster, edited.clone(), &brushes).unwrap();
+        assert_eq!(
+            raster.hash(),
+            replay(512, 128, &edited, &brushes).unwrap().raster.hash()
+        );
+    }
+
+    #[test]
+    fn the_eraser_takes_paint_height_smudge_and_wet_drag_it_and_the_blender_flattens_it() {
+        let brushes = BrushSet::presets();
+        let thick = replay(512, 128, &thick_and("ink")[..1], &brushes).unwrap().raster;
+        let erased = replay(512, 128, &thick_and("eraser"), &brushes).unwrap().raster;
+        assert!(height(&erased, 150, 64) < height(&thick, 150, 64) * 0.2);
+        assert_eq!(height(&thick, 262, 64), 0.0, "the paint ends before x 262");
+        let smudged = replay(512, 128, &thick_and("smudge"), &brushes).unwrap().raster;
+        assert!(height(&smudged, 262, 64) > 0.05, "smudge pulls the paint along");
+        let wet = replay(512, 128, &thick_and("wet"), &brushes).unwrap().raster;
+        assert!(height(&wet, 262, 64) > 0.02, "wet paint carries some of it");
+        let top = height(&thick, 150, 64);
+        let slope = |r: &Raster| {
+            (200..280)
+                .filter(|&x| (0.1 * top..0.9 * top).contains(&height(r, x, 64)))
+                .count()
+        };
+        let blended = replay(512, 128, &thick_and("blender"), &brushes).unwrap().raster;
+        assert!(
+            slope(&blended) > slope(&thick) + 3,
+            "the blender flattens the paint's end"
+        );
     }
 }
 

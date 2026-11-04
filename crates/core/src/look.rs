@@ -14,6 +14,7 @@ pub enum Effect {
     Shadow(Shadow),
     Noise(Noise),
     Displace(Displace),
+    Relief(Relief),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -205,11 +206,35 @@ impl Default for Displace {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Relief {
+    pub strength: f32,
+    pub light: [f32; 2],
+    pub highlight: String,
+    pub shade: String,
+    pub softness: f32,
+}
+
+impl Default for Relief {
+    fn default() -> Self {
+        Self {
+            strength: 4.0,
+            light: [-1.0, -1.0],
+            highlight: "#fff4dc".into(),
+            shade: "#1c1826".into(),
+            softness: 0.8,
+        }
+    }
+}
+
 fn is_false(v: &bool) -> bool {
     !*v
 }
 
-pub const EFFECTS: [&str; 7] = ["blur", "glow", "outline", "shadow", "noise", "displace", "haze"];
+pub const EFFECTS: [&str; 8] = [
+    "blur", "glow", "outline", "shadow", "noise", "displace", "haze", "relief",
+];
 
 impl Effect {
     pub fn named(name: &str) -> Option<Self> {
@@ -221,6 +246,7 @@ impl Effect {
             "noise" => Effect::Noise(Noise::default()),
             "displace" => Effect::Displace(Displace::default()),
             "haze" => Effect::Haze(Haze::default()),
+            "relief" => Effect::Relief(Relief::default()),
             _ => return None,
         })
     }
@@ -234,6 +260,7 @@ impl Effect {
             Effect::Noise(_) => "noise",
             Effect::Displace(_) => "displace",
             Effect::Haze(_) => "haze",
+            Effect::Relief(_) => "relief",
         }
     }
 
@@ -245,6 +272,7 @@ impl Effect {
             Effect::Shadow(s) => s.x.abs().max(s.y.abs()) + s.radius.max(0.0) * 3.0,
             Effect::Noise(_) | Effect::Haze(_) => 0.0,
             Effect::Displace(d) => d.amount.abs() + 1.0,
+            Effect::Relief(r) => r.softness.max(0.0) * 3.0 + 2.0,
         }
     }
 
@@ -273,6 +301,19 @@ impl Effect {
             Effect::Haze(h) => {
                 colour(&h.color)?;
                 h.top.as_deref().map_or(Ok(()), colour)
+            }
+            Effect::Relief(r) if !(0.0..=16.0).contains(&r.strength) => {
+                bail!("relief strength {} is outside 0..16", r.strength)
+            }
+            Effect::Relief(r) if !(0.0..=32.0).contains(&r.softness) => {
+                bail!("relief softness {} is outside 0..32", r.softness)
+            }
+            Effect::Relief(r) if r.light[0].hypot(r.light[1]) < 1e-3 => {
+                bail!("relief light needs a direction, like -1,-1 for the upper left")
+            }
+            Effect::Relief(r) => {
+                colour(&r.highlight)?;
+                colour(&r.shade)
             }
             _ => Ok(()),
         }

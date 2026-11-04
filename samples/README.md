@@ -8,7 +8,7 @@ Drawings made from scratch with the `klad` CLI, each from a generator that print
 | `ink-shapes` | The ink options side by side: weight from the light, breaks, gaps, wobble, tapers |
 | `bounce` | Frame-by-frame timing: keys, holds, a clip and the exports |
 | `creature` | A walk and an idle from keys with named parts, in-betweened, coloured from the first drawing, with arcs checked |
-| `lemons` | Painting by form with `klad paint` on locked flats, and a shadow colour: lavender shadows instead of brown ones (`PLAIN=1`: without it) |
+| `lemons` | Painting by form with `klad paint` on locked flats, and a shadow colour: lavender shadows instead of brown ones (`PLAIN=1`: without it; `RELIEF=1`: with a relief effect on every object, lighting the thickness of the oil strokes) |
 | `solids` | Painting stroke by stroke: a sphere, a cube and a cylinder built in 3D with `docs/skill/drawkit.py`, lit, painted with natural strokes |
 
 The generated `.draw` bundles and pictures stay out of git.

@@ -14,7 +14,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 pub const PREVIEW_SIDE: f32 = 1024.0;
-const STRING_KEYS: [&str; 4] = ["name", "d", "id", "link"];
+const STRING_KEYS: [&str; 5] = ["name", "d", "id", "link", "text"];
 
 pub struct Output {
     pub json: bool,
@@ -72,7 +72,13 @@ pub fn parse_value(key: &str, text: &str) -> Value {
     if STRING_KEYS.contains(&last) {
         return Value::String(text.to_string());
     }
-    serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.to_string()))
+    serde_json::from_str(text).unwrap_or_else(|_| {
+        let numbers: Option<Vec<f64>> = text.split(',').map(|n| n.trim().parse().ok()).collect();
+        match numbers {
+            Some(list) if list.len() > 1 => json!(list),
+            _ => Value::String(text.to_string()),
+        }
+    })
 }
 
 pub fn parse_props(pairs: &[String]) -> Result<Map<String, Value>> {
@@ -910,6 +916,8 @@ mod tests {
         assert_eq!(parse_value("fill", "#336699"), json!("#336699"));
         assert_eq!(parse_value("name", "42"), json!("42"));
         assert_eq!(parse_value("pivot", "[1,2]"), json!([1, 2]));
+        assert_eq!(parse_value("light", "-1,-0.5"), json!([-1.0, -0.5]));
+        assert_eq!(parse_value("name", "1,2"), json!("1,2"));
         assert_eq!(parse_value("visible", "false"), json!(false));
     }
 

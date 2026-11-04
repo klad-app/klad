@@ -1,7 +1,7 @@
 use anyhow::Result;
 use klad_core::color::parse_hex;
 use klad_core::doc::Blend;
-use klad_core::look::{self, Displace, Effect, Glow, Haze, Noise, Outline, Shadow};
+use klad_core::look::{self, Displace, Effect, Glow, Haze, Noise, Outline, Relief, Shadow};
 use klad_core::rng::hash2_unit;
 use rayon::prelude::*;
 
@@ -105,18 +105,17 @@ pub fn margin(effects: &[Effect], scale: f32) -> i32 {
             Effect::Glow(g) => factor(g.radius * scale) * 2 + 2,
             Effect::Shadow(s) => factor(s.radius * scale) * 2 + 2,
             Effect::Displace(_) => 2,
+            Effect::Relief(r) => factor(r.softness * scale) * 2 + 2,
             _ => 1,
         })
         .sum();
     (look::reach(effects) * scale).ceil() as i32 + slack
 }
 
-pub fn run(
-    effects: &[Effect],
-    img: Img,
-    space: Space,
-    by: &dyn Fn(&str) -> Result<Option<Img>>,
-) -> Result<(Vec<Pass>, Img)> {
+pub type Layer<'a> = &'a dyn Fn(&str) -> Result<Option<Img>>;
+pub type Height<'a> = &'a dyn Fn() -> Result<Option<Img>>;
+
+pub fn run(effects: &[Effect], img: Img, space: Space, by: Layer, height: Height) -> Result<(Vec<Pass>, Img)> {
     let s = space.scale;
     effects.iter().try_fold((Vec::new(), img), |(mut passes, img), effect| {
         let img = match effect {
@@ -142,9 +141,50 @@ pub fn run(
                 };
                 displace(&img, d, space, map.as_ref())
             }
+            Effect::Relief(r) => match height()? {
+                Some(map) => relief(&img, r, s, &map)?,
+                None => img,
+            },
         };
         Ok((passes, img))
     })
+}
+
+const LIFT: f32 = 0.85;
+const DROP: f32 = 0.55;
+
+pub fn relief(img: &Img, r: &Relief, scale: f32, height: &Img) -> Result<Img> {
+    let [hr, hg, hb, _] = parse_hex(&r.highlight)?;
+    let [sr, sg, sb, _] = parse_hex(&r.shade)?;
+    let (high, low) = ([hr, hg, hb], [sr, sg, sb]);
+    let length = r.light[0].hypot(r.light[1]).max(1e-6);
+    let (lx, ly) = (r.light[0] / length, r.light[1] / length);
+    let soft = blur(height, r.softness * scale);
+    let k = r.strength * scale * 0.5;
+    Ok(img.each(|gx, gy, p| {
+        if p[3] <= 1e-5 {
+            return p;
+        }
+        let h = |dx: i32, dy: i32| soft.at(gx + dx, gy + dy)[0];
+        let (hx, hy) = ((h(1, 0) - h(-1, 0)) * k, (h(0, 1) - h(0, -1)) * k);
+        let facing = -(hx * lx + hy * ly);
+        let e = facing / libm::sqrtf(1.0 + hx * hx + hy * hy);
+        if e.abs() < 1e-5 {
+            return p;
+        }
+        let (to, t) = match e > 0.0 {
+            true => (high, (e * LIFT).min(1.0)),
+            false => (low, (-e * DROP).min(1.0)),
+        };
+        let a = p[3];
+        let un = [p[0] / a, p[1] / a, p[2] / a];
+        [
+            (un[0] + (to[0] - un[0]) * t) * a,
+            (un[1] + (to[1] - un[1]) * t) * a,
+            (un[2] + (to[2] - un[2]) * t) * a,
+            a,
+        ]
+    }))
 }
 
 pub fn over(top: &Img, under: &Img) -> Img {
@@ -539,11 +579,12 @@ mod tests {
             ty: 0.0,
         };
         let none = |_: &str| Ok(None);
-        let (_, reference) = run(&list, full.clone(), space, &none).unwrap();
+        let flat = || Ok(None);
+        let (_, reference) = run(&list, full.clone(), space, &none, &flat).unwrap();
         let m = margin(&list, 1.0);
         let (tx, ty, tw, th) = (128, 64, 64, 64);
         let window = full.crop(tx - m, ty - m, tw + 2 * m as usize, th + 2 * m as usize);
-        let (_, local) = run(&list, window, space, &none).unwrap();
+        let (_, local) = run(&list, window, space, &none, &flat).unwrap();
         let (a, b) = (reference.crop(tx, ty, tw, th), local.crop(tx, ty, tw, th));
         let worst =
             a.px.iter()

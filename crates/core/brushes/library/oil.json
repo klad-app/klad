@@ -8,5 +8,6 @@
   "opacity": 1.0,
   "dynamics": {"size": {"pressure": {"min": 0.12}}, "opacity": {"pressure": {"min": 0.5}}},
   "jitter": {"size": 0.04},
-  "grain": {"paper": {"seed": 11, "feature": 3}, "strength": 0.12}
+  "grain": {"paper": {"seed": 11, "feature": 3}, "strength": 0.12},
+  "body": 0.45
 }

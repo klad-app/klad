@@ -75,6 +75,8 @@ pub struct BrushDef {
     pub stabilizer: f32,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub smoothing: f32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub body: f32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -416,7 +418,8 @@ impl BrushDef {
         within("taper in", self.taper[0], 0.0, 10_000.0)?;
         within("taper out", self.taper[1], 0.0, 10_000.0)?;
         within("stabilizer", self.stabilizer, 0.0, 500.0)?;
-        within("smoothing", self.smoothing, 0.0, 500.0)
+        within("smoothing", self.smoothing, 0.0, 500.0)?;
+        within("body", self.body, 0.0, 1.0)
     }
 
     pub fn to_json(&self) -> Result<String> {

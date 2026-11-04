@@ -268,6 +268,13 @@ impl Editor {
                 }
             });
         });
+        changed |= slider(
+            ui,
+            &mut def.body,
+            0.0..=1.0,
+            "body",
+            "how thick the paint lies: strokes leave ridges that a relief effect on the layer lights; 0 is flat paint",
+        );
         egui::ScrollArea::vertical().max_height(460.0).show(ui, |ui| {
             ui.set_max_width(380.0);
             ui.label(RichText::new("tip").strong());

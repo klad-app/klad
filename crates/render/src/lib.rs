@@ -269,7 +269,7 @@ pub fn draw_layers(canvas: &Canvas, layers: &[Layer], ctx: Ctx) -> Result<()> {
             .try_for_each(|(base, clipped)| draw_clipped(c, base, clipped, x))
     };
     match reads && !ctx.flat {
-        true => effected(canvas, ctx, &[], 1.0, Blend::Normal, &draw),
+        true => effected(canvas, ctx, &[], None, 1.0, Blend::Normal, &draw),
         false => draw(canvas, ctx),
     }
 }
@@ -297,7 +297,7 @@ fn draw_clipped(canvas: &Canvas, base: &Layer, clipped: &[&Layer], ctx: Ctx) -> 
     draw_onions(canvas, std::iter::once(base).chain(shown.iter().copied()), ctx)?;
     let effects = ctx.effects(base);
     if !effects.is_empty() || shown.iter().any(|l| l.reads_under()) {
-        return effected(canvas, ctx, &effects, base.opacity, base.blend, &|c, x| {
+        return effected(canvas, ctx, &effects, Some(base), base.opacity, base.blend, &|c, x| {
             draw_unit(c, base, &shown, x)
         })
         .with_context(|| format!("layer {}", base.id));
@@ -337,7 +337,7 @@ fn draw_styled(canvas: &Canvas, layer: &Layer, ctx: Ctx) -> Result<()> {
     let effects = ctx.effects(layer);
     match effects.is_empty() {
         true => draw_content(canvas, layer, ctx),
-        false => effected(canvas, ctx, &effects, 1.0, Blend::Normal, &|c, x| {
+        false => effected(canvas, ctx, &effects, Some(layer), 1.0, Blend::Normal, &|c, x| {
             draw_content(c, layer, x)
         }),
     }
@@ -355,9 +355,15 @@ pub(crate) fn draw_layer(canvas: &Canvas, layer: &Layer, ctx: Ctx) -> Result<()>
     }
     let effects = ctx.effects(layer);
     if !effects.is_empty() {
-        return effected(canvas, ctx, &effects, layer.opacity, layer.blend, &|c, x| {
-            draw_content(c, layer, x)
-        })
+        return effected(
+            canvas,
+            ctx,
+            &effects,
+            Some(layer),
+            layer.opacity,
+            layer.blend,
+            &|c, x| draw_content(c, layer, x),
+        )
         .with_context(|| format!("layer {}", layer.id));
     }
     let isolate = layer.opacity < 1.0 || layer.blend != Blend::Normal || layer.mask_at(ctx.frame).is_some();
@@ -453,10 +459,86 @@ fn find<'a>(layers: &'a [Layer], id: &str) -> Option<&'a Layer> {
         .find_map(|l| (l.id == id).then_some(l).or_else(|| find(l.children(), id)))
 }
 
+fn painted_cels(layer: &Layer, ctx: Ctx) -> Vec<String> {
+    if !ctx.shows(layer) {
+        return Vec::new();
+    }
+    match &layer.content {
+        LayerContent::Paint { .. } => layer.content_at(ctx.frame).map(|c| c.id.clone()).into_iter().collect(),
+        LayerContent::Group { children } => children.iter().flat_map(|l| painted_cels(l, ctx)).collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn height_at(heights: &klad_brush::tiles::Heights, x: i32, y: i32) -> f32 {
+    if x < 0 || y < 0 || x as u32 >= heights.width || y as u32 >= heights.height {
+        return 0.0;
+    }
+    let (x, y) = (x as usize, y as usize);
+    heights
+        .get(x / TILE, y / TILE)
+        .map_or(0.0, |t| t[(y % TILE) * TILE + x % TILE].to_f32())
+}
+
+fn sampled_height(heights: &klad_brush::tiles::Heights, cx: f32, cy: f32) -> f32 {
+    let (fx, fy) = (cx - 0.5, cy - 0.5);
+    let (x, y) = (fx.floor(), fy.floor());
+    let (ax, ay) = (fx - x, fy - y);
+    let (x, y) = (x as i32, y as i32);
+    let top = height_at(heights, x, y) * (1.0 - ax) + height_at(heights, x + 1, y) * ax;
+    let bottom = height_at(heights, x, y + 1) * (1.0 - ax) + height_at(heights, x + 1, y + 1) * ax;
+    top * (1.0 - ay) + bottom * ay
+}
+
+fn height_img(window: IRect, space: Space, layer: &Layer, ctx: Ctx) -> Option<Img> {
+    let maps: Vec<&klad_brush::tiles::Heights> = painted_cels(layer, ctx)
+        .iter()
+        .filter_map(|id| ctx.rasters.get(id).and_then(Raster::heights))
+        .collect();
+    if maps.is_empty() {
+        return None;
+    }
+    let (w, h) = (window.width().max(0) as usize, window.height().max(0) as usize);
+    let taps = ((1.0 / space.scale).ceil() as usize).clamp(1, 4);
+    let step = 1.0 / (space.scale * taps as f32);
+    let px = (0..h)
+        .into_par_iter()
+        .flat_map_iter(|row| {
+            let maps = &maps;
+            (0..w).map(move |col| {
+                let (gx, gy) = (window.left + col as i32, window.top + row as i32);
+                let (cx, cy) = (
+                    (gx as f32 - space.tx) / space.scale,
+                    (gy as f32 - space.ty) / space.scale,
+                );
+                let sum: f32 = (0..taps * taps)
+                    .map(|k| {
+                        let (sx, sy) = (
+                            cx + (k % taps) as f32 * step + step * 0.5,
+                            cy + (k / taps) as f32 * step + step * 0.5,
+                        );
+                        maps.iter().map(|m| sampled_height(m, sx, sy)).sum::<f32>()
+                    })
+                    .sum();
+                [sum / (taps * taps) as f32, 0.0, 0.0, 0.0]
+            })
+        })
+        .collect();
+    Some(Img {
+        x: window.left,
+        y: window.top,
+        w,
+        h,
+        px,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn effected(
     canvas: &Canvas,
     ctx: Ctx,
     list: &[Effect],
+    owner: Option<&Layer>,
     opacity: f32,
     blend: Blend,
     draw: &dyn Fn(&Canvas, Ctx) -> Result<()>,
@@ -474,9 +556,10 @@ fn effected(
         };
         offscreen(window, canvas, ctx, &|c, x| draw_content(c, layer, x.nested())).map(Some)
     };
+    let height = || Ok(owner.and_then(|layer| height_img(window, space, layer, ctx)));
     let (passes, image) = match list.is_empty() {
         true => (Vec::new(), img),
-        false => effects::run(list, img, space, &by)?,
+        false => effects::run(list, img, space, &by, &height)?,
     };
     canvas.save();
     canvas.reset_matrix();

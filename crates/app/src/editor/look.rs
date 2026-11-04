@@ -302,7 +302,83 @@ fn effect_controls(
                 seed(ui, touch, &mut d.seed);
             });
         }
+        Effect::Relief(r) => {
+            slide(
+                ui,
+                touch,
+                &mut r.strength,
+                0.0..=8.0,
+                "strength",
+                "how deep the paint's ridges look; only paint from brushes with body has ridges",
+            );
+            slide(
+                ui,
+                touch,
+                &mut r.softness,
+                0.0..=8.0,
+                "softness",
+                "how much the ridges are smoothed, in px",
+            );
+            ui.horizontal(|ui| {
+                light_dial(ui, touch, &mut r.light);
+                ui.vertical(|ui| {
+                    swatch(
+                        ui,
+                        touch,
+                        &mut r.highlight,
+                        current,
+                        "the colour ridges facing the light take",
+                    );
+                    swatch(
+                        ui,
+                        touch,
+                        &mut r.shade,
+                        current,
+                        "the colour sides away from the light take",
+                    );
+                });
+            });
+        }
     }
+}
+
+pub(super) const DIAL: &str = "where the light comes from";
+
+fn light_dial(ui: &mut egui::Ui, touch: &mut Touch, light: &mut [f32; 2]) {
+    let side = 64.0;
+    let (rect, response) = ui.allocate_exact_size(vec2(side, side), Sense::click_and_drag());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Slider, true, DIAL));
+    let response = response.hint(format!(
+        "{DIAL}: click or drag towards it ({:.2}, {:.2})",
+        light[0], light[1]
+    ));
+    let centre = rect.center();
+    let reach = side * 0.5 - 6.0;
+    let pressed = response.clicked() || response.dragged() || response.drag_stopped();
+    if let Some(at) = response.interact_pointer_pos().filter(|_| pressed) {
+        let towards = at - centre;
+        if towards.length() > 3.0 {
+            let unit = towards.normalized();
+            let next = [(unit.x * 100.0).round() / 100.0, (unit.y * 100.0).round() / 100.0];
+            if next != *light {
+                *light = next;
+                touch.add(match response.dragged() && !response.drag_stopped() {
+                    true => Touch::Preview,
+                    false => Touch::Commit,
+                });
+            }
+        }
+    }
+    if response.drag_stopped() {
+        touch.add(Touch::Commit);
+    }
+    let length = light[0].hypot(light[1]).max(1e-6);
+    let sun = centre + vec2(light[0] / length, light[1] / length) * reach;
+    let painter = ui.painter_at(rect);
+    let line = ui.visuals().widgets.inactive.fg_stroke;
+    painter.circle_stroke(centre, reach, Stroke::new(1.0, line.color.gamma_multiply(0.5)));
+    painter.arrow(sun, (centre - sun) * 0.8, Stroke::new(1.5, line.color));
+    painter.circle_filled(sun, 5.0, Color32::from_rgb(255, 214, 120));
 }
 
 fn curve_box(ui: &mut egui::Ui, points: &mut Vec<[f32; 2]>, state: &mut LookState, touch: &mut Touch, colour: Color32) {
@@ -787,6 +863,7 @@ impl Editor {
         let mut added = None;
         egui::ComboBox::from_id_salt(format!("{}.effect.add", layer.id))
             .width(120.0)
+            .height(EFFECTS.len() as f32 * (theme::TARGET + 6.0))
             .selected_text(format!("{} add an effect", theme::icon::PLUS))
             .show_ui(ui, |ui| {
                 EFFECTS.iter().for_each(|name| {
@@ -800,7 +877,7 @@ impl Editor {
                 });
             })
             .response
-            .hint("blur, glow, outline, shadow, grain or displacement, applied after the ones above");
+            .hint("blur, glow, outline, shadow, grain, displacement, haze or relief, applied after the ones above");
         if let Some(effect) = added {
             list.push(effect);
             touch.add(Touch::Commit);

@@ -199,7 +199,8 @@ mod tests {
     #[test]
     fn crops_copy_pixels_across_tiles_and_shrink_big_regions() {
         let mut raster = Raster::new(600, 300);
-        raster.ensure(raster.index(1, 0))[((10 * TILE) + 3) * 4 + 3] = f16::ONE;
+        let i = raster.index(1, 0);
+        raster.ensure(i)[((10 * TILE) + 3) * 4 + 3] = f16::ONE;
         let lifted = crop(&raster, [250.0, 5.0, 20.0, 10.0], 4096);
         assert_eq!((lifted.width, lifted.height), (20, 10));
         assert_eq!(lifted.rect, [250.0, 5.0, 20.0, 10.0]);

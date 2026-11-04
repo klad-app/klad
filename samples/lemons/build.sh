@@ -15,7 +15,7 @@ if [ -e "$out" ] && [ "${FORCE:-0}" != 1 ]; then
 fi
 rm -rf "$out"
 "$klad" new "$out" --width 1200 --height 900 --layers 0 >/dev/null
-python3 "$here/generate.py" ${PLAIN:+--plain} | "$klad" apply "$out" >/dev/null
+python3 "$here/generate.py" ${PLAIN:+--plain} ${RELIEF:+--relief} | "$klad" apply "$out" >/dev/null
 "$klad" render "$out" -o "${out%.draw}.png"
 "$klad" export "$out" --scale 2 -o "${out%.draw}@2x.png"
 "$klad" hash "$out" --no-cache

@@ -1,6 +1,7 @@
 use anyhow::{Result, bail};
 use half::f16;
 use klad_core::rng::{FNV_OFFSET, fnv};
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 pub const TILE: usize = 256;
@@ -15,7 +16,29 @@ pub struct TileGrid<T, const C: usize> {
     tiles: Vec<Option<Arc<Box<[T]>>>>,
 }
 
-pub type Raster = TileGrid<f16, 4>;
+pub type Heights = TileGrid<f16, 1>;
+
+#[derive(Clone)]
+pub struct Raster {
+    colour: TileGrid<f16, 4>,
+    body: Option<Heights>,
+}
+
+impl Deref for Raster {
+    type Target = TileGrid<f16, 4>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.colour
+    }
+}
+
+impl DerefMut for Raster {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.colour
+    }
+}
+
+pub type Tile = (Option<Arc<[f16]>>, Option<Arc<[f16]>>);
 
 impl<T: Copy + Default, const C: usize> TileGrid<T, C> {
     pub fn new(width: u32, height: u32) -> Self {
@@ -78,23 +101,104 @@ impl<T: Copy + Default, const C: usize> TileGrid<T, C> {
 }
 
 const RASTER_MAGIC: &[u8; 4] = b"DART";
+const HEIGHT_MAGIC: &[u8; 4] = b"HGHT";
+
+fn fold_tiles<T: bytemuck::Pod + Default, const C: usize>(grid: &TileGrid<T, C>, from: u64) -> u64 {
+    grid.occupied().fold(from, |h, (i, tile)| {
+        fnv(fnv(h, &(i as u64).to_le_bytes()), bytemuck::cast_slice(tile))
+    })
+}
+
+fn write_tiles<T: bytemuck::Pod + Default, const C: usize>(grid: &TileGrid<T, C>, out: &mut Vec<u8>) {
+    out.extend_from_slice(&(grid.count() as u32).to_le_bytes());
+    grid.occupied().for_each(|(i, tile)| {
+        out.extend_from_slice(&(i as u32).to_le_bytes());
+        out.extend_from_slice(bytemuck::cast_slice(tile));
+    });
+}
 
 impl Raster {
+    pub fn new(width: u32, height: u32) -> Self {
+        Self {
+            colour: TileGrid::new(width, height),
+            body: None,
+        }
+    }
+
+    pub fn heights(&self) -> Option<&Heights> {
+        self.body.as_ref().filter(|h| h.count() > 0)
+    }
+
+    pub fn heights_mut(&mut self) -> &mut Heights {
+        let (w, h) = (self.colour.width, self.colour.height);
+        self.body.get_or_insert_with(|| TileGrid::new(w, h))
+    }
+
+    pub fn height_tile(&self, index: usize) -> Option<&[f16]> {
+        self.body.as_ref().and_then(|h| h.at(index))
+    }
+
+    pub fn height_tile_mut(&mut self, index: usize) -> Option<&mut [f16]> {
+        self.body.as_mut().and_then(|h| h.at_mut(index))
+    }
+
+    pub fn has_height(&self) -> bool {
+        self.heights().is_some()
+    }
+
+    pub fn clear(&mut self, index: usize) {
+        self.colour.clear(index);
+        if let Some(h) = self.body.as_mut() {
+            h.clear(index);
+        }
+    }
+
+    pub fn tile(&self, index: usize) -> Tile {
+        (
+            self.colour.at(index).map(Arc::from),
+            self.height_tile(index).map(Arc::from),
+        )
+    }
+
+    pub fn restore(&mut self, index: usize, (colour, height): &Tile) {
+        match colour {
+            Some(data) => self.colour.put(index, Box::from(&data[..])),
+            None => self.colour.clear(index),
+        }
+        match (height, self.body.as_mut()) {
+            (Some(data), _) => self.heights_mut().put(index, Box::from(&data[..])),
+            (None, Some(h)) => h.clear(index),
+            (None, None) => {}
+        }
+    }
+
     pub fn hash(&self) -> u64 {
-        self.occupied().fold(FNV_OFFSET, |h, (i, tile)| {
-            fnv(fnv(h, &(i as u64).to_le_bytes()), bytemuck::cast_slice(tile))
-        })
+        let colour = fold_tiles(&self.colour, FNV_OFFSET);
+        match self.heights() {
+            Some(h) => fold_tiles(h, fnv(colour, HEIGHT_MAGIC)),
+            None => colour,
+        }
+    }
+
+    pub fn height_bytes(&self) -> usize {
+        self.heights().map_or(0, |h| h.bytes())
+    }
+
+    pub fn bytes(&self) -> usize {
+        self.colour.bytes() + self.height_bytes()
     }
 
     pub fn encode(&self) -> Vec<u8> {
-        let header = [self.width, self.height, self.count() as u32];
         let mut out = Vec::with_capacity(16 + self.bytes() + self.count() * 4);
         out.extend_from_slice(RASTER_MAGIC);
-        header.iter().for_each(|v| out.extend_from_slice(&v.to_le_bytes()));
-        self.occupied().for_each(|(i, tile)| {
-            out.extend_from_slice(&(i as u32).to_le_bytes());
-            out.extend_from_slice(bytemuck::cast_slice(tile));
-        });
+        [self.colour.width, self.colour.height]
+            .iter()
+            .for_each(|v| out.extend_from_slice(&v.to_le_bytes()));
+        write_tiles(&self.colour, &mut out);
+        if let Some(h) = self.heights() {
+            out.extend_from_slice(HEIGHT_MAGIC);
+            write_tiles(h, &mut out);
+        }
         out
     }
 
@@ -109,21 +213,29 @@ impl Raster {
             bail!("not a raster file");
         }
         let mut raster = Raster::new(word(4)?, word(8)?);
-        let count = word(12)? as usize;
-        let tile_bytes = TILE_PX * 4 * 2;
-        (0..count).try_for_each(|n| {
-            let at = 16 + n * (4 + tile_bytes);
-            let index = word(at)? as usize;
-            let Some(data) = bytes.get(at + 4..at + 4 + tile_bytes) else {
-                bail!("raster tile {n} ends early");
-            };
-            if index >= raster.cols * raster.rows {
-                bail!("raster tile index {index} out of range");
-            }
-            let tile: Vec<f16> = bytemuck::pod_collect_to_vec(data);
-            raster.put(index, tile.into_boxed_slice());
-            Ok(())
-        })?;
+        let tiles = raster.cols * raster.rows;
+        let read = |from: usize, channels: usize, put: &mut dyn FnMut(usize, Box<[f16]>)| -> Result<usize> {
+            let count = word(from)? as usize;
+            let tile_bytes = TILE_PX * channels * 2;
+            (0..count).try_for_each(|n| {
+                let at = from + 4 + n * (4 + tile_bytes);
+                let index = word(at)? as usize;
+                let Some(data) = bytes.get(at + 4..at + 4 + tile_bytes) else {
+                    bail!("raster tile {n} ends early");
+                };
+                if index >= tiles {
+                    bail!("raster tile index {index} out of range");
+                }
+                let tile: Vec<f16> = bytemuck::pod_collect_to_vec(data);
+                put(index, tile.into_boxed_slice());
+                Ok(())
+            })?;
+            Ok(from + 4 + count * (4 + tile_bytes))
+        };
+        let end = read(12, 4, &mut |i, t| raster.colour.put(i, t))?;
+        if bytes.get(end..end + 4) == Some(HEIGHT_MAGIC) {
+            read(end + 4, 1, &mut |i, t| raster.heights_mut().put(i, t))?;
+        }
         Ok(raster)
     }
 }
@@ -136,10 +248,21 @@ pub enum Mode {
     Replace,
 }
 
+pub struct Tiles<'a> {
+    pub coverage: &'a mut [f32],
+    pub paint: Option<&'a mut [f32]>,
+    pub lift: Option<&'a mut [f32]>,
+    pub ridge: Option<&'a mut [f32]>,
+}
+
 pub struct StrokeBuffer {
     grid: TileGrid<f32, 1>,
     paint: TileGrid<f32, 4>,
+    lift: TileGrid<f32, 1>,
+    ridge: TileGrid<f32, 1>,
     pub mode: Mode,
+    pub body: f32,
+    pub lifting: bool,
     touched: Vec<usize>,
     marked: Vec<bool>,
     dirty: Vec<usize>,
@@ -154,7 +277,11 @@ impl StrokeBuffer {
         Self {
             grid,
             paint: TileGrid::new(width, height),
+            lift: TileGrid::new(width, height),
+            ridge: TileGrid::new(width, height),
             mode: Mode::Flat,
+            body: 0.0,
+            lifting: false,
             touched: Vec::new(),
             dirty_marked: marked.clone(),
             marked,
@@ -202,19 +329,43 @@ impl StrokeBuffer {
         self.grid.ensure(index)
     }
 
-    pub fn tiles_mut(&mut self, index: usize) -> (&mut [f32], Option<&mut [f32]>) {
+    pub fn tiles_mut(&mut self, index: usize) -> Tiles<'_> {
         self.tile_mut(index);
-        let paint = match self.mode {
-            Mode::Flat => None,
-            _ => Some(self.paint.ensure(index)),
-        };
-        (self.grid.ensure(index), paint)
+        Tiles {
+            coverage: self.grid.ensure(index),
+            paint: match self.mode {
+                Mode::Flat => None,
+                _ => Some(self.paint.ensure(index)),
+            },
+            lift: match self.lifting {
+                true => Some(self.lift.ensure(index)),
+                false => None,
+            },
+            ridge: match self.body > 0.0 {
+                true => Some(self.ridge.ensure(index)),
+                false => None,
+            },
+        }
+    }
+
+    pub fn ridge(&self, index: usize) -> Option<&[f32]> {
+        match self.body > 0.0 {
+            true => self.ridge.at(index),
+            false => None,
+        }
     }
 
     pub fn paint(&self, index: usize) -> Option<&[f32]> {
         match self.mode {
             Mode::Flat => None,
             _ => self.paint.at(index),
+        }
+    }
+
+    pub fn lift(&self, index: usize) -> Option<&[f32]> {
+        match self.lifting {
+            true => self.lift.at(index),
+            false => None,
         }
     }
 
@@ -246,10 +397,18 @@ impl StrokeBuffer {
             if let Some(tile) = self.paint.at_mut(i) {
                 tile.fill(0.0);
             }
+            if let Some(tile) = self.lift.at_mut(i) {
+                tile.fill(0.0);
+            }
+            if let Some(tile) = self.ridge.at_mut(i) {
+                tile.fill(0.0);
+            }
         });
         self.touched = touched;
         self.touched.clear();
         self.mode = Mode::Flat;
+        self.body = 0.0;
+        self.lifting = false;
     }
 }
 
@@ -259,20 +418,29 @@ mod tests {
 
     #[test]
     fn grid_covers_partial_tiles() {
-        let grid: Raster = TileGrid::new(300, 513);
+        let grid = Raster::new(300, 513);
         assert_eq!((grid.cols, grid.rows), (2, 3));
         assert_eq!(grid.count(), 0);
     }
 
     #[test]
     fn raster_encode_round_trip() {
-        let mut raster: Raster = TileGrid::new(600, 300);
+        let mut raster = Raster::new(600, 300);
         raster.ensure(4)[17] = f16::from_f32(0.25);
         raster.ensure(1)[3] = f16::from_f32(1.0);
         let back = Raster::decode(&raster.encode()).unwrap();
         assert_eq!(back.hash(), raster.hash());
         assert_eq!((back.width, back.height, back.count()), (600, 300, 2));
+        assert!(!back.has_height());
         assert!(Raster::decode(&raster.encode()[..40]).is_err());
+        let flat = raster.hash();
+        raster.heights_mut().ensure(4)[17] = f16::from_f32(0.5);
+        let back = Raster::decode(&raster.encode()).unwrap();
+        assert_eq!(back.hash(), raster.hash());
+        assert_ne!(raster.hash(), flat);
+        assert_eq!(back.height_tile(4).unwrap()[17].to_f32(), 0.5);
+        raster.clear(4);
+        assert!(raster.height_tile(4).is_none());
     }
 
     #[test]

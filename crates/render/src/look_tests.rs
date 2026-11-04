@@ -502,3 +502,147 @@ fn an_imported_picture_draws_where_it_is_placed() {
     assert_eq!(frame.pixel(5, 5)[3], 0);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+fn painted(brush: &str, light: [f32; 2]) -> (Document, Rasters) {
+    use klad_core::stroke::Stroke;
+    let mut doc = Document::new(400, 200);
+    doc.canvas.background = Some("#f0e8d8".into());
+    let mut layer = Layer::paint("l1", "paint", "c1");
+    layer.effects = vec![Effect::Relief(look::Relief {
+        light,
+        ..look::Relief::default()
+    })];
+    doc.layers = vec![layer];
+    let points: Vec<(f32, f32, f32)> = (0..=40).map(|i| (40.0 + i as f32 * 8.0, 100.0, 1.0)).collect();
+    let stroke = Stroke::new(1, brush, [0.75, 0.45, 0.2, 1.0], 56.0, 3).with_points(&points, 5.0);
+    let raster = klad_brush::replay(400, 200, &[stroke.into()], &klad_brush::BrushSet::presets())
+        .unwrap()
+        .raster;
+    let mut rasters = Rasters::new();
+    rasters.insert("c1".into(), raster);
+    (doc, rasters)
+}
+
+fn light_of(frame: &Frame, ys: std::ops::Range<u32>) -> u32 {
+    ys.flat_map(|y| (120..280).map(move |x| (x, y)))
+        .map(|(x, y)| frame.pixel(x, y)[..3].iter().map(|&c| c as u32).sum::<u32>())
+        .sum()
+}
+
+#[test]
+fn relief_lights_paint_edges_facing_the_light_and_leaves_flat_paint_alone() {
+    let compose_with = |doc: &Document, rasters: &Rasters| compose(doc, 0, rasters, View::scaled(1.0)).unwrap();
+    let (doc, rasters) = painted("oil-load", [0.0, -1.0]);
+    let lit = compose_with(&doc, &rasters);
+    let mut bare = doc.clone();
+    bare.layers[0].effects.clear();
+    let plain = compose_with(&bare, &rasters);
+    assert_ne!(lit.hash(), plain.hash());
+    let (top, bottom) = (78..86, 114..122);
+    assert!(
+        light_of(&lit, top.clone()) > light_of(&plain, top.clone()),
+        "the top edge faces the light"
+    );
+    assert!(
+        light_of(&lit, bottom.clone()) < light_of(&plain, bottom.clone()),
+        "the bottom edge faces away"
+    );
+    let (from_below, _) = painted("oil-load", [0.0, 1.0]);
+    let under = compose_with(&from_below, &rasters);
+    assert!(
+        light_of(&under, bottom.clone()) > light_of(&lit, bottom),
+        "turning the light turns the relief"
+    );
+    let flat_rasters = painted("ink", [0.0, -1.0]).1;
+    assert!(!flat_rasters["c1"].has_height());
+    assert_eq!(
+        compose_with(&doc, &flat_rasters).hash(),
+        compose_with(&bare, &flat_rasters).hash()
+    );
+    let layers: Vec<&Layer> = doc.layers.iter().collect();
+    let tiles = flatten(&doc, 0, &rasters, &layers, doc.canvas.background.as_deref()).unwrap();
+    assert!(worst(&lit, &read_rgba8(&raster_image(&tiles).unwrap()).unwrap()) <= 1);
+}
+
+#[test]
+#[ignore = "timing: cargo test --release -p klad-render relief_timing -- --ignored --nocapture"]
+fn relief_timing() {
+    use klad_core::stroke::Stroke;
+    use std::time::Instant;
+    let mut doc = Document::new(2048, 2048);
+    doc.canvas.background = Some("#f0e8d8".into());
+    let mut layer = Layer::paint("l1", "paint", "c1");
+    layer.effects = vec![Effect::Relief(look::Relief::default())];
+    doc.layers = vec![layer];
+    let mut rng = klad_core::rng::Rng::new(7);
+    let strokes: Vec<klad_core::stroke::Mark> = (0..600)
+        .map(|i| {
+            let (x, y) = (rng.unit() * 1900.0 + 74.0, rng.unit() * 1900.0 + 74.0);
+            let turn = rng.signed() * 3.1;
+            let points: Vec<(f32, f32, f32)> = (0..=12)
+                .map(|k| {
+                    let t = k as f32 / 12.0 * 160.0;
+                    (x + t * turn.cos(), y + t * turn.sin(), 0.6 + 0.4 * (k as f32 / 12.0))
+                })
+                .collect();
+            let colour = [0.5 + rng.unit() * 0.4, 0.4 + rng.unit() * 0.3, 0.2, 1.0];
+            Stroke::new(i + 1, "oil-load", colour, 24.0 + rng.unit() * 40.0, i)
+                .with_points(&points, 5.0)
+                .into()
+        })
+        .collect();
+    let started = Instant::now();
+    let raster = klad_brush::replay(2048, 2048, &strokes, &klad_brush::BrushSet::presets())
+        .unwrap()
+        .raster;
+    let replayed = started.elapsed().as_secs_f64() * 1000.0;
+    let mut thin = klad_brush::BrushSet::presets();
+    let mut def = thin.def("oil-load").unwrap().clone();
+    def.body = 0.0;
+    thin.insert("oil-load", def);
+    let started = Instant::now();
+    klad_brush::replay(2048, 2048, &strokes, &thin).unwrap();
+    let flat_replay = started.elapsed().as_secs_f64() * 1000.0;
+    let heights = raster.height_bytes() >> 20;
+    let mut rasters = Rasters::new();
+    rasters.insert("c1".into(), raster);
+    let time = |doc: &Document, f: &dyn Fn(&Document)| {
+        (0..5)
+            .map(|_| {
+                let t = Instant::now();
+                f(doc);
+                t.elapsed().as_secs_f64() * 1000.0
+            })
+            .fold(f64::MAX, f64::min)
+    };
+    let whole = |d: &Document| {
+        compose(d, 0, &rasters, View::scaled(1.0)).unwrap();
+    };
+    let one = |d: &Document| {
+        let items: Vec<TileItem> = d.layers.iter().map(TileItem::Layer).collect();
+        compose_tile(
+            &items,
+            &TileJob {
+                frame: 0,
+                rasters: &rasters,
+                background: d.canvas.background.as_deref(),
+                tx: 3,
+                ty: 3,
+                swap: None,
+                onions: None,
+                doc: d,
+                references: false,
+            },
+        )
+        .unwrap();
+    };
+    let mut flat = doc.clone();
+    flat.layers[0].effects.clear();
+    println!(
+        "2048 px, 600 oil-load strokes (replay {replayed:.0} ms, {flat_replay:.0} ms without body; heights {heights} MB): whole canvas {:.0} ms with relief, {:.0} ms without; one dirty tile {:.2} ms with, {:.2} ms without",
+        time(&doc, &whole),
+        time(&flat, &whole),
+        time(&doc, &one),
+        time(&flat, &one)
+    );
+}
