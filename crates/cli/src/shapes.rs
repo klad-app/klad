@@ -3,7 +3,7 @@ use klad_core::bundle::Bundle;
 use klad_core::color;
 use klad_core::doc::Document;
 use klad_core::ops::{FillSpec, HatchSpec, InkSpec, LightSpec, Op, PaintSpec, ScatterSpec, StrokeSpec, apply_all};
-use klad_render::form::{self, Form, FormRules, Lighting};
+use klad_render::form::{self, Form, FormRules, Lighting, Shadow};
 use klad_render::shapes::{self, HatchRules, InkRules, Outline, P, Run, ScatterRules};
 use serde_json::json;
 
@@ -221,8 +221,8 @@ fn hatch(doc: &Document, spec: &HatchSpec) -> Result<Vec<Op>> {
         .collect()
 }
 
-fn linear(hex: &str) -> Result<[f32; 3]> {
-    Ok(color::to_linear(color::parse_hex(hex)?))
+fn linear(doc: &Document, text: &str) -> Result<[f32; 3]> {
+    Ok(color::to_linear(color::parse_hex(&doc.resolve_color(text)?)?))
 }
 
 fn form_rules(doc: &Document, spec: &PaintSpec) -> Result<FormRules> {
@@ -238,12 +238,19 @@ fn form_rules(doc: &Document, spec: &PaintSpec) -> Result<FormRules> {
             toward: [spec.light[0], spec.light[1], spec.elevation],
         },
     };
-    let scaled = |hex: &str, k: f32| -> Result<[f32; 3]> { Ok(linear(hex)?.map(|c| c * k)) };
+    let scaled = |text: &str, k: f32| -> Result<[f32; 3]> { Ok(linear(doc, text)?.map(|c| c * k)) };
+    let shadow = match &spec.shadow {
+        Some(text) => Some(Shadow::of(
+            color::parse_hex(&doc.resolve_color(text)?)?,
+            spec.shadow_mix,
+        )),
+        None => None,
+    };
     Ok(FormRules {
         form,
         light,
-        colour: linear(&spec.color)?,
-        key: linear(&spec.key)?,
+        colour: linear(doc, &spec.color)?,
+        key: linear(doc, &spec.key)?,
         fill: scaled(&spec.fill, spec.fill_strength)?,
         bounce: scaled(&spec.bounce, spec.bounce_strength)?,
         core: spec.core,
@@ -253,6 +260,7 @@ fn form_rules(doc: &Document, spec: &PaintSpec) -> Result<FormRules> {
         vary: spec.vary,
         seed: spec.seed,
         spill: doc.layer(&spec.layer).is_some_and(|l| l.clip || l.lock_alpha),
+        shadow,
     })
 }
 
@@ -324,6 +332,7 @@ fn shapes_change(op: &Op) -> bool {
             | Op::Remove { .. }
             | Op::Move { .. }
             | Op::Path { .. }
+            | Op::Palette(_)
     )
 }
 
@@ -407,6 +416,61 @@ mod tests {
         assert!(lines.iter().filter(|m| matches!(m, Mark::Stroke(_))).count() >= 2);
         let shade = b.read_marks("l2", "c2").unwrap();
         assert!(shade.iter().any(|m| m.as_fill().is_some_and(|f| !f.cuts.is_empty())));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn paint_takes_palette_names_from_the_same_batch_and_a_shadow_colour_changes_only_the_shadow_side() {
+        let (dir, b) = bundle("shadow");
+        let painted = |extra: &str| -> Vec<(f32, String)> {
+            let ops = parse_lines(&format!(
+                r##"{{"op":"palette","add":"#c0603c","name":"clay"}}
+{{"op":"palette","add":"#a898d0","name":"lavender"}}
+{{"op":"add","node":{{"id":"bowl","type":"ellipse","cx":200,"cy":150,"rx":90,"ry":70}},"in":"l4","frame":0}}
+{{"op":"paint","layer":"l1","in":["bowl"],"color":"clay","light":[-1,0]{extra}}}"##
+            ))
+            .unwrap();
+            expand(&b, ops)
+                .unwrap()
+                .into_iter()
+                .filter_map(|o| match o {
+                    Op::Stroke(s) => {
+                        let points = s.points.unwrap_or_default();
+                        let x = points.iter().map(|q| q[0]).sum::<f32>() / points.len().max(1) as f32;
+                        Some((x, s.color))
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        let plain = painted("");
+        let tinted = painted(r#","shadow":"lavender","shadowMix":0.8"#);
+        assert_eq!(plain.len(), tinted.len());
+        let lit = |strokes: &[(f32, String)]| -> Vec<String> {
+            strokes
+                .iter()
+                .filter(|(x, _)| *x < 150.0)
+                .map(|(_, c)| c.clone())
+                .collect()
+        };
+        assert_eq!(lit(&plain), lit(&tinted));
+        let blue = |strokes: &[(f32, String)]| {
+            let far: Vec<f32> = strokes
+                .iter()
+                .filter(|(x, _)| *x > 260.0)
+                .map(|(_, c)| {
+                    let [r, _, b, _] = color::parse_hex(c).unwrap();
+                    b - r
+                })
+                .collect();
+            far.iter().sum::<f32>() / far.len().max(1) as f32
+        };
+        assert!(
+            blue(&tinted) > blue(&plain) + 0.05,
+            "{} {}",
+            blue(&tinted),
+            blue(&plain)
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

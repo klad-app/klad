@@ -1,4 +1,5 @@
 use crate::shapes::{P, Run, area};
+use klad_core::color;
 use klad_core::cut::inside_polygon;
 use klad_core::rng::Rng;
 
@@ -13,6 +14,45 @@ pub enum Form {
 pub enum Lighting {
     Direction { toward: [f32; 3] },
     Lamp { at: [f32; 3] },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Shadow {
+    pub lab: [f32; 3],
+    pub mix: f32,
+}
+
+impl Shadow {
+    pub fn of(rgba: color::Rgba, mix: f32) -> Self {
+        Self {
+            lab: color::to_oklab(rgba),
+            mix: mix.clamp(0.0, 1.0),
+        }
+    }
+
+    fn tint(&self, rgb: [f32; 3], lit: f32) -> [f32; 3] {
+        let k = self.mix * (1.0 - smooth(-0.1, 0.3, lit));
+        if k <= 0.0 {
+            return rgb;
+        }
+        let [l, a, b] = color::to_oklab(color::from_linear(rgb, 1.0));
+        let fit = libm::sqrtf((l / self.lab[0].max(1e-3)).min(1.0));
+        let (ta, tb) = (self.lab[1] * fit, self.lab[2] * fit);
+        let (ma, mb) = (a + (ta - a) * k, b + (tb - b) * k);
+        let from = libm::sqrtf(a * a + b * b);
+        let to = libm::sqrtf(ta * ta + tb * tb);
+        let mixed = libm::sqrtf(ma * ma + mb * mb);
+        let keep = match mixed > 1e-4 {
+            true => (from + (to - from) * k) / mixed,
+            false => 1.0,
+        };
+        color::to_linear(color::from_oklab([l, ma * keep, mb * keep], 1.0))
+    }
+}
+
+fn smooth(from: f32, to: f32, x: f32) -> f32 {
+    let t = ((x - from) / (to - from)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -30,6 +70,7 @@ pub struct FormRules {
     pub vary: f32,
     pub seed: u32,
     pub spill: bool,
+    pub shadow: Option<Shadow>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -270,7 +311,8 @@ impl<'a> Shape<'a> {
         };
         let rgb = [0, 1, 2]
             .map(|c| rules.colour[c] * (rules.key[c] * key + (rules.fill[c] * sky + rules.bounce[c] * ground) * core));
-        (rgb, facing * falloff)
+        let lit = facing * falloff;
+        (rules.shadow.map_or(rgb, |s| s.tint(rgb, lit)), lit)
     }
 
     fn band(&self, rules: &FormRules, p: P) -> f32 {
@@ -591,6 +633,7 @@ mod tests {
             vary: 0.03,
             seed: 4,
             spill: false,
+            shadow: None,
         }
     }
 
@@ -689,6 +732,49 @@ mod tests {
             tones.iter().cloned().fold(f32::MIN, f32::max),
         );
         assert!(hi / lo < 1.25);
+    }
+
+    #[test]
+    fn a_shadow_colour_turns_the_shadow_side_towards_its_hue_and_keeps_the_values() {
+        let shape = disc(100.0, 100.0, 60.0);
+        let plain = FormRules {
+            colour: color::to_linear(color::parse_hex("#c0603c").unwrap()),
+            ..rules(Lighting::Direction {
+                toward: [-1.0, 0.0, 0.5],
+            })
+        };
+        let lavender = color::parse_hex("#a898d0").unwrap();
+        let tinted = FormRules {
+            shadow: Some(Shadow::of(lavender, 0.8)),
+            ..plain
+        };
+        let at = |r: &FormRules, x: f32| shade_at(std::slice::from_ref(&shape), r, [x, 100.0]).unwrap();
+        let lab = |rgb: [f32; 3]| color::to_oklab(color::from_linear(rgb, 1.0));
+        let hue = |l: [f32; 3]| libm::atan2f(l[2], l[1]);
+        let (lit, facing) = at(&plain, 55.0);
+        assert!(facing > 0.3);
+        assert_eq!(at(&tinted, 55.0).0, lit);
+        let (dark, facing) = at(&plain, 150.0);
+        assert!(facing < -0.1);
+        let (before, after, target) = (lab(dark), lab(at(&tinted, 150.0).0), color::to_oklab(lavender));
+        assert!((before[0] - after[0]).abs() < 0.02, "{before:?} {after:?}");
+        let off = |l: [f32; 3]| (hue(l) - hue(target)).abs();
+        assert!(off(after) < off(before) * 0.4, "{before:?} {after:?} {target:?}");
+        let chroma = |l: [f32; 3]| libm::sqrtf(l[1] * l[1] + l[2] * l[2]);
+        assert!(chroma(after) > 0.6 * chroma(before).min(chroma(target)));
+        let jump = |r: &FormRules| {
+            let steps: Vec<[f32; 3]> = (0..=50).map(|i| lab(at(r, 50.0 + 2.0 * i as f32).0)).collect();
+            steps
+                .windows(2)
+                .map(|w| libm::sqrtf((0..3).map(|c| (w[1][c] - w[0][c]).powi(2)).sum()))
+                .fold(0.0f32, f32::max)
+        };
+        assert!(
+            jump(&tinted) < jump(&plain) * 1.5,
+            "largest step {} against {}",
+            jump(&tinted),
+            jump(&plain)
+        );
     }
 
     #[test]

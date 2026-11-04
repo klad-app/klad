@@ -474,6 +474,10 @@ pub struct PaintSpec {
     pub bounce_strength: f32,
     #[serde(default = "paint_core")]
     pub core: f32,
+    #[serde(default)]
+    pub shadow: Option<String>,
+    #[serde(default = "paint_shadow_mix")]
+    pub shadow_mix: f32,
     #[serde(default = "hatch_angle")]
     pub angle: f32,
     #[serde(default = "paint_weight")]
@@ -640,6 +644,10 @@ fn paint_bounce() -> String {
 
 fn paint_bounce_strength() -> f32 {
     0.1
+}
+
+fn paint_shadow_mix() -> f32 {
+    0.7
 }
 
 fn paint_core() -> f32 {

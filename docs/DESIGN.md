@@ -1,4 +1,4 @@
-_Last updated: 2026-11-04 19:35_
+_Last updated: 2026-11-04 19:51_
 
 # klad: design
 
@@ -375,7 +375,7 @@ An error is one line on stderr (`error: reading a.draw/doc.json: No such file or
 | `klad ink <bundle> <layer> --from <node>,... \| --path "M..." [--weight 6] [--light x,y] [--break 60] [--gap] [--wobble 0.6] [--taper in,out] [--brush] [--color] [--hand 1]` | ink the outlines of shapes as tapered strokes with weight rules, each drawn like a hand |
 | `klad light <bundle> --from <node>,... [--light x,y] [--shade <layer>] [--rim <layer>] [--depth 14] [--soft 3] [--rim-width 4] [--lamp x,y,h]` | shade and rim fills from one light direction, or per shape away from a lamp |
 | `klad hatch <bundle> <layer> --in <node>,... [--angle 30 \| --along] [--spacing 6] [--length 12-30] [--jitter] [--weight] [--hand 1]` | short tapered strokes inside closed shapes, each drawn like a hand |
-| `klad paint <bundle> <layer> --in <node>,... [--color] [--form round\|flat\|cylinder] [--axis 90] [--facing x,y,z] [--light x,y] [--elevation 0.6] [--lamp x,y,h] [--key] [--fill] [--bounce] [--core 0.35] [--weight 14] [--brush oil] [--bold oil-load] [--decisive 1] [--hand 1]` | paints each shape as a form: a height field from its outline (round), a plane or a cylinder, lit by a key light or lamp with fill, bounce and a core; strokes follow bands of equal light, take their colour from the model and stop where the light changes; big to small, then decisive strokes in the lights |
+| `klad paint <bundle> <layer> --in <node>,... [--color] [--form round\|flat\|cylinder] [--axis 90] [--facing x,y,z] [--light x,y] [--elevation 0.6] [--lamp x,y,h] [--key] [--fill] [--bounce] [--core 0.35] [--shadow c] [--shadow-mix 0.7] [--weight 14] [--brush oil] [--bold oil-load] [--decisive 1] [--hand 1]` | paints each shape as a form: a height field from its outline (round), a plane or a cylinder, lit by a key light or lamp with fill, bounce and a core; strokes follow bands of equal light, take their colour from the model and stop where the light changes; big to small, then decisive strokes in the lights |
 | `klad prepare <bundle> [--from] [--to]` | replay the painted drawings of a span of frames into the cache |
 | `klad scatter <bundle> <layer> --in <node>,... [--mark "M..."] [--count n \| --spacing 14] [--size 0.7-1.2] [--turn -15,15] [--avoid <node>,...] [--hand 1]` | copies of a small mark inside closed shapes |
 | `klad fill <bundle> <layer> --shape <node> [--expand 2]` | fill exactly a shape's area |

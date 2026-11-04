@@ -980,6 +980,17 @@ enum Command {
         core: f32,
         #[arg(
             long,
+            help = "The shadow side takes this colour's hue and chroma and keeps its own values (a colour or a palette name)"
+        )]
+        shadow: Option<String>,
+        #[arg(
+            long,
+            default_value_t = 0.7,
+            help = "How far the shadow side goes towards --shadow, 0 to 1"
+        )]
+        shadow_mix: f32,
+        #[arg(
+            long,
             default_value_t = 30.0,
             allow_hyphen_values = true,
             help = "Stroke direction on flat forms, degrees"
@@ -2261,6 +2272,8 @@ fn run() -> Result<()> {
             bounce,
             bounce_strength,
             core,
+            shadow,
+            shadow_mix,
             angle,
             weight,
             decisive,
@@ -2297,6 +2310,8 @@ fn run() -> Result<()> {
                 bounce,
                 bounce_strength,
                 core,
+                shadow,
+                shadow_mix,
                 angle,
                 weight,
                 decisive,
