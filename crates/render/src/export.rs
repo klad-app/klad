@@ -1,10 +1,10 @@
-use crate::{Ctx, Rasters, background, draw_clipped_alone, draw_layer, draw_layers, f16_info, rgba8_info};
+use crate::{Ctx, Rasters, background, draw_clipped_alone, draw_layer, draw_layers, f16_info};
 use anyhow::{Result, anyhow, bail};
 use klad_core::doc::{Blend, Document, Layer};
 use rayon::prelude::*;
 use skia_safe::{
-    AlphaType, ColorSpace, ColorType, CubicResampler, FilterMode, Image, ImageInfo, MipmapMode, Pixmap,
-    SamplingOptions, image::CachingHint, png_encoder, surfaces,
+    AlphaType, ColorSpace, ColorType, CubicResampler, FilterMode, Image, ImageInfo, MipmapMode, SamplingOptions,
+    image::CachingHint, surfaces,
 };
 
 pub const SNAP: f32 = 0.13;
@@ -149,30 +149,20 @@ pub fn dither8(image: &Image) -> Result<Vec<u8>> {
 
 pub fn png8(image: &Image) -> Result<Vec<u8>> {
     let (w, h) = (image.width() as u32, image.height() as u32);
-    let mut rgba = dither8(image)?;
-    let pixmap = Pixmap::new(&rgba8_info(w, h), &mut rgba, w as usize * 4).ok_or_else(|| anyhow!("bad pixmap"))?;
-    encode(&pixmap)
+    Ok(crate::pngwrite::write(w, h, 8, &dither8(image)?))
 }
 
 pub fn png16(image: &Image) -> Result<Vec<u8>> {
-    let (w, h) = (image.width(), image.height());
-    let mut pixels = f16_pixels(image, AlphaType::Unpremul)?;
-    let info = ImageInfo::new((w, h), ColorType::RGBAF16, AlphaType::Unpremul, ColorSpace::new_srgb());
-    let pixmap = Pixmap::new(
-        &info,
-        bytemuck::cast_slice_mut::<half::f16, u8>(&mut pixels),
-        w as usize * 8,
-    )
-    .ok_or_else(|| anyhow!("bad pixmap"))?;
-    encode(&pixmap)
+    let (w, h) = (image.width() as u32, image.height() as u32);
+    Ok(png_of_f16(w, h, &f16_pixels(image, AlphaType::Unpremul)?))
 }
 
-pub(crate) fn encode(pixmap: &Pixmap) -> Result<Vec<u8>> {
-    let mut out = Vec::new();
-    if !png_encoder::encode(pixmap, &mut out, &png_encoder::Options::default()) {
-        bail!("PNG encoding failed");
-    }
-    Ok(out)
+pub(crate) fn png_of_f16(width: u32, height: u32, pixels: &[half::f16]) -> Vec<u8> {
+    let wide: Vec<u8> = pixels
+        .par_iter()
+        .flat_map_iter(|v| ((v.to_f32().clamp(0.0, 1.0) * 65535.0).round() as u16).to_be_bytes())
+        .collect();
+    crate::pngwrite::write(width, height, 16, &wide)
 }
 
 #[cfg(test)]
@@ -380,5 +370,66 @@ mod tests {
             "inside the base: the layer's own colour"
         );
         assert_eq!(frame.pixel(48, 16)[3], 0, "outside the base: clipped away");
+    }
+}
+
+#[cfg(test)]
+mod timing {
+    use super::*;
+
+    #[test]
+    #[ignore = "timing: PICTURE=<png> cargo test --release -p klad-render png_timing -- --ignored --nocapture"]
+    fn png_timing() {
+        let path = std::env::var("PICTURE").unwrap();
+        let rgba = crate::assets::decode(&std::fs::read(&path).unwrap()).unwrap();
+        let info = ImageInfo::new(
+            (rgba.width as i32, rgba.height as i32),
+            ColorType::RGBA8888,
+            AlphaType::Unpremul,
+            ColorSpace::new_srgb(),
+        );
+        let image = skia_safe::images::raster_from_data(
+            &info,
+            skia_safe::Data::new_copy(&rgba.pixels),
+            rgba.width as usize * 4,
+        )
+        .unwrap();
+        let time = |f: &dyn Fn() -> usize| {
+            let t = std::time::Instant::now();
+            let n = f();
+            (t.elapsed().as_secs_f64() * 1000.0, n)
+        };
+        let (dither, _) = time(&|| dither8(&image).unwrap().len());
+        let skia = |pixmap: &skia_safe::Pixmap| {
+            let mut out = Vec::new();
+            skia_safe::png_encoder::encode(pixmap, &mut out, &skia_safe::png_encoder::Options::default());
+            out.len()
+        };
+        let (before, before_bytes) = time(&|| {
+            let mut rgba = dither8(&image).unwrap();
+            let (w, h) = (image.width() as u32, image.height() as u32);
+            let pixmap = skia_safe::Pixmap::new(&crate::rgba8_info(w, h), &mut rgba, w as usize * 4).unwrap();
+            skia(&pixmap)
+        });
+        let same = {
+            let ours = png8(&image).unwrap();
+            let mut reader = png::Decoder::new(std::io::Cursor::new(&ours[..])).read_info().unwrap();
+            let mut buf = vec![0; reader.output_buffer_size().unwrap()];
+            reader.next_frame(&mut buf).unwrap();
+            buf == dither8(&image).unwrap()
+        };
+        println!(
+            "skia png8 {before:.0} ms ({} KB); ours decodes to the same pixels: {same}",
+            before_bytes / 1024
+        );
+        let (eight, bytes8) = time(&|| png8(&image).unwrap().len());
+        let (sixteen, bytes16) = time(&|| png16(&image).unwrap().len());
+        println!(
+            "{}x{}: dither {dither:.0} ms, png8 {eight:.0} ms ({} KB), png16 {sixteen:.0} ms ({} KB)",
+            image.width(),
+            image.height(),
+            bytes8 / 1024,
+            bytes16 / 1024
+        );
     }
 }

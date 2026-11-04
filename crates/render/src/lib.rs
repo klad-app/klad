@@ -4,6 +4,7 @@ pub mod export;
 pub mod form;
 pub mod onion;
 pub mod overlay;
+pub mod pngwrite;
 pub mod shapes;
 pub mod sheet;
 pub mod sprites;

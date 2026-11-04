@@ -1819,6 +1819,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytemuck",
+ "crc32fast",
+ "flate2",
  "half",
  "klad-brush",
  "klad-core",

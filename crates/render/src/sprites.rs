@@ -1,10 +1,9 @@
-use crate::export::{dither8, encode, f16_pixels};
-use crate::rgba8_info;
-use anyhow::{Result, anyhow, bail};
+use crate::export::{dither8, f16_pixels, png_of_f16};
+use anyhow::{Result, bail};
 use klad_core::doc::{Clip, Document};
 use klad_core::rng::{FNV_OFFSET, fnv};
 use serde_json::{Value, json};
-use skia_safe::{AlphaType, ColorSpace, ColorType, Image, ImageInfo, Pixmap};
+use skia_safe::{AlphaType, Image};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Animation {
@@ -197,20 +196,10 @@ impl Pixels {
 
     pub fn png(&mut self) -> Result<Vec<u8>> {
         let (w, h) = (self.width, self.height);
-        let pixmap = match &mut self.data {
-            Data::Rgba8(d) => Pixmap::new(&rgba8_info(w, h), d, w as usize * 4),
-            Data::Rgba16(d) => {
-                let info = ImageInfo::new(
-                    (w as i32, h as i32),
-                    ColorType::RGBAF16,
-                    AlphaType::Unpremul,
-                    ColorSpace::new_srgb(),
-                );
-                Pixmap::new(&info, bytemuck::cast_slice_mut(d), w as usize * 8)
-            }
-        }
-        .ok_or_else(|| anyhow!("bad pixmap"))?;
-        encode(&pixmap)
+        Ok(match &self.data {
+            Data::Rgba8(d) => crate::pngwrite::write(w, h, 8, d),
+            Data::Rgba16(d) => png_of_f16(w, h, d),
+        })
     }
 }
 
