@@ -114,6 +114,7 @@ pub enum Cmd {
     InspectorPane,
     NotesPane,
     HistoryPane,
+    AgentPane,
     Timeline,
     Numbers,
     Settings,
@@ -149,6 +150,7 @@ pub enum Cmd {
     OpenRecent,
     CopyPath,
     InstallCommand,
+    ReportProblem,
     PaintOver,
     CompareReference,
     About,
@@ -473,7 +475,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 155] = [
+    pub const ALL: [Cmd; 157] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -584,6 +586,7 @@ impl Cmd {
         Cmd::InspectorPane,
         Cmd::NotesPane,
         Cmd::HistoryPane,
+        Cmd::AgentPane,
         Cmd::Timeline,
         Cmd::Numbers,
         Cmd::Settings,
@@ -619,6 +622,7 @@ impl Cmd {
         Cmd::OpenRecent,
         Cmd::CopyPath,
         Cmd::InstallCommand,
+        Cmd::ReportProblem,
         Cmd::About,
         Cmd::Export,
         Cmd::AddFont,
@@ -1623,6 +1627,15 @@ impl Cmd {
                 R::No,
                 "show or hide it in the dock",
             ),
+            Cmd::AgentPane => spec(
+                "panel.agent",
+                "agent panel",
+                icon::SPARKLE,
+                G::Panels,
+                T::None,
+                R::No,
+                "ask the agent for a change in plain words and watch it work on this drawing",
+            ),
             Cmd::HistoryPane => spec(
                 "panel.history",
                 "history panel",
@@ -2000,6 +2013,15 @@ impl Cmd {
                 T::None,
                 R::No,
                 "repaint what is below this layer with brush strokes that follow its forms, and carry them through an animation",
+            ),
+            Cmd::ReportProblem => spec(
+                "file.report",
+                "report a problem",
+                icon::LOG,
+                G::File,
+                T::None,
+                R::No,
+                "copies the version, the system and the last messages, to paste into an issue on GitHub",
             ),
             Cmd::InstallCommand => spec(
                 "file.install-command",

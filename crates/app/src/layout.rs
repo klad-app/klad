@@ -19,6 +19,7 @@ pub enum Pane {
     Inspector,
     Notes,
     History,
+    Agent,
 }
 
 impl Pane {
@@ -29,6 +30,7 @@ impl Pane {
             Pane::Inspector => "Inspector",
             Pane::Notes => "Notes for the agent",
             Pane::History => "History",
+            Pane::Agent => "Agent",
         }
     }
 
@@ -39,6 +41,7 @@ impl Pane {
             Pane::Inspector => 110.0,
             Pane::Notes => 60.0,
             Pane::History => 60.0,
+            Pane::Agent => 160.0,
         }
     }
 
@@ -49,6 +52,7 @@ impl Pane {
             Pane::Inspector => 220.0,
             Pane::Notes => 90.0,
             Pane::History => 80.0,
+            Pane::Agent => 320.0,
         }
     }
 }
@@ -92,11 +96,12 @@ impl Default for Layout {
                 (Pane::Inspector, false),
                 (Pane::Notes, true),
                 (Pane::History, true),
+                (Pane::Agent, false),
             ]
             .into_iter()
             .map(|(pane, collapsed)| PaneState {
                 pane,
-                open: true,
+                open: pane != Pane::Agent,
                 collapsed,
                 body: pane.default_body(),
             })
@@ -321,7 +326,8 @@ mod tests {
         )
         .unwrap()
         .repaired();
-        assert_eq!(old.panes.len(), 5);
+        assert_eq!(old.panes.len(), 6);
+        assert!(!old.is_open(Pane::Agent), "the agent pane comes closed until it is asked for");
         assert_eq!(old.panes[0].pane, Pane::Layers);
         assert_eq!(old.panes[0].body, Pane::Layers.min_body());
     }

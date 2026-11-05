@@ -265,6 +265,7 @@ impl Editor {
                     (Cmd::AddFont, "add a font"),
                     (Cmd::CopyPath, "copy path"),
                     (Cmd::InstallCommand, "install the klad command"),
+                    (Cmd::ReportProblem, "report a problem"),
                     (Cmd::About, "about and licences"),
                 ]
                 .into_iter()
@@ -315,6 +316,7 @@ impl Editor {
                     (Cmd::InspectorPane, Pane::Inspector),
                     (Cmd::NotesPane, Pane::Notes),
                     (Cmd::HistoryPane, Pane::History),
+                    (Cmd::AgentPane, Pane::Agent),
                 ]
                 .into_iter()
                 .for_each(|(cmd, pane)| {
@@ -439,6 +441,7 @@ impl Editor {
             },
             Pane::Notes => self.notes_pane(ui),
             Pane::History => self.history_pane(ui),
+            Pane::Agent => self.agent_pane(ui),
         }
     }
 
@@ -848,6 +851,8 @@ impl Editor {
         ui.separator();
         ui.heading("Layout");
         self.scale_section(ui);
+        ui.separator();
+        self.agent_settings(ui);
         ui.horizontal_wrapped(|ui| {
             self.command_check(ui, Cmd::Numbers, "numbers panel");
             self.command_check(ui, Cmd::Timeline, "timeline");

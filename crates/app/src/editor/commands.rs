@@ -338,6 +338,7 @@ impl Editor {
             Cmd::InspectorPane => layout.dock && layout.is_open(Pane::Inspector),
             Cmd::NotesPane => layout.dock && layout.is_open(Pane::Notes),
             Cmd::HistoryPane => layout.dock && layout.is_open(Pane::History),
+            Cmd::AgentPane => layout.dock && layout.is_open(Pane::Agent),
             Cmd::Timeline => layout.timeline,
             Cmd::Numbers => layout.numbers,
             Cmd::Settings => self.windows.settings,
@@ -598,6 +599,14 @@ impl Editor {
             Cmd::ShowParts => self.checks.parts = !self.checks.parts,
             Cmd::ShowArcs => self.show_arcs()?,
             Cmd::InstallCommand => self.start_job(install_job()),
+            Cmd::ReportProblem => {
+                let text = self.problem_report();
+                self.ctx.copy_text(text);
+                self.say(
+                    Tone::Done,
+                    "copied a problem report: paste it into an issue at github.com/klad-app/klad",
+                );
+            }
             Cmd::CopyPath => {
                 let path = self.scene.bundle.root.display().to_string();
                 self.ctx.copy_text(path.clone());
@@ -770,6 +779,7 @@ impl Editor {
             Cmd::InspectorPane => self.pane(Pane::Inspector),
             Cmd::NotesPane => self.pane(Pane::Notes),
             Cmd::HistoryPane => self.pane(Pane::History),
+            Cmd::AgentPane => self.pane(Pane::Agent),
             Cmd::Timeline => {
                 self.settings.layout.timeline = !self.settings.layout.timeline;
                 self.settings_dirty = true;
@@ -931,5 +941,31 @@ pub(crate) fn install_job() -> Spec {
         reruns: 0,
         summary: |out, _| out.lines().next().unwrap_or_default().to_string(),
         failure: |_, err| err.lines().last().unwrap_or_default().to_string(),
+    }
+}
+
+impl Editor {
+    pub(crate) fn problem_report(&self) -> String {
+        let lines: Vec<String> = self
+            .messages
+            .log()
+            .rev()
+            .take(40)
+            .map(|m| format!("{:?}: {}", m.tone, m.text))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        format!(
+            "klad {}\n{} {}\ncanvas {}x{}, {} layers, {} frames\n\nlast messages:\n{}\n",
+            crate::VERSION,
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            self.scene.bundle.doc.canvas.width,
+            self.scene.bundle.doc.canvas.height,
+            self.scene.bundle.doc.all_layers().len(),
+            self.scene.bundle.doc.timeline.frames,
+            lines.join("\n")
+        )
     }
 }

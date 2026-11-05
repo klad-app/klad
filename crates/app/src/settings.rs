@@ -83,6 +83,28 @@ pub struct Settings {
     pub check_updates: bool,
     #[serde(default, rename = "updatesChecked")]
     pub updates_checked: u64,
+    #[serde(default)]
+    pub agent: AgentSettings,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AgentSettings {
+    pub model: String,
+    pub limit: f32,
+    pub notice_seen: bool,
+    pub locked: Vec<String>,
+}
+
+impl Default for AgentSettings {
+    fn default() -> Self {
+        Self {
+            model: crate::agent::DEFAULT_MODEL.to_string(),
+            limit: 2.0,
+            notice_seen: false,
+            locked: Vec::new(),
+        }
+    }
 }
 
 fn yes() -> bool {
@@ -104,6 +126,7 @@ impl Default for Settings {
             drawings: None,
             check_updates: true,
             updates_checked: 0,
+            agent: AgentSettings::default(),
         }
     }
 }

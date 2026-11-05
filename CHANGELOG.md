@@ -12,6 +12,8 @@ The first downloadable builds.
 - `klad --version` and About show the commit a build was made from.
 - In-betweens blend colours evenly (in OKLab), so light can follow a turning limb when the second key is coloured for it.
 - `klad arcs` follows the part of a foot on the ground: a heel-to-toe roll is no longer reported as a slide.
+- The Agent pane: ask for a change in plain words and watch it land; the agent sees the drawing, reads your selection and notes, and edits through the same commands as a terminal agent. Your Claude API key stays in the Keychain; a spend limit per session; a switch per drawing that keeps it to looking; one click undoes its whole turn.
+- "Report a problem" copies what an issue needs.
 - Bones: a layer or group gets a skeleton (`klad bone`, the bone tool J), weights from the bones or painted (`klad weights`), and poses that bend the drawing (`klad pose`, pose mode); in-betweens of two poses turn the bones.
 - Keys: layers, groups and shapes move, turn, scale and fade between frames with eases (`klad key`, the keys section of the inspector).
 - Godot: `--godot-rig` exports a Skeleton2D with Polygon2D parts and the poses as animations; `--godot-scene` a parallax scene with a Parallax2D per depth plane.

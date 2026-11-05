@@ -40,7 +40,7 @@ Early, and open for testing. What works today:
 
 - The `klad` CLI on macOS, Linux and Windows: layers, brush strokes, vector shapes, fills, inking, painting from shapes, light, effects, depth and fog, text in about fifty open fonts that come with it (and any other Google Fonts family on request), frames and clips, in-betweens, exports.
 - The editor on macOS, and in a first version on Windows and Linux: a pen with pressure and tilt (pressure only on Windows; on Linux the mouse for now), brushes, layers, masks, a text tool, the timeline, onion skins, notes for the agent, and a start window for new and recent drawings.
-- Coming next: an agent inside the editor you sign in to, so you never need a terminal.
+- An agent inside the editor (the Agent pane) that works on the open drawing with your Claude API key, so you never need a terminal. Signing in with a ChatGPT account comes later.
 
 ![The start window](docs/images/start-window.png)
 
