@@ -3,7 +3,8 @@ use klad_core::bundle::Bundle;
 use klad_core::color;
 use klad_core::doc::Document;
 use klad_core::ops::{
-    FillSpec, FoliageSpec, GrassSpec, HatchSpec, InkSpec, LightSpec, Op, PaintSpec, ScatterSpec, StrokeSpec, apply_all,
+    FillSpec, FoliageSpec, GrassKind, GrassSpec, HatchSpec, InkSpec, LightSpec, Op, PaintSpec, ScatterSpec, StrokeSpec,
+    apply_all,
 };
 use klad_render::form::{self, Form, FormRules, Lighting, Shadow};
 use klad_render::shapes::{self, HatchRules, InkRules, Outline, P, Run, ScatterRules};
@@ -540,6 +541,83 @@ fn field(x: f32, y: f32, seed: u32) -> f32 {
     at(x, y, 0x51) * 0.7 + at(x * 2.3 + 17.0, y * 2.3 + 5.0, 0xa7) * 0.3
 }
 
+struct Kind {
+    share: f32,
+    brush: String,
+    picture: bool,
+    length: f32,
+    width: f32,
+    curl: f32,
+    spread: f32,
+    palette: [[f32; 3]; 3],
+    head: Option<(String, f32)>,
+    low: bool,
+    patchy: f32,
+}
+
+fn turn_hue(lab: [f32; 3], degrees: f32) -> [f32; 3] {
+    let (s, c) = degrees.to_radians().sin_cos();
+    [lab[0], lab[1] * c - lab[2] * s, lab[1] * s + lab[2] * c]
+}
+
+fn default_kinds(mid: [f32; 3]) -> Vec<GrassKind> {
+    let straw = [mid[0] + 0.08, mid[1] * 0.2 + 0.012, mid[2] * 0.5 + 0.06];
+    let kind = |name: &str, share: f32| GrassKind {
+        name: Some(name.into()),
+        share,
+        brush: None,
+        length: 1.0,
+        width: 1.0,
+        curl: 0.0,
+        spread: 0.0,
+        color: None,
+        hue: 0.0,
+        head: None,
+        head_size: 0.32,
+        low: false,
+        patchy: 0.5,
+    };
+    vec![
+        GrassKind {
+            width: 0.7,
+            curl: 0.12,
+            ..kind("fine", 0.44)
+        },
+        GrassKind {
+            length: 0.72,
+            width: 1.7,
+            curl: 0.55,
+            hue: -10.0,
+            patchy: 0.6,
+            ..kind("broad", 0.24)
+        },
+        GrassKind {
+            length: 0.9,
+            width: 0.55,
+            curl: 0.3,
+            color: Some(color::to_hex(color::from_oklab(straw, 1.0))),
+            ..kind("dry", 0.1)
+        },
+        GrassKind {
+            length: 1.45,
+            width: 0.3,
+            curl: 0.1,
+            hue: 6.0,
+            head: Some("seed-head".into()),
+            patchy: 0.7,
+            ..kind("heads", 0.06)
+        },
+        GrassKind {
+            brush: Some("clover".into()),
+            length: 0.5,
+            hue: -14.0,
+            low: true,
+            patchy: 0.85,
+            ..kind("clover", 0.16)
+        },
+    ]
+}
+
 fn grass(doc: &Document, bundle: &Bundle, spec: &GrassSpec) -> Result<Vec<Op>> {
     let found = areas(doc, &spec.within, &None, "grass")?;
     let colour = |text: &str| -> Result<[f32; 3]> { Ok(color::to_oklab(color::parse_hex(&doc.resolve_color(text)?)?)) };
@@ -553,10 +631,50 @@ fn grass(doc: &Document, bundle: &Bundle, spec: &GrassSpec) -> Result<Vec<Op>> {
     let lit = given(&spec.lit, [0.16, -0.012, 0.05])?;
     let shade = given(&spec.shade, [-0.2, -0.01, -0.04])?;
     let hex = |lab: [f32; 3]| color::to_hex(color::from_oklab(lab, 1.0));
-    let picture = klad_brush::BrushSet::for_bundle(bundle)?
-        .def(&spec.brush)
-        .map(|d| matches!(d.tip, klad_core::brushes::TipDef::Image { .. }))
-        .ok_or_else(|| anyhow::anyhow!("no brush {}: klad brushes lists them", spec.brush))?;
+    let brushes = klad_brush::BrushSet::for_bundle(bundle)?;
+    let pictured = |id: &str| -> Result<bool> {
+        brushes
+            .def(id)
+            .map(|d| matches!(d.tip, klad_core::brushes::TipDef::Image { .. }))
+            .ok_or_else(|| anyhow::anyhow!("no brush {id}: klad brushes lists them"))
+    };
+    let listed = match spec.kinds.is_empty() {
+        true => default_kinds(mid),
+        false => spec.kinds.clone(),
+    };
+    let kinds: Vec<Kind> = listed
+        .iter()
+        .map(|k| {
+            let brush = k.brush.clone().unwrap_or_else(|| spec.brush.clone());
+            let palette = match &k.color {
+                Some(c) => {
+                    let own = colour(c)?;
+                    [
+                        std::array::from_fn(|i| own[i] + [-0.2, -0.01, -0.04][i]),
+                        own,
+                        std::array::from_fn(|i| own[i] + [0.14, -0.008, 0.04][i]),
+                    ]
+                }
+                None => [turn_hue(shade, k.hue), turn_hue(mid, k.hue), turn_hue(lit, k.hue)],
+            };
+            if let Some(head) = &k.head {
+                pictured(head)?;
+            }
+            Ok(Kind {
+                share: k.share.max(0.0),
+                picture: pictured(&brush)?,
+                brush,
+                length: k.length,
+                width: k.width,
+                curl: k.curl,
+                spread: k.spread,
+                palette,
+                head: k.head.clone().map(|h| (h, k.head_size)),
+                low: k.low,
+                patchy: k.patchy.clamp(0.0, 1.0),
+            })
+        })
+        .collect::<Result<_>>()?;
     let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
     found.iter().flatten().for_each(|p| {
         (x0, y0, x1, y1) = (x0.min(p[0]), y0.min(p[1]), x1.max(p[0]), y1.max(p[1]));
@@ -576,44 +694,127 @@ fn grass(doc: &Document, bundle: &Bundle, spec: &GrassSpec) -> Result<Vec<Op>> {
             None => [spec.light[0] / flat, spec.light[1] / flat],
         }
     };
-    let mound = |p: P| {
+    let ground = |p: P, salt: u32, size: f32| {
         let s = scale(p[1]);
-        field(p[0] / (patch * s), p[1] / (patch * 0.3 * s), spec.seed)
+        field(p[0] / (size * s), p[1] / (size * 0.3 * s), spec.seed ^ salt)
     };
+    let mound = |p: P| ground(p, 0, patch);
     let tone_at = |p: P| -> f32 {
         let l = towards(p);
         let d = patch * 0.25;
         let facing = mound([p[0] - l[0] * d, p[1] - l[1] * d]) - mound([p[0] + l[0] * d, p[1] + l[1] * d]);
-        let raw = 0.5 + 1.3 * facing + 0.3 * (mound(p) - 0.5);
+        let raw = 0.5 + 1.0 * facing + 0.25 * (mound(p) - 0.5);
         let near = 0.6 + 0.4 * depth(p[1]);
         (0.5 + (raw - 0.5) * near).clamp(0.0, 1.0)
     };
     let step = |tone: f32| (tone * 3.0).floor().min(2.0) / 3.0 + 1.0 / 6.0;
-    let shaded = |tone: f32| -> [f32; 3] {
+    let shaded = |palette: &[[f32; 3]; 3], tone: f32| -> [f32; 3] {
         match tone < 0.5 {
-            true => mix_lab(shade, mid, (tone * 2.0).clamp(0.0, 1.0)),
-            false => mix_lab(mid, lit, (tone * 2.0 - 1.0).clamp(0.0, 1.0)),
+            true => mix_lab(palette[0], palette[1], (tone * 2.0).clamp(0.0, 1.0)),
+            false => mix_lab(palette[1], palette[2], (tone * 2.0 - 1.0).clamp(0.0, 1.0)),
         }
     };
+    let choose = |rng: &mut klad_core::rng::Rng, p: P, upright: bool| -> Option<usize> {
+        let weights: Vec<f32> = kinds
+            .iter()
+            .enumerate()
+            .map(|(i, k)| {
+                if upright && k.low {
+                    return 0.0;
+                }
+                let n = ground(p, 0x9e37 + i as u32 * 977, patch * 1.3);
+                let t = ((n - 0.4) / 0.35).clamp(0.0, 1.0);
+                let detail = match k.head.is_some() || k.low {
+                    true => (depth(p[1]) * 1.5 - 0.3).clamp(0.05, 1.0),
+                    false => 1.0,
+                };
+                detail * k.share * (1.0 - k.patchy + k.patchy * 2.2 * t * t * (3.0 - 2.0 * t))
+            })
+            .collect();
+        let total: f32 = weights.iter().sum();
+        if total <= 0.0 {
+            return None;
+        }
+        let mut pick = (rng.signed() + 1.0) / 2.0 * total;
+        weights
+            .iter()
+            .position(|w| {
+                pick -= w;
+                pick <= 0.0
+            })
+            .or(Some(kinds.len() - 1))
+    };
     let mut rng = klad_core::rng::Rng::new(spec.seed as u64 * 6_271 + 3);
-    let mut blades: Vec<(f32, Op)> = Vec::new();
-    let mut blade = |rng: &mut klad_core::rng::Rng, root: P, length: f32, tall: f32| -> Result<()> {
+    let mut marks: Vec<(f32, Op)> = Vec::new();
+    let push = |marks: &mut Vec<(f32, Op)>,
+                key: f32,
+                brush: &str,
+                first: [f32; 3],
+                second: [f32; 3],
+                size: f32,
+                run: Run|
+     -> Result<()> {
+        let seed = spec.seed.wrapping_mul(1_299_709).wrapping_add(marks.len() as u32 * 7);
+        let mut value = json!({
+            "layer": spec.layer, "frame": spec.frame, "brush": brush, "color": hex(first), "second": hex(second),
+            "size": size, "points": run, "seed": seed, "taper": [0.0, 0.0],
+        });
+        if let Some(part) = &spec.part {
+            value["part"] = json!(part);
+        }
+        marks.push((key, Op::Stroke(serde_json::from_value(value)?)));
+        Ok(())
+    };
+    let stamp = |at: P, dir: P| -> Run {
+        let (a, b) = (
+            [at[0] - dir[0] * 0.5, at[1] - dir[1] * 0.5],
+            [at[0] + dir[0] * 0.5, at[1] + dir[1] * 0.5],
+        );
+        vec![[a[0], a[1], 1.0], [b[0], b[1], 1.0]]
+    };
+    let grow = |rng: &mut klad_core::rng::Rng,
+                marks: &mut Vec<(f32, Op)>,
+                root: P,
+                length: f32,
+                tall: f32,
+                upright: bool|
+     -> Result<()> {
+        let Some(k) = choose(rng, root, upright).map(|i| &kinds[i]) else {
+            return Ok(());
+        };
         let s = scale(root[1]);
-        let lean = (spec.wind + rng.signed() * 14.0).to_radians();
-        let dir = [lean.sin(), -lean.cos()];
-        let side = [-dir[1], dir[0]];
-        let length = length * s * tall;
-        let bend = length * (0.08 + 0.08 * rng.signed().abs()) * if spec.wind < 0.0 { -1.0 } else { 1.0 };
         let tone = tone_at(root);
         let family = step(tone) + (tone - step(tone)) * 0.55;
-        let l = towards(root);
-        let catches = (dir[0] * l[0] + dir[1] * l[1]).max(0.0) * 0.15;
-        let base = shaded((family - 0.28).max(0.0));
-        let top = shaded((family + 0.12 + catches + rng.signed() * 0.05 * (0.3 + family)).clamp(0.0, 1.0));
-        let jitter = |lab: [f32; 3], r: &mut klad_core::rng::Rng| {
-            [lab[0] + r.signed() * 0.02, lab[1], lab[2] + r.signed() * 0.008]
+        let vary = |lab: [f32; 3], r: &mut klad_core::rng::Rng| {
+            let turned = turn_hue(lab, r.signed() * 7.0);
+            let chroma = 1.0 + r.signed() * 0.18;
+            [turned[0] + r.signed() * 0.025, turned[1] * chroma, turned[2] * chroma]
         };
-        let (base, top) = (jitter(base, rng), jitter(top, rng));
+        if k.low {
+            let size = length * k.length * s * (0.8 + 0.4 * (rng.signed() + 1.0) / 2.0);
+            let turn = (rng.signed() * 70.0).to_radians();
+            let dir = [turn.sin(), -turn.cos()];
+            let at = [root[0] + dir[0] * size * 0.2, root[1] - size * 0.15];
+            let lab = vary(shaded(&k.palette, (family - 0.12).max(0.0)), rng);
+            return push(
+                marks,
+                root[1] - spec.blade * 0.3 * s,
+                &k.brush,
+                lab,
+                lab,
+                size,
+                stamp(at, dir),
+            );
+        }
+        let lean = (spec.wind + rng.signed() * (14.0 + k.spread)).to_radians();
+        let dir = [lean.sin(), -lean.cos()];
+        let side = [-dir[1], dir[0]];
+        let length = length * k.length * s * tall;
+        let flop = match k.curl > 0.3 && rng.signed() < -0.2 {
+            true => -1.0,
+            false => 1.0,
+        } * if spec.wind < 0.0 { -1.0 } else { 1.0 };
+        let bend = length * (0.08 + 0.08 * rng.signed().abs() + k.curl * 0.45 * rng.signed().abs()) * flop;
         let at = |t: f32| -> [f32; 2] {
             let curve = bend * t * t;
             [
@@ -621,32 +822,77 @@ fn grass(doc: &Document, bundle: &Bundle, spec: &GrassSpec) -> Result<Vec<Op>> {
                 root[1] + dir[1] * length * t + side[1] * curve,
             ]
         };
-        let (run, size): (Run, f32) = match picture {
-            true => {
-                let (a, b) = (at(0.48), at(0.52));
-                (vec![[a[0], a[1], 1.0], [b[0], b[1], 1.0]], length)
-            }
-            false => (
-                [(0.0, 1.0), (0.3, 0.85), (0.6, 0.55), (0.85, 0.25), (1.0, 0.05)]
-                    .iter()
-                    .map(|&(t, p)| {
-                        let q = at(t);
-                        [q[0], q[1], p]
-                    })
-                    .collect(),
-                width * s * (0.8 + 0.4 * (rng.signed() + 1.0) / 2.0),
+        let l = towards(root);
+        let catches = (dir[0] * l[0] + dir[1] * l[1]).max(0.0) * 0.15;
+        let base = vary(shaded(&k.palette, (family - 0.28).max(0.0)), rng);
+        let top = vary(
+            shaded(
+                &k.palette,
+                (family + 0.12 + catches + rng.signed() * 0.05 * (0.3 + family)).clamp(0.0, 1.0),
             ),
-        };
-        let seed = spec.seed.wrapping_mul(1_299_709).wrapping_add(blades.len() as u32 * 7);
-        let mut value = json!({
-            "layer": spec.layer, "frame": spec.frame, "brush": spec.brush,
-            "color": hex(if picture { mix_lab(base, top, 0.45) } else { base }), "second": hex(top),
-            "size": size, "points": run, "seed": seed, "taper": [0.0, 0.0],
-        });
-        if let Some(part) = &spec.part {
-            value["part"] = json!(part);
+            rng,
+        );
+        if k.picture {
+            let (a, b) = (at(0.48), at(0.52));
+            let d = [(b[0] - a[0]) / 0.04, (b[1] - a[1]) / 0.04];
+            let n = (d[0] * d[0] + d[1] * d[1]).sqrt().max(1e-4);
+            push(
+                marks,
+                root[1],
+                &k.brush,
+                mix_lab(base, top, 0.7),
+                top,
+                length,
+                stamp(at(0.5), [d[0] / n, d[1] / n]),
+            )?;
+            return Ok(());
         }
-        blades.push((root[1], Op::Stroke(serde_json::from_value(value)?)));
+        let blunt = 0.04 + 0.22 * (rng.signed() + 1.0) / 2.0 * (rng.signed() > 0.3) as i32 as f32;
+        let run: Run = [
+            (0.0, 1.0),
+            (0.3, 0.85),
+            (0.6, 0.55),
+            (0.85, 0.25 + blunt * 0.5),
+            (1.0, blunt),
+        ]
+        .iter()
+        .map(|&(t, p)| {
+            let q = at(t);
+            [q[0], q[1], p]
+        })
+        .collect();
+        let size = width * k.width * s * (0.8 + 0.4 * (rng.signed() + 1.0) / 2.0);
+        push(marks, root[1], &k.brush, base, top, size, run)?;
+        if family > 0.55 && rng.signed() > -0.2 {
+            let toward = if side[0] * l[0] + side[1] * l[1] > 0.0 {
+                1.0
+            } else {
+                -1.0
+            };
+            let glint: Run = [(0.3, 0.2), (0.6, 0.8), (0.88, 0.1)]
+                .iter()
+                .map(|&(t, p)| {
+                    let q = at(t);
+                    [
+                        q[0] + side[0] * size * 0.22 * toward,
+                        q[1] + side[1] * size * 0.22 * toward,
+                        p,
+                    ]
+                })
+                .collect();
+            let shine = [top[0] + 0.06, top[1] * 0.9, top[2] * 0.9 + 0.01];
+            push(marks, root[1] + 0.01, &k.brush, shine, shine, size * 0.4, glint)?;
+        }
+        if let Some((head, share)) = &k.head {
+            let (a, b) = (at(0.96), at(1.0));
+            let d = [b[0] - a[0], b[1] - a[1]];
+            let n = (d[0] * d[0] + d[1] * d[1]).sqrt().max(1e-4);
+            let d = [d[0] / n, d[1] / n];
+            let size = length * share;
+            let centre = [b[0] + d[0] * size * 0.35, b[1] + d[1] * size * 0.35];
+            let ripe = mix_lab(top, [top[0] + 0.05, top[1] * 0.4 + 0.01, top[2] * 0.7 + 0.04], 0.6);
+            push(marks, root[1] + 0.02, head, ripe, ripe, size, stamp(centre, d))?;
+        }
         Ok(())
     };
     let gap = |y: f32| (width * scale(y) * 1.3 / spec.density.max(0.05)).max(1.0);
@@ -658,7 +904,7 @@ fn grass(doc: &Document, bundle: &Bundle, spec: &GrassSpec) -> Result<Vec<Op>> {
             if inside(&found, root) {
                 let tall = 0.75 + 0.5 * mound(root);
                 let length = spec.blade * (0.55 + 0.45 * (rng.signed() + 1.0) / 2.0);
-                blade(&mut rng, root, length, tall)?;
+                grow(&mut rng, &mut marks, root, length, tall, false)?;
             }
             x += gap(y) * 1.2;
         }
@@ -680,10 +926,17 @@ fn grass(doc: &Document, bundle: &Bundle, spec: &GrassSpec) -> Result<Vec<Op>> {
                 p[1] - n[1] * spec.blade * scale(p[1]) * 0.12,
             ];
             let length = spec.blade * (0.6 + 0.5 * (rng.signed() + 1.0) / 2.0);
-            blade(&mut rng, root, length, spec.edge * (0.8 + 0.45 * mound(root)))
+            grow(
+                &mut rng,
+                &mut marks,
+                root,
+                length,
+                spec.edge * (0.8 + 0.45 * mound(root)),
+                true,
+            )
         })?;
-    blades.sort_by(|a, b| a.0.total_cmp(&b.0));
-    Ok(blades.into_iter().map(|(_, op)| op).collect())
+    marks.sort_by(|a, b| a.0.total_cmp(&b.0));
+    Ok(marks.into_iter().map(|(_, op)| op).collect())
 }
 
 fn shapes_change(op: &Op) -> bool {
@@ -808,27 +1061,42 @@ mod tests {
         .unwrap();
         let made = expand(&b, ops.clone()).unwrap();
         assert_eq!(made, expand(&b, ops).unwrap(), "seeded");
-        let blades: Vec<(P, P, f32, String, Option<String>)> = made
+        let marks: Vec<&StrokeSpec> = made
             .iter()
             .filter_map(|o| match o {
-                Op::Stroke(s) => {
-                    let p = s.points.as_ref()?;
-                    Some((
-                        [p[0][0], p[0][1]],
-                        [p[p.len() - 1][0], p[p.len() - 1][1]],
-                        s.size,
-                        s.color.clone(),
-                        s.second.clone(),
-                    ))
-                }
+                Op::Stroke(s) => Some(s),
                 _ => None,
             })
             .collect();
-        assert!(blades.len() > 500, "{} blades", blades.len());
-        assert!(
-            blades.windows(2).all(|w| w[0].0[1] <= w[1].0[1]),
-            "far blades are drawn first"
+        let kinds: std::collections::BTreeSet<&str> = marks.iter().map(|s| s.brush.as_str()).collect();
+        assert_eq!(
+            kinds,
+            ["blade", "clover", "seed-head"].into(),
+            "the meadow mix grows several species"
         );
+        let light = |hex: &str| color::to_oklab(color::parse_hex(hex).unwrap());
+        assert!(
+            marks
+                .iter()
+                .filter(|s| s.brush == "blade" && light(&s.color)[2] > 0.09)
+                .count()
+                > 20,
+            "some blades are dry straw"
+        );
+        let blades: Vec<(P, P, String, Option<String>)> = marks
+            .iter()
+            .filter(|s| s.brush == "blade" && s.points.as_ref().is_some_and(|p| p.len() == 5))
+            .map(|s| {
+                let p = s.points.as_ref().unwrap();
+                (
+                    [p[0][0], p[0][1]],
+                    [p[4][0], p[4][1]],
+                    s.color.clone(),
+                    s.second.clone(),
+                )
+            })
+            .collect();
+        assert!(blades.len() > 400, "{} blades", blades.len());
         let long = |pick: &dyn Fn(f32) -> bool| {
             let chosen: Vec<f32> = blades
                 .iter()
@@ -844,12 +1112,21 @@ mod tests {
             blades.iter().filter(|b| b.1[1] < 140.0).count() > 10,
             "the top edge is broken by blades"
         );
-        let light = |hex: &str| color::to_oklab(color::parse_hex(hex).unwrap())[0];
         assert!(
             blades
                 .iter()
-                .all(|b| b.4.as_deref().is_some_and(|tip| light(tip) > light(&b.3))),
+                .all(|b| b.3.as_deref().is_some_and(|tip| light(tip)[0] > light(&b.2)[0])),
             "each blade is darker at the root than at the tip"
+        );
+        let heads = |pick: &dyn Fn(f32) -> bool| {
+            marks
+                .iter()
+                .filter(|s| s.brush == "seed-head" && s.points.as_ref().is_some_and(|p| pick(p[0][1])))
+                .count()
+        };
+        assert!(
+            heads(&|y| y > 220.0) > heads(&|y| y < 180.0) * 2,
+            "seed heads thin out with distance"
         );
         std::fs::remove_dir_all(&dir).unwrap();
     }

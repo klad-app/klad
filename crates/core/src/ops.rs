@@ -608,10 +608,51 @@ pub struct GrassSpec {
     pub patch: Option<f32>,
     #[serde(default = "grass_brush")]
     pub brush: String,
+    #[serde(default)]
+    pub kinds: Vec<GrassKind>,
     #[serde(default = "first_seed")]
     pub seed: u32,
     #[serde(default)]
     pub part: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GrassKind {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default = "full")]
+    pub share: f32,
+    #[serde(default)]
+    pub brush: Option<String>,
+    #[serde(default = "full")]
+    pub length: f32,
+    #[serde(default = "full")]
+    pub width: f32,
+    #[serde(default)]
+    pub curl: f32,
+    #[serde(default)]
+    pub spread: f32,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub hue: f32,
+    #[serde(default)]
+    pub head: Option<String>,
+    #[serde(default = "grass_head_size")]
+    pub head_size: f32,
+    #[serde(default)]
+    pub low: bool,
+    #[serde(default = "grass_patchy")]
+    pub patchy: f32,
+}
+
+fn grass_head_size() -> f32 {
+    0.32
+}
+
+fn grass_patchy() -> f32 {
+    0.5
 }
 
 fn grass_color() -> String {

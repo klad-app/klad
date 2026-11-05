@@ -1,0 +1,9 @@
+{
+  "format": "draw-anything-brush/1",
+  "name": "Seed head",
+  "tip": { "image": { "image": "seed-head" } },
+  "spacing": 1.0,
+  "angle": "follow",
+  "jitter": { "size": 0.2, "angle": 0.12 },
+  "color": { "value": 0.05, "saturation": 0.05 }
+}

@@ -87,10 +87,16 @@ def ops():
     out.append({"op": "grass", "layer": "field", "in": ["field-shape"], "color": COLOURS["field"], "light": LIGHT, "blade": 30,
                 "far": 0.22, "wind": 12, "seed": 11})
     out.append({"op": "fill", "layer": "bank", "shape": "bank-shape", "color": "bank deep", "expand": 0})
-    out.append({"op": "grass", "layer": "bank", "in": ["bank-shape"], "color": COLOURS["tuft"], "light": LIGHT, "blade": 165,
-                "far": 0.85, "wind": 10, "density": 0.12, "edge": 1.2, "brush": "tuft", "seed": 17})
+    kinds = [
+        {"name": "fine", "share": 0.4, "width": 0.7, "curl": 0.12},
+        {"name": "broad", "share": 0.22, "length": 0.72, "width": 1.7, "curl": 0.55, "hue": -10, "patchy": 0.6},
+        {"name": "dry", "share": 0.12, "length": 0.9, "width": 0.55, "curl": 0.3, "color": "#a99d5c"},
+        {"name": "heads", "share": 0.06, "length": 1.45, "width": 0.3, "curl": 0.1, "hue": 6, "head": "seed-head", "patchy": 0.7},
+        {"name": "tufts", "share": 0.005, "brush": "tuft", "length": 2.4, "color": COLOURS["tuft"], "patchy": 0.8},
+        {"name": "clover", "share": 0.16, "brush": "clover", "length": 0.5, "hue": -14, "low": True, "patchy": 0.85},
+    ]
     out.append({"op": "grass", "layer": "bank", "in": ["bank-shape"], "color": COLOURS["bank"], "light": LIGHT, "blade": 58,
-                "far": 0.8, "wind": 14, "edge": 1.5, "seed": 13})
+                "far": 0.8, "wind": 14, "edge": 1.5, "kinds": kinds, "seed": 13})
     return out
 
 

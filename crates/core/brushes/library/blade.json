@@ -4,5 +4,6 @@
   "tip": { "round": { "hardness": 0.85 } },
   "spacing": 0.12,
   "dynamics": { "size": { "pressure": { "min": 0.06 } } },
-  "color": { "value": 0.03, "strokeValue": 0.03, "pressure": { "min": 0.0 } }
+  "color": { "value": 0.03, "strokeValue": 0.03, "pressure": { "min": 0.0 } },
+  "grain": { "paper": { "seed": 31, "feature": 2 }, "strength": 0.18 }
 }

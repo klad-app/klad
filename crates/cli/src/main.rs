@@ -1200,6 +1200,11 @@ enum Command {
         patch: Option<f32>,
         #[arg(long, default_value = "blade")]
         brush: String,
+        #[arg(
+            long,
+            help = "The species, as JSON: [{\"name\":\"fine\",\"share\":0.5,\"width\":0.7},{\"brush\":\"my-clover\",\"low\":true,\"share\":0.2}] (default: a meadow mix of fine, broad, dry, seed heads and clover)"
+        )]
+        kinds: Option<String>,
         #[arg(long, default_value_t = 1)]
         seed: u32,
         #[arg(long, default_value_t = 0)]
@@ -2574,11 +2579,18 @@ fn run() -> Result<()> {
             edge,
             patch,
             brush,
+            kinds,
             seed,
             frame,
             part,
             flags,
         } => {
+            let kinds = match kinds {
+                Some(text) => {
+                    serde_json::from_str(&text).map_err(|e| anyhow!("--kinds is not a list of species: {e}"))?
+                }
+                None => Vec::new(),
+            };
             let lamp = lamp
                 .as_deref()
                 .map(|l| -> Result<[f32; 3]> {
@@ -2604,6 +2616,7 @@ fn run() -> Result<()> {
                 edge,
                 patch,
                 brush,
+                kinds,
                 seed,
                 part,
             };

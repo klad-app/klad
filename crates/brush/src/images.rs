@@ -209,6 +209,37 @@ fn leaf_twig(u: f32, v: f32) -> f32 {
         .max(small(-0.35, 0.3, 0.95, 0.36))
 }
 
+fn seed_head(u: f32, v: f32) -> f32 {
+    let stem = match u > -1.0 && u < 0.92 {
+        true => 1.0 - smoothstep(0.018, 0.035, (v - 0.04 * u * u).abs()),
+        false => 0.0,
+    };
+    (0..9).fold(stem, |most, k| {
+        let along = -0.7 + 0.18 * k as f32;
+        let side = if k % 2 == 0 { 1.0 } else { -1.0 };
+        let turn = side * (0.75 - 0.04 * k as f32);
+        let (s, c) = (libm::sinf(turn), libm::cosf(turn));
+        let (du, dv) = (u - along - 0.1, v - 0.04 * along * along - side * 0.1);
+        let (lu, lv) = ((du * c + dv * s) / 0.2, (dv * c - du * s) / 0.2);
+        most.max(blade(lu, lv, 0.28 * libm::powf((1.0 - lu * lu).max(0.0), 0.7), 0.0))
+    })
+}
+
+fn trefoil(u: f32, v: f32) -> f32 {
+    (0..3).fold(0.0f32, |most, k| {
+        let a = -std::f32::consts::FRAC_PI_2 + k as f32 * std::f32::consts::TAU / 3.0;
+        let (cx, cy) = (0.36 * libm::cosf(a), 0.36 * libm::sinf(a));
+        let lobe = |ox: f32, oy: f32| {
+            let d = libm::sqrtf((u - cx - ox).powi(2) + (v - cy - oy).powi(2));
+            1.0 - smoothstep(0.24, 0.3, d)
+        };
+        let (px, py) = (-libm::sinf(a) * 0.1, libm::cosf(a) * 0.1);
+        let vein =
+            1.0 - 0.5 * (1.0 - smoothstep(0.012, 0.03, ((u - cx) * libm::sinf(a) - (v - cy) * libm::cosf(a)).abs()));
+        most.max(lobe(px, py).max(lobe(-px, -py)) * vein)
+    })
+}
+
 fn grass(u: f32, v: f32) -> f32 {
     let height = (1.0 - v) / 2.0;
     (0..5).fold(0.0f32, |most, k| {
@@ -247,6 +278,8 @@ pub fn library_tip(name: &str) -> Option<TipMask> {
         "leaf-lance" => leaf_lance,
         "leaf-lobed" => leaf_lobed,
         "leaf-twig" => leaf_twig,
+        "seed-head" => seed_head,
+        "trefoil" => trefoil,
         _ => return None,
     };
     let data = (0..TIP_SIZE * TIP_SIZE)

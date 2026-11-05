@@ -22,6 +22,8 @@ const LIBRARY: &[(&str, &str)] = &[
     ("leaves", include_str!("../brushes/library/leaves.json")),
     ("grass", include_str!("../brushes/library/grass.json")),
     ("blade", include_str!("../brushes/library/blade.json")),
+    ("seed-head", include_str!("../brushes/library/seed-head.json")),
+    ("clover", include_str!("../brushes/library/clover.json")),
     ("splatter", include_str!("../brushes/library/splatter.json")),
     ("wet", include_str!("../brushes/library/wet.json")),
     ("smudge", include_str!("../brushes/library/smudge.json")),
@@ -96,7 +98,7 @@ pub enum TipDef {
     },
 }
 
-pub const TIP_IMAGES: [&str; 10] = [
+pub const TIP_IMAGES: [&str; 12] = [
     "bristle-flat",
     "bristle-round",
     "sponge",
@@ -107,6 +109,8 @@ pub const TIP_IMAGES: [&str; 10] = [
     "leaf-lance",
     "leaf-lobed",
     "leaf-twig",
+    "seed-head",
+    "trefoil",
 ];
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -532,7 +536,7 @@ mod tests {
             let back = BrushDef::parse(&def.to_json().unwrap()).unwrap();
             assert_eq!(back, def, "{id}");
         });
-        assert_eq!(library_ids().len(), 22);
+        assert_eq!(library_ids().len(), 24);
         assert!(library("ink").unwrap().taper[1] > 0.0);
         assert_eq!(legacy_m1("ink").unwrap().taper, [0.0, 0.0]);
         assert!(legacy_m1("marker").is_none());
