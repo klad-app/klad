@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-pub const NATIVE: bool = cfg!(target_os = "macos");
+pub const NATIVE: bool = cfg!(target_os = "macos") || !cfg!(test);
 
 #[cfg(target_os = "macos")]
 pub fn choose_folder(start: Option<&Path>, prompt: &str) -> Option<PathBuf> {
@@ -37,11 +37,20 @@ fn choose(start: Option<&Path>, prompt: &str, folders: bool) -> Option<PathBuf> 
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn choose_folder(_start: Option<&Path>, _prompt: &str) -> Option<PathBuf> {
-    None
+fn dialog(start: Option<&Path>, prompt: &str) -> rfd::FileDialog {
+    let dialog = rfd::FileDialog::new().set_title(prompt);
+    match start.filter(|d| d.is_dir()) {
+        Some(dir) => dialog.set_directory(dir),
+        None => dialog,
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn choose_file(_start: Option<&Path>, _prompt: &str) -> Option<PathBuf> {
-    None
+pub fn choose_folder(start: Option<&Path>, prompt: &str) -> Option<PathBuf> {
+    dialog(start, prompt).pick_folder()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn choose_file(start: Option<&Path>, prompt: &str) -> Option<PathBuf> {
+    dialog(start, prompt).pick_file()
 }

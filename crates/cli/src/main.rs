@@ -11,6 +11,7 @@ mod fonts;
 mod frames;
 mod history;
 mod inbetween;
+mod install;
 mod layers;
 mod looks;
 mod marks;
@@ -41,10 +42,15 @@ use marks::{fill_json, hex8, stroke_json};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+const VERSION: &str = match env!("KLAD_BUILD").is_empty() {
+    true => env!("CARGO_PKG_VERSION"),
+    false => concat!(env!("CARGO_PKG_VERSION"), " (", env!("KLAD_BUILD"), ")"),
+};
+
 #[derive(Parser)]
 #[command(
     name = "klad",
-    version,
+    version = VERSION,
     about = "klad: draw and paint with an agent, from the command line"
 )]
 struct Cli {
@@ -1486,6 +1492,16 @@ enum Command {
         alias = "licenses"
     )]
     Licences,
+    #[command(
+        about = "Put klad on the terminal's path, for you and for agents",
+        long_about = "Put klad on the terminal's path, for you and for agents. macOS: a link in /usr/local/bin (asks for your password when that folder is not yours). Linux: a link in ~/.local/bin. Windows: this folder is added to your PATH. --dir puts the link in another folder.\n\n  klad install\n  klad install --dir ~/bin"
+    )]
+    Install {
+        #[arg(long)]
+        dir: Option<PathBuf>,
+    },
+    #[command(about = "Print the agent skill: how an agent draws with klad (the same text as docs/skill/SKILL.md)")]
+    Skill,
     #[command(about = "Measure stroke storage, brush speed, replay, cache and compositing")]
     Bench {
         #[arg(long, default_value_t = 10_000)]
@@ -1495,7 +1511,7 @@ enum Command {
         #[arg(long, default_value_t = 1)]
         seed: u64,
     },
-    #[cfg(target_os = "macos")]
+    #[cfg(feature = "editor")]
     #[command(about = "Open the editor, on a bundle or on the start window (new, open, recent)")]
     Open { bundle: Option<PathBuf> },
 }
@@ -2865,8 +2881,10 @@ fn run() -> Result<()> {
         )?,
         Command::Watch { bundle, poll, seconds } => edit::watch(&bundle, poll, seconds)?,
         Command::Licences => print!("{}\n{}", klad_core::notices::LICENSE, klad_core::notices::NOTICES),
+        Command::Install { dir } => install::install(dir.as_deref())?,
+        Command::Skill => print!("{}", include_str!("../../../docs/skill/SKILL.md")),
         Command::Bench { strokes, size, seed } => bench::run(strokes, size, seed)?,
-        #[cfg(target_os = "macos")]
+        #[cfg(feature = "editor")]
         Command::Open { bundle } => klad_app::run(bundle)?,
     }
     Ok(())

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>klad</string>
+  <key>CFBundleDisplayName</key>
+  <string>klad</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.indicode.klad</string>
+  <key>CFBundleExecutable</key>
+  <string>klad-editor</string>
+  <key>CFBundleIconFile</key>
+  <string>klad.icns</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>@VERSION@</string>
+  <key>CFBundleVersion</key>
+  <string>@BUILD@</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>12.0</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.graphics-design</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSHumanReadableCopyright</key>
+  <string>Copyright Indicode BV</string>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>klad drawing</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Owner</string>
+      <key>LSTypeIsPackage</key>
+      <true/>
+      <key>CFBundleTypeIconFile</key>
+      <string>klad.icns</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>com.indicode.klad.drawing</string>
+      </array>
+    </dict>
+  </array>
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>com.indicode.klad.drawing</string>
+      <key>UTTypeDescription</key>
+      <string>klad drawing</string>
+      <key>UTTypeIconFile</key>
+      <string>klad.icns</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>com.apple.package</string>
+        <string>public.composite-content</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>draw</string>
+        </array>
+      </dict>
+    </dict>
+  </array>
+</dict>
+</plist>

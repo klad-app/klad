@@ -1,0 +1,11 @@
+#!/bin/sh
+here="$(dirname "$(readlink -f "$0")")"
+export KLAD_FONTS="$here/usr/share/klad/fonts"
+case "$(basename "${ARGV0:-$0}")" in
+  klad) exec "$here/usr/bin/klad" "$@" ;;
+esac
+if [ "$1" = "klad" ]; then
+  shift
+  exec "$here/usr/bin/klad" "$@"
+fi
+exec "$here/usr/bin/klad-editor" "$@"

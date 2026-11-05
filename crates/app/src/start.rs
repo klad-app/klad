@@ -403,8 +403,8 @@ fn fit(size: egui::Vec2) -> egui::Vec2 {
 }
 
 pub fn expand(text: &str) -> PathBuf {
-    match (text.strip_prefix("~/"), std::env::var_os("HOME")) {
-        (Some(rest), Some(home)) => PathBuf::from(home).join(rest),
+    match (text.strip_prefix("~/"), crate::places::home()) {
+        (Some(rest), Some(home)) => home.join(rest),
         _ => PathBuf::from(text),
     }
 }
@@ -437,8 +437,10 @@ pub(crate) fn draw_binary() -> Option<PathBuf> {
     if exe.file_stem().is_some_and(|s| s == "klad") {
         return Some(exe);
     }
-    let sibling = exe.parent()?.parent()?.join("klad");
-    sibling.is_file().then_some(sibling)
+    let name = format!("klad{}", std::env::consts::EXE_SUFFIX);
+    [exe.parent()?.join(&name), exe.parent()?.parent()?.join(&name)]
+        .into_iter()
+        .find(|p| p.is_file())
 }
 
 fn modified(path: &Path) -> Option<SystemTime> {

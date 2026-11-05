@@ -3391,6 +3391,7 @@ DEALINGS IN THE SOFTWARE.
 ### MIT License
 
 Used by:
+- pollster 0.4.0 (https://github.com/zesterer/pollster)
 - pollster 1.0.1 (https://github.com/zesterer/pollster)
 
 ```text
@@ -4286,12 +4287,72 @@ SOFTWARE.
 ### MIT License
 
 Used by:
+- rfd 0.17.2 (https://github.com/PolyMeilex/rfd)
+
+```text
+MIT License
+
+Copyright (c) 2020 Bilal Elmoussaoui
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+```
+
+### MIT License
+
+Used by:
 - xcursor 0.3.11 (https://github.com/esposm03/xcursor-rs)
 
 ```text
 MIT License
 
 Copyright (c) 2020 Samuele Esposito
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+```
+
+### MIT License
+
+Used by:
+- rfd 0.17.2 (https://github.com/PolyMeilex/rfd)
+
+```text
+MIT License
+
+Copyright (c) 2022 Bartłomiej Maryńczak
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -4452,6 +4513,7 @@ Used by:
 - accesskit_windows 0.35.2 (https://github.com/AccessKit/accesskit)
 - block2 0.5.1 (https://github.com/madsmtm/objc2)
 - block2 0.6.2 (https://github.com/madsmtm/objc2)
+- dispatch2 0.3.1 (https://github.com/madsmtm/objc2)
 - dispatch 0.2.0 (http://github.com/SSheldon/rust-dispatch)
 - dpi 0.1.2 (https://github.com/rust-windowing/winit)
 - ecolor 0.37.0 (https://github.com/emilk/egui)

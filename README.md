@@ -38,24 +38,35 @@ klad ink courier.draw lines --from shell-4,head-4,near-leg-4 --weight 5 --frame 
 
 Early, and open for testing. What works today:
 
-- The `klad` CLI on macOS and Linux: layers, brush strokes, vector shapes, fills, inking, painting from shapes, light, effects, depth and fog, text in about fifty open fonts that come with it (and any other Google Fonts family on request), frames and clips, in-betweens, exports.
-- The editor on macOS: a pen with pressure and tilt, brushes, layers, masks, a text tool, the timeline, onion skins, notes for the agent, and a start window for new and recent drawings.
-- Coming next: downloadable builds for macOS, Windows and Linux, the editor on Windows and Linux, and an agent inside the editor you sign in to, so you never need a terminal.
+- The `klad` CLI on macOS, Linux and Windows: layers, brush strokes, vector shapes, fills, inking, painting from shapes, light, effects, depth and fog, text in about fifty open fonts that come with it (and any other Google Fonts family on request), frames and clips, in-betweens, exports.
+- The editor on macOS, and in a first version on Windows and Linux: a pen with pressure and tilt (pressure only on Windows; on Linux the mouse for now), brushes, layers, masks, a text tool, the timeline, onion skins, notes for the agent, and a start window for new and recent drawings.
+- Coming next: an agent inside the editor you sign in to, so you never need a terminal.
 
 ![The start window](docs/images/start-window.png)
 
 ## Try it
 
-There are no downloads yet; build it from source (about ten minutes the first time).
+Download klad from the [releases page](https://github.com/klad-app/klad/releases):
 
-1. Install Rust with [rustup](https://rustup.rs) and [`just`](https://github.com/casey/just) (`brew install just`, or `cargo install just`). On Linux also `pkg-config`, `libfreetype-dev` and `libfontconfig1-dev`.
-2. `git clone https://github.com/klad-app/klad && cd klad`, then `just build` makes the `klad` binary in `target/release/` (on Linux in `target/linux/release/`).
-3. On a Mac, `target/release/klad open` starts the editor on its start window: make a drawing and start painting.
+- macOS: `klad-<version>-macos.dmg`. Drag klad to Applications. The app is not signed yet: the first time, right click it and choose Open. In the editor, the document menu's "install the klad command" puts `klad` on your terminal's path for you and for agents.
+- Windows: `klad-<version>-windows-x86_64.zip`. Unzip it anywhere and start `klad-editor.exe`; `klad.exe install` adds the folder to your PATH.
+- Linux: `klad-<version>-<arch>.AppImage` (make it executable and run it), or the `tar.gz` with `klad` and `klad-editor`; `klad install` links `klad` into `~/.local/bin`.
+
+Every download holds the same `klad` command line tool, the editor, the fonts, the licences and the agent skill (`klad skill` prints it). The editor checks the releases page once a day for a new version and says so; it installs nothing by itself (turn it off in the settings window).
+
+### From source
+
+Building takes about ten minutes the first time.
+
+1. Install Rust with [rustup](https://rustup.rs) and [`just`](https://github.com/casey/just) (`brew install just`, or `cargo install just`). On Linux also `pkg-config`, `libfreetype-dev`, `libfontconfig1-dev`, `libxkbcommon-dev` and `libwayland-dev`.
+2. `git clone https://github.com/klad-app/klad && cd klad`, then `just build` makes `klad` and `klad-editor` in `target/release/` (on Linux in `target/linux/release/`).
+3. `target/release/klad open` starts the editor on its start window: make a drawing and start painting.
 4. `just samples` builds the sample drawings in `samples/` (a lantern, a walking creature, a running courier, an underground ruin, an inn sign, a tree, a meadow, painted solids, a bowl of lemons, a bouncing ball, ink examples); open one with `target/release/klad open samples/lantern/lantern.draw`.
+5. `just app` makes `klad.app` and a disk image on a Mac; `just dist` makes the archive for the machine you are on (`just dist x86_64-pc-windows-msvc` for another target).
 
 ## Drawing with an agent
 
-Any coding agent that can run commands (Claude Code, Codex and others) can draw. Give it `docs/skill/SKILL.md` as its instructions (it is written as an agent skill) and the path to a drawing, then ask:
+Any coding agent that can run commands (Claude Code, Codex and others) can draw. Give it `docs/skill/SKILL.md` (or the output of `klad skill`) as its instructions (it is written as an agent skill) and the path to a drawing, then ask:
 
 ```sh
 target/release/klad new art.draw --width 1600 --height 1200 --background '#e9e4da' --sketch

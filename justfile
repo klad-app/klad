@@ -21,6 +21,15 @@ lint:
 samples: build
     for s in lantern ink-shapes bounce creature courier solids lemons ruin sign tree meadow; do FORCE=1 bash samples/$s/build.sh >/dev/null && echo "samples/$s/$s.draw"; done
 
+app:
+    bash packaging/macos/app.sh
+
+dist target=`rustc -vV | sed -n 's/^host: //p'`:
+    bash packaging/archive.sh {{target}}
+
+icon: build
+    KLAD={{klad}} bash packaging/icon/build.sh
+
 notices:
     bash licenses/notices.sh
 

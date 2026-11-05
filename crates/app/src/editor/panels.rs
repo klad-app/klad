@@ -263,6 +263,7 @@ impl Editor {
                     (Cmd::Export, "export"),
                     (Cmd::AddFont, "add a font"),
                     (Cmd::CopyPath, "copy path"),
+                    (Cmd::InstallCommand, "install the klad command"),
                     (Cmd::About, "about and licences"),
                 ]
                 .into_iter()
@@ -278,10 +279,16 @@ impl Editor {
             ));
     }
 
-    fn about_panel(ui: &mut egui::Ui) {
+    fn about_panel(ui: &mut egui::Ui, update: Option<&crate::updates::Release>) {
         static LINES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
         let lines = LINES.get_or_init(|| klad_core::notices::NOTICES.lines().collect());
-        ui.label(RichText::new(format!("klad {}", env!("CARGO_PKG_VERSION"))).strong());
+        ui.label(RichText::new(format!("klad {}", crate::VERSION)).strong());
+        if let Some(release) = update {
+            ui.horizontal(|ui| {
+                ui.label(crate::updates::summary(release));
+                ui.hyperlink_to("what changed", &release.url);
+            });
+        }
         ui.label("Source-available licence, copyright Indicode BV. Built on the open source work listed below; klad licences prints the same.");
         ui.add_space(6.0);
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
@@ -626,7 +633,7 @@ impl Editor {
                 "about",
                 (format!("{} About klad", icon::INFO), settings_at),
                 &mut open,
-                Self::about_panel,
+                |ui| Self::about_panel(ui, self.update.as_ref()),
             );
             self.windows.about &= open;
         }

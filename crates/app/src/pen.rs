@@ -38,8 +38,51 @@ pub fn device_key(device: u64) -> String {
     }
 }
 
+fn from_touches(events: &[egui::Event], at: Instant) -> Vec<PenEvent> {
+    let first = events.iter().find_map(|e| match e {
+        egui::Event::Touch { id, force: Some(_), .. } => Some(*id),
+        _ => None,
+    });
+    events
+        .iter()
+        .filter_map(|e| match e {
+            egui::Event::Touch {
+                device_id,
+                id,
+                phase,
+                pos,
+                force: Some(force),
+            } if Some(*id) == first => {
+                let phase = match phase {
+                    egui::TouchPhase::Start => Phase::Down,
+                    egui::TouchPhase::Move => Phase::Move,
+                    egui::TouchPhase::End | egui::TouchPhase::Cancel => Phase::Up,
+                };
+                Some(PenEvent {
+                    phase,
+                    pos: *pos,
+                    pressure: match phase {
+                        Phase::Up => 0.0,
+                        _ => force.clamp(0.0, 1.0),
+                    },
+                    tilt: (0.0, 0.0),
+                    eraser: false,
+                    tablet: true,
+                    device: device_id.0,
+                    at,
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 pub fn from_egui(events: &[egui::Event]) -> Vec<PenEvent> {
     let at = Instant::now();
+    let touches = from_touches(events, at);
+    if !touches.is_empty() {
+        return touches;
+    }
     let event = |phase, pos, pressure| PenEvent {
         phase,
         pos,
@@ -269,6 +312,41 @@ mod tests {
         assert_eq!(pen.len(), 2);
         assert_eq!(pen[0].phase, Phase::Down);
         assert_eq!(pen[1].pos, egui::pos2(3.0, 4.0));
+    }
+
+    #[test]
+    fn a_pen_reported_as_touches_with_force_draws_with_its_pressure() {
+        let touch = |phase, x: f32, force| egui::Event::Touch {
+            device_id: egui::TouchDeviceId(7),
+            id: egui::TouchId(1),
+            phase,
+            pos: egui::pos2(x, 5.0),
+            force,
+        };
+        let events = [
+            touch(egui::TouchPhase::Start, 1.0, Some(0.2)),
+            egui::Event::PointerButton {
+                pos: egui::pos2(1.0, 5.0),
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+            touch(egui::TouchPhase::Move, 2.0, Some(0.7)),
+            egui::Event::PointerMoved(egui::pos2(2.0, 5.0)),
+            touch(egui::TouchPhase::End, 2.0, Some(0.0)),
+        ];
+        let pen = from_egui(&events);
+        assert_eq!(
+            pen.iter().map(|e| (e.phase, e.pressure)).collect::<Vec<_>>(),
+            [(Phase::Down, 0.2), (Phase::Move, 0.7), (Phase::Up, 0.0)],
+            "the pointer events egui makes from the same touch are not drawn twice"
+        );
+        assert!(pen.iter().all(|e| e.tablet && e.device == 7));
+        let finger = [touch(egui::TouchPhase::Start, 1.0, None)];
+        assert!(
+            from_egui(&finger).is_empty(),
+            "touches without force stay pointer input"
+        );
     }
 
     #[test]

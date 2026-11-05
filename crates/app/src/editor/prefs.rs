@@ -95,6 +95,15 @@ impl Editor {
                 self.settings_dirty = true;
             }
         });
+        let mut check = self.settings.check_updates;
+        if ui
+            .checkbox(&mut check, "check for a new version once a day")
+            .hint("asks the release page on GitHub at most once a day; nothing is installed without you")
+            .changed()
+        {
+            self.settings.check_updates = check;
+            self.settings_dirty = true;
+        }
     }
 
     pub(super) fn keys_section(&mut self, ui: &mut egui::Ui) {

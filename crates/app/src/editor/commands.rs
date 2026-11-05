@@ -2,6 +2,7 @@ use super::selection::Selected;
 use super::tweens::{self, SpanAction};
 use super::{Editor, Tool};
 use crate::commands::{Cmd, Repeat};
+use crate::jobs::{Spec, Tag};
 use crate::layout::Pane;
 use crate::messages::Tone;
 use crate::stats::{Stats, lock};
@@ -587,6 +588,7 @@ impl Editor {
             Cmd::ShowGaps => self.show_gaps()?,
             Cmd::ShowParts => self.checks.parts = !self.checks.parts,
             Cmd::ShowArcs => self.show_arcs()?,
+            Cmd::InstallCommand => self.start_job(install_job()),
             Cmd::CopyPath => {
                 let path = self.scene.bundle.root.display().to_string();
                 self.ctx.copy_text(path.clone());
@@ -907,5 +909,18 @@ impl Editor {
                 theme::WEAK,
             );
         }
+    }
+}
+
+pub(crate) fn install_job() -> Spec {
+    Spec {
+        tag: Tag::Install,
+        name: "install the klad command".into(),
+        exe: std::path::PathBuf::new(),
+        args: vec!["install".into()],
+        env: Vec::new(),
+        reruns: 0,
+        summary: |out, _| out.lines().next().unwrap_or_default().to_string(),
+        failure: |_, err| err.lines().last().unwrap_or_default().to_string(),
     }
 }

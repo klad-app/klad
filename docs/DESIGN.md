@@ -1,4 +1,4 @@
-_Last updated: 2026-11-05 20:00_
+_Last updated: 2026-11-05 20:26_
 
 # klad: design
 
@@ -23,11 +23,13 @@ crates/
   core     document model, ids, timeline, stroke format, bundle IO, op log
   brush    tile store, brush engine, stroke replay, checkpoints
   render   compositing, vector rendering, filters, overlays (Skia, CPU raster)
-  cli      the `klad` binary
-  app      the editor (macOS first), behind the `editor` feature
+  cli      the `klad` binary, and `klad-editor`
+  app      the editor, behind the `editor` feature (on by default)
 ```
 
-One binary, `klad`. `klad open [bundle]` launches the editor, on the bundle or, without one, on the start window (new, open, recent). The Linux build (agent container) has no editor; the macOS build has both.
+Two binaries from one crate: `klad`, the command line, and `klad-editor`, the editor alone (a windowed program on Windows, the executable of `klad.app` on a Mac, started by the Linux AppImage). `klad open [bundle]` launches the same editor from the command line, on the bundle or, without one, on the start window (new, open, recent). `--no-default-features` builds `klad` without the editor. `klad --version` and the editor's About show the version and `git describe` of the commit it was built from (`crates/version.rs`, shared by both crates' build scripts; `KLAD_BUILD` overrides it).
+
+**Platforms and packaging (M7).** Folders follow each platform: settings in `~/Library/Application Support/klad`, `%APPDATA%\klad` or `$XDG_CONFIG_HOME/klad`; downloaded fonts in the same places' data folder; drawings in `~/Drawings` by default. The open panel is `NSOpenPanel` on macOS and `rfd` elsewhere (the XDG portal on Linux, the common dialog on Windows). The pen: macOS reads `NSEvent`; elsewhere a pen that the system reports as a touch with force (Windows pens through `WM_POINTER`) draws with that pressure (`pen::from_egui`), and anything else draws as a mouse at full pressure; Linux tablets report no pressure through `winit` yet. `packaging/` makes the downloads: `macos/app.sh` builds `klad.app` (both binaries, lipo'd when several targets are given, the fonts, licences and skill in `Resources`, `.draw` declared as a document package of type `com.indicode.klad.drawing` so Finder shows a drawing as one item and opens it in klad) and a disk image; `archive.sh <target>` builds a `tar.gz` or `zip` with both binaries, `fonts/`, the licences and `SKILL.md`, and an AppImage on Linux when `APPIMAGETOOL` is set; `icon/` draws the icon in klad and packs `klad.icns` and `klad.ico`. Builds use the `dist` profile (no debug info, stripped, thin LTO); the samples hash the same from it. The fonts are found next to the binary (`fonts/`), in `../Resources/fonts` or `../share/klad/fonts`. On macOS a drawing opened from Finder arrives as an `application:openURLs:` message, which klad adds to `NSObject` before the event loop starts so it reaches whatever delegate `winit` installs; the paths queue up (`opened.rs`) and the start window or editor opens the last. `klad install` puts `klad` on the terminal's path (a link in `/usr/local/bin` through an administrator prompt on macOS, `~/.local/bin` on Linux, the user's `PATH` on Windows); the editor's document menu runs it as a job. `klad skill` prints the agent skill compiled into the binary. The `release` workflow (`.github/workflows`) builds all of it on a version tag and publishes it with checksums; `check` runs lint, tests and the audit on every pull request, tests on macOS and builds on Windows. The editor asks the GitHub releases API at most once a day (`updates.rs`, curl on a thread, off in the settings window) and, when a newer version is out, says so in the start window, the message line and About, with a link to what changed; it installs nothing.
 
 ### Stack
 
@@ -39,6 +41,7 @@ One binary, `klad`. `klad open [bundle]` launches the editor, on the bundle or, 
 | Editor window and GPU display | `winit` + `wgpu` (Metal), through `eframe` | The GPU only shows CPU-made tiles: pan, zoom, rotate, overlays |
 | Editor panels | `egui` | Fast to build, proven in pro tools (Rerun) |
 | Pen input (macOS) | `NSEvent` local monitor through `objc2-app-kit` | `winit` only reports trackpad pressure; the monitor gives tablet pressure, tilt and the eraser end at full rate |
+| File dialogs (Windows, Linux) | `rfd` | The platform's own dialog (the XDG portal on Linux); macOS keeps `NSOpenPanel` |
 | Compression | `zstd` | Stroke files and cache tiles |
 
 klad is source-available, not open source: the PolyForm Internal Use License 1.0.0 with a personal-use permission, copyright Indicode BV (`LICENSE`). Every dependency is permissive: MIT, Apache-2.0, BSD-2/3, ISC, Zlib, BSL-1.0, Unicode-3.0, CC0-1.0, and for the fonts the editor shows its interface in, OFL-1.1 and the Ubuntu Font Licence. No GPL, LGPL or MPL unless dual licensed with one of these (two crates are, and are taken as `self_cell` under Apache-2.0 and `r-efi` under MIT). `deny.toml` holds the list, RustSec advisories, yanked versions and crates.io as the only source; `just audit` checks it with `cargo deny` and that `THIRD-PARTY-NOTICES.md` is current (`just notices` makes it with `cargo about`, plus the parts Cargo does not see: Skia's built-in libraries and the fonts, from `licenses/bundled/`). `klad licences` and the editor's About window show the same text.
@@ -66,7 +69,8 @@ Direct dependencies, checked 2026-11-04 (all on their latest release; `cargo aud
 | `libc` | cli | default SIGPIPE handling, so piping `klad` into `head` ends quietly | MIT OR Apache-2.0 |
 | `eframe`, `egui`, `egui-wgpu` 0.37 | app | the editor's window, GPU display and panels | MIT OR Apache-2.0 (egui's fonts: OFL-1.1, Ubuntu Font Licence) |
 | `pollster` | app | blocking on wgpu setup | Apache-2.0 OR MIT |
-| `objc2`, `objc2-app-kit`, `objc2-foundation`, `block2` | app, macOS | the pen through NSEvent, the open panel | MIT |
+| `objc2`, `objc2-app-kit`, `objc2-foundation`, `block2` | app, macOS | the pen through NSEvent, the open panel, drawings opened from Finder | MIT |
+| `rfd` 0.17 | app, Windows and Linux | the open panel (XDG portal, Windows common dialog) | MIT |
 | `egui_kittest` (dev) | app tests | headless UI tests | MIT OR Apache-2.0 |
 
 Accepted warnings: `zvariant`, `zvariant_derive` and `zbus_names` (unmaintained) and `async-executor` 1.14.0 (yanked) come only through eframe's Linux accessibility (`accesskit_unix`) and wait on eframe moving to zbus 6.

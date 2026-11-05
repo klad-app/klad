@@ -79,6 +79,14 @@ pub struct Settings {
     pub documents: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub drawings: Option<String>,
+    #[serde(default = "yes", rename = "checkUpdates")]
+    pub check_updates: bool,
+    #[serde(default, rename = "updatesChecked")]
+    pub updates_checked: u64,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -94,6 +102,8 @@ impl Default for Settings {
             defaults: Defaults::default(),
             documents: Vec::new(),
             drawings: None,
+            check_updates: true,
+            updates_checked: 0,
         }
     }
 }
@@ -123,12 +133,7 @@ pub fn default_path() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("KLAD_SETTINGS") {
         return Some(PathBuf::from(path));
     }
-    let home = PathBuf::from(std::env::var_os("HOME")?);
-    let config = match cfg!(target_os = "macos") {
-        true => home.join("Library/Application Support"),
-        false => std::env::var_os("XDG_CONFIG_HOME").map_or(home.join(".config"), PathBuf::from),
-    };
-    Some(carried_over(&config))
+    Some(carried_over(&crate::places::config()?))
 }
 
 pub fn carried_over(config: &Path) -> PathBuf {
@@ -198,13 +203,9 @@ impl Settings {
     }
 
     pub fn drawings_folder(&self) -> PathBuf {
-        self.drawings.as_ref().map_or_else(
-            || {
-                std::env::var_os("HOME")
-                    .map_or_else(|| PathBuf::from("Drawings"), |h| PathBuf::from(h).join("Drawings"))
-            },
-            PathBuf::from,
-        )
+        self.drawings
+            .as_ref()
+            .map_or_else(crate::places::drawings, PathBuf::from)
     }
 
     pub fn used(&mut self, hex: &str) -> bool {

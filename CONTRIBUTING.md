@@ -11,10 +11,10 @@ Thank you for looking. klad is young and changes fast; issues with a drawing tha
 ## Building
 
 - Rust through [rustup](https://rustup.rs); `rust-toolchain.toml` picks the version. [`just`](https://github.com/casey/just) runs the recipes.
-- macOS: the Xcode command line tools. Linux: `pkg-config`, `libfreetype-dev` and `libfontconfig1-dev`. Windows is not tested yet.
+- macOS: the Xcode command line tools. Linux: `pkg-config`, `libfreetype-dev`, `libfontconfig1-dev`, `libxkbcommon-dev` and `libwayland-dev`. Windows: Visual Studio's C++ build tools; the check on every pull request builds it there.
 - The first build downloads a prebuilt Skia for your platform (`skia-bindings` does this), so it needs network once.
 - `just build`, `just test`, `just lint`. They build into `target/` on macOS and `target/linux` on Linux, so one checkout can be built from both. `just audit` needs [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny) and [`cargo-about`](https://github.com/EmbarkStudios/cargo-about) (`cargo install cargo-deny --locked` and `cargo install cargo-about --locked --features cli`).
-- The editor is `klad open`. Its panels are tested headless with `egui_kittest`; `cargo test -p klad-app -- --ignored editor_picture` (the editor with a sample drawing on its canvas), `start_pictures` and `just ui-pictures` write pictures of the UI to `scratch/ui/`.
+- The editor is `klad open`, or `klad-editor` on its own (the app on a Mac, the program to start on Windows). `cargo build --no-default-features -p klad-cli` builds `klad` without the editor, for servers. Its panels are tested headless with `egui_kittest`; `cargo test -p klad-app -- --ignored editor_picture` (the editor with a sample drawing on its canvas), `start_pictures` and `just ui-pictures` write pictures of the UI to `scratch/ui/`.
 
 ## The rules the code follows
 
@@ -36,3 +36,9 @@ These come from `CLAUDE.md`, which is also the guide for coding agents working o
 3. Describe what changed and how you checked it; for anything visual, attach a render (`klad render`) before and after.
 
 By sending a contribution you agree that Indicode BV may publish it under the licence of the project.
+
+## Releases
+
+1. Move the changes under "Unreleased" in `CHANGELOG.md` to a section `## x.y.z (date)` and bump `version` in the workspace `Cargo.toml`.
+2. Commit, tag `vx.y.z` and push the tag. The `release` workflow runs the checks, builds the macOS app and disk image (arm64 and x86_64 in one), `klad` archives for macOS, Linux (x86_64, arm64, also as AppImages) and Windows, writes `checksums.txt` and publishes them with that section of the changelog as the notes.
+3. The builds are not signed or notarised yet; the README says how to open them.

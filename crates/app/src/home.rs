@@ -1,9 +1,11 @@
 use crate::editor::{Editor, Want};
 use crate::gpu::CanvasGpu;
+use crate::messages::Tone;
 use crate::picker;
 use crate::settings::{self, Settings};
 use crate::start::{self, Section, Start};
 use crate::theme;
+use crate::updates;
 use anyhow::{Result, anyhow};
 use egui::RichText;
 use egui_wgpu::wgpu;
@@ -12,6 +14,7 @@ use std::path::{Path, PathBuf};
 const WIDTH: f32 = 760.0;
 
 pub fn run(path: Option<PathBuf>) -> Result<()> {
+    crate::opened::listen();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(start::title(path.as_deref()))
@@ -41,6 +44,8 @@ pub(crate) struct Home {
     pub(crate) settings_path: Option<PathBuf>,
     gpu: Option<egui_wgpu::RenderState>,
     themed: bool,
+    pub(crate) update: Option<crate::updates::Release>,
+    checking: bool,
 }
 
 impl Home {
@@ -52,6 +57,14 @@ impl Home {
         let settings_path = settings::default_path();
         let settings = settings_path.as_deref().map(Settings::load).unwrap_or_default();
         let mut home = Self::with(settings, settings_path, Some(gpu));
+        if updates::due(
+            home.settings.check_updates,
+            home.settings.updates_checked,
+            updates::now(),
+        ) {
+            updates::start(updates::feed());
+            home.checking = true;
+        }
         home.begin(&cc.egui_ctx, path);
         Ok(home)
     }
@@ -68,6 +81,8 @@ impl Home {
             settings_path,
             gpu,
             themed: false,
+            update: None,
+            checking: false,
         }
     }
 
@@ -108,8 +123,43 @@ impl Home {
         Ok(())
     }
 
+    fn checked(&mut self) {
+        if !self.checking {
+            return;
+        }
+        let Some(result) = updates::take() else {
+            return;
+        };
+        self.checking = false;
+        let now = updates::now();
+        self.settings.updates_checked = now;
+        match self.editor.as_mut() {
+            Some(editor) => {
+                editor.settings.updates_checked = now;
+                editor.settings_dirty = true;
+            }
+            None => {
+                if let Some(path) = &self.settings_path {
+                    let _ = self.settings.save(path);
+                }
+            }
+        }
+        if let Some(release) = result {
+            if let Some(editor) = self.editor.as_mut() {
+                editor.say(Tone::Info, updates::summary(&release));
+            }
+            self.update = Some(release);
+        }
+    }
+
     pub(crate) fn frame(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        self.checked();
+        if let Some(editor) = self.editor.as_mut()
+            && editor.update.is_none()
+        {
+            editor.update.clone_from(&self.update);
+        }
         let mut chosen = None;
         match self.editor.as_mut() {
             Some(editor) => {
@@ -172,6 +222,12 @@ impl Home {
                         ui.vertical(|ui| {
                             ui.set_max_width(WIDTH);
                             ui.heading(RichText::new("klad").size(26.0));
+                            if let Some(release) = &self.update {
+                                ui.horizontal(|ui| {
+                                    ui.label(updates::summary(release));
+                                    ui.hyperlink_to("what changed", &release.url);
+                                });
+                            }
                             ui.add_space(12.0);
                             chosen = start.ui(ui, &mut self.settings);
                         });
@@ -185,7 +241,7 @@ impl Home {
                 }
             }
         }
-        if let Some(path) = chosen
+        if let Some(path) = chosen.or_else(crate::opened::take)
             && let Err(e) = self.open(&ctx, &path)
         {
             let message = format!("opening {}: {e:#}", path.display());
@@ -311,6 +367,36 @@ mod tests {
         taken.name = "rock study".into();
         let refused = format!("{:#}", taken.create(&mut again.settings).unwrap_err());
         assert!(refused.contains("already exists"), "{refused}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_drawing_the_system_asks_to_open_opens_from_the_start_window() {
+        let dir = folder("finder");
+        let made = dir.join("from finder.draw");
+        Bundle::blank(&made, &small(), "cli").unwrap();
+        let mut first = home(&dir, &[]);
+        first.begin(&egui::Context::default(), None);
+        let mut h = harness(first);
+        assert!(h.state().editor.is_none());
+        crate::opened::push(made.clone());
+        h.run_steps(2);
+        assert_eq!(opened(&h), made);
+        assert!(crate::opened::take().is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_new_version_shows_in_the_start_window_with_what_changed() {
+        let dir = folder("update");
+        let mut first = home(&dir, &[]);
+        first.begin(&egui::Context::default(), None);
+        first.update = updates::parse(
+            r#"{"tag_name":"v9.0.0","html_url":"https://github.com/klad-app/klad/releases/tag/v9.0.0","body":"- Paint over"}"#,
+        );
+        let h = harness(first);
+        assert!(h.query_by_label("klad 9.0.0 is out: Paint over").is_some());
+        assert!(h.query_by_label("what changed").is_some());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -458,6 +544,11 @@ mod tests {
         let mut h = harness(first);
         h.get_by_label(theme::icon::FILE).click();
         h.run_steps(2);
+        assert!(
+            h.query_by_label(&format!("{} install the klad command", theme::icon::DOWNLOAD))
+                .is_some()
+        );
+        assert_eq!(crate::editor::install_job().args, ["install"]);
         h.get_by_label(&format!("{} about and licences", theme::icon::INFO))
             .click();
         h.run_steps(3);

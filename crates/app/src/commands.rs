@@ -147,6 +147,7 @@ pub enum Cmd {
     OpenDocument,
     OpenRecent,
     CopyPath,
+    InstallCommand,
     About,
     Export,
     AddFont,
@@ -469,7 +470,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 151] = [
+    pub const ALL: [Cmd; 152] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -613,6 +614,7 @@ impl Cmd {
         Cmd::OpenDocument,
         Cmd::OpenRecent,
         Cmd::CopyPath,
+        Cmd::InstallCommand,
         Cmd::About,
         Cmd::Export,
         Cmd::AddFont,
@@ -1965,6 +1967,15 @@ impl Cmd {
                 T::None,
                 R::No,
                 "the version, the licence and every open source part it is built on",
+            ),
+            Cmd::InstallCommand => spec(
+                "file.install-command",
+                "install the klad command",
+                icon::DOWNLOAD,
+                G::File,
+                T::None,
+                R::No,
+                "puts klad on the terminal's path (klad install), for you and for agents",
             ),
             Cmd::CopyPath => spec(
                 "file.copy-path",

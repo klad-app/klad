@@ -21,6 +21,8 @@ mod text;
 mod timeline;
 mod tweens;
 #[cfg(test)]
+pub(crate) use commands::install_job;
+#[cfg(test)]
 mod ui_tests;
 
 use crate::color::{self, Hsva};
@@ -543,6 +545,7 @@ pub(crate) struct Editor {
     pub(crate) settings: Settings,
     pub(crate) settings_path: Option<PathBuf>,
     pub(crate) settings_dirty: bool,
+    pub(crate) update: Option<crate::updates::Release>,
     pub(crate) wants: Option<Want>,
     view: Option<View>,
     canvas_rect: Rect,
@@ -700,6 +703,7 @@ impl Editor {
             settings,
             settings_path,
             settings_dirty: false,
+            update: None,
             wants: None,
             view: None,
             canvas_rect: Rect::NOTHING,
@@ -848,7 +852,7 @@ impl Editor {
         vec2(w as f32, h as f32)
     }
 
-    fn say(&mut self, tone: Tone, text: impl Into<String>) {
+    pub(crate) fn say(&mut self, tone: Tone, text: impl Into<String>) {
         let anchor = self.pointer;
         self.messages.say(tone, text, anchor, Instant::now());
         self.ctx.request_repaint();

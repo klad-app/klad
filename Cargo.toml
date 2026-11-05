@@ -12,5 +12,11 @@ publish = false
 [profile.release]
 debug = 1
 
+[profile.dist]
+inherits = "release"
+debug = 0
+strip = "symbols"
+lto = "thin"
+
 [profile.dev.package."*"]
 opt-level = 3

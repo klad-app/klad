@@ -10,3 +10,4 @@ __pycache__/
 /samples/*/*.png
 /samples/*/*-godot/
 /samples/*/*.json
+/dist

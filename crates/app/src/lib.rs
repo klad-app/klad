@@ -9,17 +9,25 @@ mod jobs;
 mod layout;
 mod lift;
 mod messages;
+mod opened;
 mod pen;
 mod picker;
+mod places;
 mod planes;
 mod settings;
 mod start;
 mod stats;
 mod sync;
 mod theme;
+mod updates;
 mod view;
 
 pub use home::run;
+
+pub const VERSION: &str = match env!("KLAD_BUILD").is_empty() {
+    true => env!("CARGO_PKG_VERSION"),
+    false => concat!(env!("CARGO_PKG_VERSION"), " (", env!("KLAD_BUILD"), ")"),
+};
 
 fn background() -> &'static rayon::ThreadPool {
     static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();

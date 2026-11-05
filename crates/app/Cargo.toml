@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license-file.workspace = true
 publish.workspace = true
+build = "../version.rs"
 
 [dependencies]
 anyhow = "1.0.104"
@@ -28,6 +29,9 @@ block2 = "0.6"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSResponder", "NSGraphics", "NSApplication", "NSWindow", "NSPanel", "NSSavePanel", "NSOpenPanel"] }
 objc2-foundation = "0.3"
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
 
 [dev-dependencies]
 egui_kittest = { version = "0.37.0", features = ["wgpu"] }

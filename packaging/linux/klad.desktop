@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=klad
+Comment=Draw and paint, by hand and with an agent
+Exec=klad-editor %f
+Icon=klad
+Categories=Graphics;2DGraphics;RasterGraphics;
+MimeType=application/x-klad-drawing;
+Terminal=false

@@ -193,11 +193,22 @@ fn still_speed(brushes: &BrushSet, seed: u64) -> Result<()> {
             let points: Vec<(f32, f32, f32)> = (0..5)
                 .map(|k| {
                     let t = k as f32 / 4.0;
-                    (x + a.cos() * length * t, y + a.sin() * length * t, [0.2, 0.9, 1.0, 0.8, 0.1][k])
+                    (
+                        x + a.cos() * length * t,
+                        y + a.sin() * length * t,
+                        [0.2, 0.9, 1.0, 0.8, 0.1][k],
+                    )
                 })
                 .collect();
-            let colour = [0.3 + rng.unit() * 0.6, 0.3 + rng.unit() * 0.5, 0.3 + rng.unit() * 0.4, 1.0];
-            Stroke::new(i + 1, "oil", colour, size, i).with_points(&points, 8.0).into()
+            let colour = [
+                0.3 + rng.unit() * 0.6,
+                0.3 + rng.unit() * 0.5,
+                0.3 + rng.unit() * 0.4,
+                1.0,
+            ];
+            Stroke::new(i + 1, "oil", colour, size, i)
+                .with_points(&points, 8.0)
+                .into()
         })
         .collect();
     let start = Instant::now();
