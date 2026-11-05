@@ -17,6 +17,7 @@ mod panels;
 mod pins;
 mod prefs;
 mod selection;
+mod text;
 mod timeline;
 mod tweens;
 #[cfg(test)]
@@ -103,6 +104,7 @@ enum Tool {
     Direct,
     Pen,
     Shape,
+    Text,
     Note,
 }
 
@@ -581,6 +583,9 @@ pub(crate) struct Editor {
     brush_window: brushwin::BrushWindow,
     look: look::LookState,
     shapes: make::ShapeTool,
+    text_tool: text::TextTool,
+    text_edit: Option<text::Typing>,
+    picker: text::Picker,
     mirror: Option<f32>,
     mirror_buffer: StrokeBuffer,
     typing: BTreeMap<String, String>,
@@ -734,6 +739,9 @@ impl Editor {
             brush_window: brushwin::BrushWindow::default(),
             look: look::LookState::default(),
             shapes: make::ShapeTool::default(),
+            text_tool: text::TextTool::default(),
+            text_edit: None,
+            picker: text::Picker::default(),
             mirror: None,
             mirror_buffer: StrokeBuffer::new(size.0, size.1),
             typing: BTreeMap::new(),
@@ -895,6 +903,7 @@ impl Editor {
 
     fn reload(&mut self) -> Result<()> {
         let seen = self.external.take();
+        self.forget_typing_preview();
         self.checks.gaps = None;
         self.checks.arcs = None;
         let start = Instant::now();
@@ -982,6 +991,7 @@ impl Editor {
             return Ok(());
         }
         self.end_look_preview()?;
+        self.end_typing_preview()?;
         let start = Instant::now();
         let dirty = self.scene.apply(&ops, &self.brushes)?;
         self.measure(
@@ -2387,6 +2397,7 @@ impl Editor {
             (Tool::Shape, Phase::Down) => self.shape_down(c),
             (Tool::Shape, Phase::Move) => self.shape_move(c),
             (Tool::Shape, Phase::Up) => self.shape_up()?,
+            (Tool::Text, Phase::Down) => self.text_down(c)?,
             (Tool::Pen, Phase::Down) => self.pen_down(view, rect, e.pos, c)?,
             (Tool::Pen, Phase::Move) => self.pen_move(c),
             (Tool::Pen, Phase::Up) => {
@@ -2687,6 +2698,8 @@ impl Editor {
         let canvas = self.canvas_size();
         self.view.get_or_insert_with(|| View::fit(canvas, area));
         self.navigate(ui, &response, rect);
+        self.keep_typing_focus(ui, &response)?;
+        self.typing_keys(ui)?;
         self.pen_keys(ui)?;
         self.command_keys(ui)?;
         let ctx = ui.ctx().clone();
@@ -2710,6 +2723,7 @@ impl Editor {
             self.select_pin(view.to_canvas(p - rect.min, rect.size()))?;
         }
         let view = self.view.unwrap_or_else(|| View::fit(canvas, area));
+        self.double_click_text(&response, view, rect)?;
         self.zoom_px = view.zoom * ctx.pixels_per_point();
         self.refresh_box();
         self.refresh_cut();
@@ -2823,6 +2837,7 @@ impl Editor {
             },
         ));
         self.parallax(ui, view, rect);
+        self.prepare_typing(&ctx, view, rect);
         self.decorate(ui, view, rect);
         if self.live.is_some()
             || self.lasso.is_some()
@@ -2887,6 +2902,7 @@ impl Editor {
             self.decorate_points(&painter, view, rect, accent, dark);
         }
         self.decorate_shape(&painter, &|x, y| self.screen(view, rect, vec2(x, y)), accent);
+        self.decorate_typing(&painter, view, rect, accent);
         if let Some(axis) = self.mirror.filter(|_| self.tool == Tool::Brush) {
             let h = self.scene.size().1 as f32;
             painter.add(egui::Shape::dashed_line(

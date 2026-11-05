@@ -1886,7 +1886,12 @@ impl Scene {
             let ghosts = onion::plan_hash(plan, |cel| versions.get(cel).copied().unwrap_or(0));
             hash = fnv(fnv(hash, b"onion"), &ghosts.to_le_bytes());
         }
-        fnv(hash, &[level as u64, fingerprint].map(u64::to_le_bytes).concat())
+        fnv(
+            hash,
+            &[level as u64, fingerprint, klad_render::RENDER_VERSION as u64]
+                .map(u64::to_le_bytes)
+                .concat(),
+        )
     }
 
     pub fn frame_request(&mut self, frame: u32, onion: bool, level: u32, brushes: &BrushSet) -> FrameRequest {

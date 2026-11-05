@@ -133,15 +133,19 @@ klad add art.draw layer image src=photo.jpg reference=true
 klad add art.draw repeat --in l4 count=8 'step=[60,0]' 'children=[{"type":"rect","x":0,"y":400,"w":12,"h":80,"fill":"#3a2a1a"}]'
 klad add art.draw scatter --in l4 x=0 y=700 w=1600 h=150 count=40 seed=7 'size=[0.6,1.6]' 'turn=[-30,30]' 'children=[{"type":"ellipse","cx":0,"cy":0,"rx":20,"ry":11,"fill":"#3a4450"}]'
 klad add art.draw mirror --in l4 x=800 angle=90 'children=[{"type":"path","d":"M560 900 L560 560 L760 410 Z","fill":"#0d1117"}]'
-klad font art.draw ~/fonts/Signage.ttf
-klad add art.draw text --in l4 'text=THE CROOKED INN' font=Signage.ttf size=46 x=340 y=96 align=center tracking=4 fill=#f3d9a4
+klad fonts                                           the fonts that come with klad, by group, with their styles
+klad fonts --search slab                             every open font on Google Fonts that matches; --get <family> downloads one
+klad add art.draw text --in l4 'text=THE CROOKED INN' 'font=Cinzel Bold' size=46 x=340 y=96 align=center tracking=4 fill=#f3d9a4
+klad set art.draw t3 'font=Pirata One'
+klad font art.draw ~/fonts/Signage.ttf               a font file of your own
 ```
 
 - Depth: give each top-level group (plane) a `depth`; with an atmosphere every plane fades towards the fog (and the `top` colour higher up), blurs and loses colour, more the deeper it is. Near planes keep depth 0. The user previews the parallax by holding D. `haze` is also an effect of its own (`klad effect art.draw l3 haze amount=0.4 color=#9aa8b8`).
 - References: `reference=true` on any layer keeps it visible in the editor but out of `klad render`, `klad hash` and `klad export` (add `--references` to see it). Pictures to trace over go there.
 - Pictures: `layer image src=<PNG or JPEG>` copies the file into the bundle (`images/<hash>.png`) and places it on a new vector layer, fitted inside the canvas; `x=`, `y=`, `w=`, `h=` place it. The node is `{"type":"image",...}`, moved and scaled like any shape.
 - Generators keep their settings: `repeat` (count, step, turn and pivot for an arc, scale, columns and row for a grid), `scatter` (region x, y, w, h, count, seed, size and turn ranges, `avoid`: SVG paths no copy lands in), `mirror` (x, y, angle of the axis). Children are drawn once per copy; for scatter draw the child around 0,0. `klad add <bundle> <shape> --in <generator id>` adds more children.
-- Text: the font must be a file in the bundle (`klad font`); a missing font is refused with its name. `text` takes new lines (`$'line one\nline two'` in bash), `x` is the left, centre or right of each line (`align`), `y` the top of the first line; `tracking` is extra px between letters, `leading` the line height as a multiple of the size; fill and `stroke` colour and outline it.
+- Text: `font=` takes a family that comes with klad (`klad fonts`: sans, serif, mono, display, handwriting and pixel families such as Inter, Cinzel, Bangers, Caveat, Press Start 2P), a family and style (`"Barlow Bold"`, `"Inter Black"`), or a font file already in the bundle. The file is copied into the bundle's `fonts/` folder with its licence, so the drawing renders the same on every machine; the node then names the file (`Cinzel.ttf`). A family klad does not ship but Google Fonts has is downloaded first (`klad fonts --search`, `--get`). Families that come in every weight take `weight=` (100 to 900, 400 regular, 700 bold); `"Inter Bold"` sets it. Text is shaped like a browser does it (kerning, ligatures, accents). `text` takes new lines (`$'line one\nline two'` in bash), `x` is the left, centre or right of each line (`align`), `y` the top of the first line; `tracking` is extra px between letters, `leading` the line height as a multiple of the size; fill and `stroke` colour and outline it, and a gradient fill gilds it.
+- Lettering on a prop (a sign, a label): put the text on a vector layer clipped to the board's paint layer so it never leaves the board, give that layer a small `shadow` effect for depth, and lay a few faint grain strokes over it on a multiply layer clipped to the same base so the letters sit in the surface (`samples/sign`). The user types text in the editor with T and picks fonts from a list drawn in each font.
 
 ## Path points
 

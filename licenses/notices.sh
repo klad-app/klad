@@ -35,4 +35,5 @@ section() {
   section "Phosphor icons" "The editor's icons. MIT." phosphor.txt
   section "Hack" "egui's monospace font. MIT, with the Bitstream Vera licence for the glyphs it builds on." hack.txt
   section "emoji-icon-font and egui-icons" "egui's icon glyphs. MIT." emoji-icon-font.txt egui-icons.txt
+  python3 "$here/fonts.py" "$here/../fonts"
 } > "$out"

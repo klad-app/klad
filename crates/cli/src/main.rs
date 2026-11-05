@@ -7,6 +7,7 @@ mod demo;
 mod edit;
 mod export;
 mod fills;
+mod fonts;
 mod frames;
 mod history;
 mod inbetween;
@@ -388,10 +389,28 @@ enum Command {
         flags: EditFlags,
     },
     #[command(
-        about = "Add a font file to the bundle for text nodes, or list the fonts it has",
-        long_about = "Add a font file (TTF or OTF) to the bundle's fonts folder, so text nodes render the same on every machine; with no file, list the fonts.\n\n  klad font art.draw ~/fonts/Signage.ttf\n  klad add art.draw text --in l4 text=INN font=Signage.ttf size=48 x=120 y=80 fill=#2b1d12"
+        about = "Copy a font into the bundle for text nodes, by name or from a file, or list the fonts it has",
+        long_about = "Copy one of klad's fonts (by family, or family and style) or a font file (TTF or OTF) into the bundle's fonts folder, so text nodes render the same on every machine; a family that klad does not have yet but Google Fonts does is downloaded first. With no font, list the bundle's fonts. Text nodes also take a family name directly (font=Inter, font=\"Inter Bold\") and copy it in themselves.\n\n  klad font art.draw Cinzel\n  klad font art.draw \"Barlow Bold\"\n  klad font art.draw ~/fonts/Signage.ttf\n  klad add art.draw text --in l4 text=INN font=Cinzel size=48 x=120 y=80 fill=#2b1d12"
     )]
-    Font { bundle: PathBuf, file: Option<PathBuf> },
+    Font { bundle: PathBuf, font: Option<String> },
+    #[command(
+        about = "List the fonts that come with klad, search the open fonts it can download, or download one",
+        long_about = "List the font families that come with klad and the ones downloaded before, by group (sans, serif, mono, display, handwriting, pixel), with their licence and styles; with a bundle, also the fonts it holds. --search looks through every open family on Google Fonts (about 1,900) and --get downloads one into the per-user fonts folder, after which it works like the ones klad ships.\n\n  klad fonts\n  klad fonts --group pixel\n  klad fonts --search \"slab\"\n  klad fonts --get Lobster"
+    )]
+    Fonts {
+        bundle: Option<PathBuf>,
+        #[arg(long, help = "Only this group: sans, serif, mono, display, handwriting or pixel")]
+        group: Option<String>,
+        #[arg(
+            long,
+            help = "Search the open fonts that can be downloaded, by words of the family name or the group"
+        )]
+        search: Option<String>,
+        #[arg(long, help = "Download this family from Google Fonts into the per-user fonts folder")]
+        get: Option<String>,
+        #[arg(long, help = "Print JSON")]
+        json: bool,
+    },
     #[command(
         about = "Fog and haze by depth: show, set or turn off the document's atmosphere",
         long_about = "The atmosphere fades layers at the top of the stack that have a depth (klad set art.draw g2 depth=2) towards the fog colour, blurs them and takes colour out, more the deeper they are.\n\n  klad atmosphere art.draw\n  klad atmosphere art.draw color=#9aa8b8 top=#d8e0e8 density=0.5 blur=1 desaturate=0.15\n  klad atmosphere art.draw --off"
@@ -2494,7 +2513,20 @@ fn run() -> Result<()> {
             (None, Some(_), _) | (None, None, Some(_)) => anyhow::bail!("--set and --picture need a bundle"),
             (bundle, None, None) => brushes::list(bundle, show.as_deref(), json)?,
         },
-        Command::Font { bundle, file } => looks::font(&bundle, file.as_deref())?,
+        Command::Font { bundle, font } => fonts::font(&bundle, font.as_deref())?,
+        Command::Fonts {
+            bundle,
+            group,
+            search,
+            get,
+            json,
+        } => fonts::list(
+            bundle.as_deref(),
+            group.as_deref(),
+            search.as_deref(),
+            get.as_deref(),
+            json,
+        )?,
         Command::Atmosphere {
             bundle,
             props,

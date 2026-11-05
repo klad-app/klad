@@ -282,6 +282,7 @@ impl Editor {
                 entries
                     .flatten()
                     .filter_map(|e| e.file_name().into_string().ok())
+                    .filter(|n| klad_render::fonts::is_font(n))
                     .collect()
             })
             .unwrap_or_default();
@@ -472,27 +473,29 @@ impl Editor {
                 {
                     put("text", json!(typed));
                 }
-                let fonts = self.fonts();
-                let mut font = t.font.clone();
-                egui::ComboBox::from_id_salt(format!("{id}.font"))
-                    .width(160.0)
-                    .selected_text(&font)
-                    .show_ui(ui, |ui| {
-                        fonts.iter().for_each(|f| {
-                            ui.selectable_value(&mut font, f.clone(), f);
-                        });
-                    })
-                    .response
-                    .hint("the font file, from the bundle's fonts folder (add a font adds one)");
-                if ui
-                    .button("add a font")
-                    .hint("copy a font file into the drawing")
-                    .clicked()
-                {
-                    self.windows.font = true;
-                }
-                if font != t.font {
-                    put("font", json!(font));
+                let shown = klad_render::fonts::installed()
+                    .iter()
+                    .find(|f| f.files.iter().any(|x| x.file == t.font))
+                    .map_or(t.font.clone(), |f| f.family.clone());
+                ui.horizontal_wrapped(|ui| {
+                    if let Some(name) = self.font_picker(
+                        ui,
+                        &format!("{id}.font"),
+                        &shown,
+                        "the font: klad's own, downloaded ones and the drawing's; picking one copies it into the drawing",
+                    ) {
+                        self.font_props(&name).into_iter().for_each(|(k, v)| put(&k, v));
+                    }
+                    if ui
+                        .button("a font file")
+                        .hint("copy a font file of your own into the drawing")
+                        .clicked()
+                    {
+                        self.windows.font = true;
+                    }
+                });
+                if let Some(w) = self.weight_slider(ui, &t.font, t.weight) {
+                    put("weight", json!(w));
                 }
                 ui.horizontal_wrapped(|ui| {
                     [("size", "size ", t.size), ("tracking", "tracking ", t.tracking), ("leading", "line height ", t.leading), ("x", "x ", t.x), ("y", "y ", t.y)]

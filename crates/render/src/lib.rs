@@ -1,6 +1,7 @@
 pub mod assets;
 pub mod effects;
 pub mod export;
+pub mod fonts;
 pub mod form;
 pub mod onion;
 pub mod overlay;
@@ -10,6 +11,8 @@ pub mod sheet;
 pub mod sprites;
 pub mod text;
 pub mod vector;
+
+pub const RENDER_VERSION: u32 = 2;
 
 use anyhow::{Context, Result, anyhow, bail};
 use effects::{Img, Space};

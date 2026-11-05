@@ -62,7 +62,9 @@ fn shape_keys(kind: &str) -> Result<&'static [&'static str]> {
         "scatter" => &["x", "y", "w", "h", "count", "seed", "size", "turn", "avoid", "children"],
         "repeat" => &["count", "step", "turn", "pivot", "scale", "columns", "row", "children"],
         "mirror" => &["x", "y", "angle", "children"],
-        "text" => &["text", "font", "x", "y", "size", "tracking", "leading", "align"],
+        "text" => &[
+            "text", "font", "x", "y", "size", "tracking", "leading", "align", "weight",
+        ],
         other => bail!(
             "unknown node type {other:?}: use rect, ellipse, path, group, rays, image, scatter, repeat, mirror or text"
         ),

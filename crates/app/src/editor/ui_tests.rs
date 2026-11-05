@@ -58,8 +58,13 @@ fn editor(path: &Path) -> Editor {
 }
 
 fn harness(editor: Editor, size: egui::Vec2) -> Harness<'static, Editor> {
+    harness_stepping(editor, size, 0.25)
+}
+
+fn harness_stepping(editor: Editor, size: egui::Vec2, step: f32) -> Harness<'static, Editor> {
     let mut h = Harness::builder()
         .with_size(size)
+        .with_step_dt(step)
         .build_ui_state(|ui, editor: &mut Editor| editor.frame(ui), editor);
     h.run_steps(4);
     if h.state().scene.bundle.doc.canvas.width <= 1024 {
@@ -2338,4 +2343,158 @@ fn paint_with_body_from_the_brush_window_lit_by_a_relief_turned_with_its_dial() 
     );
     checked_audit(&mut h);
     let _ = std::fs::remove_dir_all(&path);
+}
+
+fn click(h: &mut Harness<'static, Editor>, at: egui::Pos2) {
+    h.hover_at(at);
+    h.run_steps(1);
+    h.drag_at(at);
+    h.run_steps(1);
+    h.drop_at(at);
+    h.run_steps(1);
+}
+
+fn texts(h: &Harness<'static, Editor>) -> Vec<(String, klad_core::generators::Text)> {
+    h.state().scene.bundle.doc.find_layer("shapes").unwrap().cels()[0]
+        .nodes
+        .iter()
+        .filter_map(|n| match &n.shape {
+            klad_core::doc::Shape::Text(t) => Some((n.id.clone(), t.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn text_is_typed_on_the_canvas_and_edited_in_place() {
+    let path = sample("text-tool");
+    let mut h = harness_stepping(editor(&path), vec2(1440.0, 1000.0), 1.0 / 60.0);
+    activate(&mut h, "shapes");
+    h.key_press(Key::T);
+    h.run_steps(2);
+    assert_eq!(h.state().tool, Tool::Text);
+    h.state_mut().color = [0.1, 0.2, 0.3, 1.0];
+    let at = canvas_at(&h, 200.0, 150.0);
+    click(&mut h, at);
+    h.run_steps(2);
+    assert!(h.state().text_edit.is_some(), "a click starts a text");
+    h.event(egui::Event::Text("Hello".into()));
+    h.run_steps(1);
+    h.key_press(Key::Enter);
+    h.event(egui::Event::Text("world".into()));
+    h.run_steps(1);
+    h.key_press(Key::B);
+    h.run_steps(1);
+    assert_eq!(h.state().tool, Tool::Text, "letters type, they do not switch tools");
+    assert!(
+        h.state()
+            .text_edit
+            .as_ref()
+            .unwrap()
+            .shown
+            .as_ref()
+            .is_some_and(|s| s.1.is_some()),
+        "the typed words show on the canvas while typing"
+    );
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    assert!(h.state().text_edit.is_none());
+    let made = texts(&h);
+    assert_eq!(made.len(), 1);
+    let (id, text) = made[0].clone();
+    assert_eq!(text.text, "Hello\nworld");
+    assert_eq!(text.font, "Inter.ttf");
+    assert!((text.x - 200.0).abs() < 1.5, "{}", text.x);
+    let shipped = std::fs::read(klad_render::fonts::find("Inter").unwrap().family.dir.join("Inter.ttf")).unwrap();
+    assert_eq!(
+        std::fs::read(path.join("fonts/Inter.ttf")).unwrap(),
+        shipped,
+        "the shipped font is copied in"
+    );
+    assert!(path.join("fonts/Inter.licence.txt").is_file());
+    let node = h.state().scene.bundle.doc.item(&id).map(|i| match i {
+        klad_core::doc::Item::Node(_, _, n) => n.fill.clone(),
+        _ => None,
+    });
+    assert_eq!(
+        node.flatten(),
+        Some(klad_core::doc::Paint::Solid(crate::color::hex([0.1, 0.2, 0.3, 1.0])))
+    );
+    h.key_press(Key::V);
+    h.run_steps(2);
+    assert_eq!(h.state().tool, Tool::Select, "keys work again once typing ends");
+    let on = canvas_at(&h, text.x + 20.0, text.y + text.size * 1.6);
+    h.hover_at(on);
+    h.run_steps(1);
+    [true, false, true, false].iter().for_each(|down| match down {
+        true => h.drag_at(on),
+        false => h.drop_at(on),
+    });
+    h.run_steps(2);
+    assert_eq!(h.state().tool, Tool::Text, "a double click on text edits it");
+    assert_eq!(
+        h.state().text_edit.as_ref().and_then(|t| t.id.clone()),
+        Some(id.clone())
+    );
+    h.key_press(Key::End);
+    h.event(egui::Event::Text("!".into()));
+    h.run_steps(1);
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    let after = texts(&h);
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0].1.text, "Hello\nworld!");
+    let shown = h.state().scene.bundle.doc.item(&id).map(|i| match i {
+        klad_core::doc::Item::Node(_, _, n) => n.visible,
+        _ => false,
+    });
+    assert_eq!(shown, Some(true), "the node hidden while typing is back");
+    let at = canvas_at(&h, 400.0, 300.0);
+    click(&mut h, at);
+    h.run_steps(1);
+    h.key_press(Key::T);
+    h.run_steps(1);
+    let at = canvas_at(&h, 60.0, 330.0);
+    click(&mut h, at);
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    assert_eq!(texts(&h).len(), 1, "nothing typed adds nothing");
+    h.key_press(Key::V);
+    h.run_steps(2);
+    [
+        (Pane::Inspector, false),
+        (Pane::Notes, true),
+        (Pane::History, true),
+        (Pane::Layers, true),
+        (Pane::Tool, true),
+    ]
+    .into_iter()
+    .for_each(|(pane, collapsed)| {
+        if let Some(p) = h.state_mut().settings.layout.pane_mut(pane) {
+            p.collapsed = collapsed;
+        }
+    });
+    h.state_mut().selection = Some(id.clone());
+    h.run_steps(3);
+    h.get_by_label_contains("picking one copies it into the drawing")
+        .click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Bangers").is_some(), "the picker lists klad's fonts");
+    let search = h
+        .query_all_by_label(crate::theme::icon::SEARCH)
+        .find(|n| n.accesskit_node().role() == Role::TextInput)
+        .unwrap();
+    search.click();
+    h.run_steps(1);
+    h.event(egui::Event::Text("cinz".into()));
+    h.run_steps(3);
+    assert!(h.query_by_label("Bangers").is_none(), "the search narrows the list");
+    h.get_by_label("Cinzel").click();
+    h.run_steps(3);
+    let picked = texts(&h)[0].1.clone();
+    assert_eq!(
+        (picked.font.as_str(), picked.text.as_str()),
+        ("Cinzel.ttf", "Hello\nworld!")
+    );
+    assert!(path.join("fonts/Cinzel.ttf").is_file(), "picking a font copies it in");
 }

@@ -16,6 +16,7 @@ pub enum Tag {
     Edit,
     Gaps,
     Arcs,
+    Fonts,
 }
 
 #[derive(Clone)]

@@ -36,7 +36,7 @@ fn ago(at: Instant, now: Instant) -> String {
     }
 }
 
-const STRIP_TOOLS: [Cmd; 9] = [
+const STRIP_TOOLS: [Cmd; 10] = [
     Cmd::Brush,
     Cmd::Eraser,
     Cmd::Fill,
@@ -45,6 +45,7 @@ const STRIP_TOOLS: [Cmd; 9] = [
     Cmd::Points,
     Cmd::Pen,
     Cmd::ShapeTool,
+    Cmd::TextTool,
     Cmd::Note,
 ];
 
@@ -194,6 +195,9 @@ impl Editor {
                     }
                     if e.tag == Tag::Edit {
                         self.check(|ed| ed.reload());
+                    }
+                    if e.tag == Tag::Fonts {
+                        klad_render::fonts::forget();
                     }
                     self.job_found(e.tag, &e.name, &e.output);
                     let detail = if text.is_empty() {

@@ -45,6 +45,8 @@ pub mod icon {
     pub const HAND: &str = "\u{E298}";
     pub const ZOOM: &str = "\u{E30C}";
     pub const SEARCH: &str = "\u{E30C}";
+    pub const TEXT_T: &str = "\u{E48A}";
+    pub const DOWNLOAD: &str = "\u{E20C}";
     pub const FIT: &str = "\u{E1D0}";
     pub const TURN: &str = "\u{E036}";
     pub const UNDO: &str = "\u{E08A}";

@@ -221,6 +221,8 @@ pub struct Text {
     pub tracking: f32,
     pub leading: f32,
     pub align: Align,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weight: Option<f32>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -243,6 +245,7 @@ impl Default for Text {
             tracking: 0.0,
             leading: 1.2,
             align: Align::Left,
+            weight: None,
         }
     }
 }
@@ -254,6 +257,9 @@ impl Text {
         }
         if self.size <= 0.0 || self.size > 4096.0 {
             bail!("text: size {} is outside 0..4096", self.size);
+        }
+        if let Some(w) = self.weight.filter(|w| !(1.0..=1000.0).contains(w)) {
+            bail!("text: weight {w} is outside 1..1000 (400 is regular, 700 bold)");
         }
         Ok(())
     }

@@ -136,32 +136,6 @@ pub fn image_node(bundle: &Path, props: &[String]) -> Result<Value> {
     Ok(node)
 }
 
-pub fn font(bundle: &Path, file: Option<&Path>) -> Result<()> {
-    match file {
-        Some(file) => {
-            let name = klad_render::assets::import_font(bundle, file)?;
-            println!("{name}: text nodes use it as font={name}");
-        }
-        None => {
-            let dir = bundle.join(klad_render::assets::FONTS);
-            let mut names: Vec<String> = std::fs::read_dir(&dir)
-                .map(|entries| {
-                    entries
-                        .flatten()
-                        .filter_map(|e| e.file_name().into_string().ok())
-                        .collect()
-                })
-                .unwrap_or_default();
-            names.sort();
-            match names.is_empty() {
-                true => println!("no fonts yet: klad font <bundle> <file.ttf> adds one"),
-                false => names.iter().for_each(|n| println!("{n}")),
-            }
-        }
-    }
-    Ok(())
-}
-
 pub fn atmosphere(path: &Path, props: &[String], off: bool, out: &Output) -> Result<()> {
     let bundle = Bundle::open(path)?;
     if props.is_empty() && !off {

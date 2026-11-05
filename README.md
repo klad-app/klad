@@ -38,8 +38,8 @@ klad ink courier.draw lines --from shell-4,head-4,near-leg-4 --weight 5 --frame 
 
 Early, and open for testing. What works today:
 
-- The `klad` CLI on macOS and Linux: layers, brush strokes, vector shapes, fills, inking, painting from shapes, light, effects, depth and fog, text, frames and clips, in-betweens, exports.
-- The editor on macOS: a pen with pressure and tilt, brushes, layers, masks, the timeline, onion skins, notes for the agent, and a start window for new and recent drawings.
+- The `klad` CLI on macOS and Linux: layers, brush strokes, vector shapes, fills, inking, painting from shapes, light, effects, depth and fog, text in about fifty open fonts that come with it (and any other Google Fonts family on request), frames and clips, in-betweens, exports.
+- The editor on macOS: a pen with pressure and tilt, brushes, layers, masks, a text tool, the timeline, onion skins, notes for the agent, and a start window for new and recent drawings.
 - Coming next: downloadable builds for macOS, Windows and Linux, the editor on Windows and Linux, and an agent inside the editor you sign in to, so you never need a terminal.
 
 ![The start window](docs/images/start-window.png)
@@ -51,7 +51,7 @@ There are no downloads yet; build it from source (about ten minutes the first ti
 1. Install Rust with [rustup](https://rustup.rs) and [`just`](https://github.com/casey/just) (`brew install just`, or `cargo install just`). On Linux also `pkg-config`, `libfreetype-dev` and `libfontconfig1-dev`.
 2. `git clone https://github.com/klad-app/klad && cd klad`, then `just build` makes the `klad` binary in `target/release/` (on Linux in `target/linux/release/`).
 3. On a Mac, `target/release/klad open` starts the editor on its start window: make a drawing and start painting.
-4. `just samples` builds the sample drawings in `samples/` (a lantern, a walking creature, a running courier, an underground ruin, painted solids, a bowl of lemons, a bouncing ball, ink examples); open one with `target/release/klad open samples/lantern/lantern.draw`.
+4. `just samples` builds the sample drawings in `samples/` (a lantern, a walking creature, a running courier, an underground ruin, an inn sign, painted solids, a bowl of lemons, a bouncing ball, ink examples); open one with `target/release/klad open samples/lantern/lantern.draw`.
 
 ## Drawing with an agent
 

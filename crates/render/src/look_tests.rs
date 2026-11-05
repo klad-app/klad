@@ -469,6 +469,56 @@ fn text_draws_the_font_s_outlines_and_names_a_missing_font() {
 }
 
 #[test]
+fn text_is_shaped_kerned_and_weighted_with_a_caret_at_every_letter() {
+    use crate::text::{layout, text_path, weight_axis};
+    use klad_core::generators::Text;
+    let root = std::env::temp_dir().join(format!("draw-shaped-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let file = crate::fonts::bring(&root, "Inter").unwrap().file;
+    assert_eq!(file, "Inter.ttf");
+    assert!(
+        root.join("fonts/Inter.licence.txt").is_file(),
+        "the licence goes with the font"
+    );
+    crate::assets::add_root(&root);
+    let words = |text: &str, weight: Option<f32>| Text {
+        text: text.into(),
+        font: file.clone(),
+        size: 100.0,
+        weight,
+        ..Text::default()
+    };
+    let width = |t: &Text| layout(t).unwrap().lines[0].width;
+    let pair = width(&words("AV", None));
+    let apart = width(&words("A", None)) + width(&words("V", None));
+    assert!(
+        pair < apart - 3.0,
+        "A and V kern from the GPOS table ({pair} against {apart})"
+    );
+    let bold = text_path(&words("Hello", Some(800.0))).unwrap().bounds().width();
+    let thin = text_path(&words("Hello", Some(200.0))).unwrap().bounds().width();
+    assert!(
+        bold > thin + 10.0,
+        "the weight axis moves the outlines ({bold} against {thin})"
+    );
+    let axis = weight_axis(&std::fs::read(root.join("fonts/Inter.ttf")).unwrap()).unwrap();
+    assert_eq!((axis.min, axis.max), (100.0, 900.0));
+    let two = layout(&words("ab\ncd", None)).unwrap();
+    assert_eq!(two.lines.len(), 2);
+    assert_eq!(two.lines[1].start, 3);
+    let carets: Vec<usize> = two.lines.iter().flat_map(|l| l.carets.iter().map(|c| c.0)).collect();
+    assert_eq!(carets, [0, 1, 2, 3, 4, 5]);
+    let (x, top, bottom) = two.caret(4).unwrap();
+    assert!(x > 0.0 && top > two.lines[0].baseline && bottom > top);
+    assert_eq!(two.nearest(x + 1.0, top + 10.0), 4);
+    assert!(
+        two.lines[0].carets.windows(2).all(|w| w[1].1 > w[0].1),
+        "carets run left to right"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn an_imported_picture_draws_where_it_is_placed() {
     use klad_core::generators::Picture;
     let root = std::env::temp_dir().join(format!("draw-picture-{}", std::process::id()));

@@ -559,6 +559,7 @@ pub fn edit(path: &Path, ops: &[Op], out: &Output) -> Result<()> {
     let ops = crate::shapes::expand(&bundle, ops.to_vec())?;
     let mut ops = vector::pinned(&bundle.doc, &ops)?;
     resolve_strokes(&bundle, &mut ops)?;
+    crate::fonts::settle(&bundle, &mut ops)?;
     let like = ops.iter().any(|op| matches!(op, Op::Fill(f) if f.like.is_some()));
     let notes = crate::fills::resolve(&bundle, &mut ops)?;
     notes.iter().for_each(|n| match like {

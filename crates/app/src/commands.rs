@@ -9,6 +9,7 @@ pub enum Cmd {
     Fill,
     Pen,
     ShapeTool,
+    TextTool,
     Symmetry,
     Parallax,
     MakeRepeat,
@@ -468,12 +469,13 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 150] = [
+    pub const ALL: [Cmd; 151] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
         Cmd::Pen,
         Cmd::ShapeTool,
+        Cmd::TextTool,
         Cmd::Symmetry,
         Cmd::Parallax,
         Cmd::MakeRepeat,
@@ -685,6 +687,15 @@ impl Cmd {
                 T::Press(const { &[plain(Key::U)] }),
                 R::No,
                 "drag rectangles or ellipses on a vector layer: shift for a square or circle, alt from the centre",
+            ),
+            Cmd::TextTool => spec(
+                "tool.text",
+                "text",
+                icon::TEXT_T,
+                G::Tools,
+                T::Press(const { &[plain(Key::T)] }),
+                R::No,
+                "click on the canvas and type: Return starts a new line, Esc finishes; click text to edit it",
             ),
             Cmd::Symmetry => spec(
                 "brush.mirror",

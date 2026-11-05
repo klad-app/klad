@@ -290,6 +290,7 @@ impl Editor {
                 Tool::Direct => (Cmd::Points, "edit points"),
                 Tool::Pen => (Cmd::Pen, "pen"),
                 Tool::Shape => (Cmd::ShapeTool, "rectangles and ellipses"),
+                Tool::Text => (Cmd::TextTool, "text"),
                 Tool::Note => (Cmd::Note, "note"),
             };
             ui.label(RichText::new(format!("{} {name}", cmd.spec().icon)).strong());
@@ -390,6 +391,7 @@ impl Editor {
                             .color(theme::WEAK),
                     );
                 }
+                Tool::Text => self.check(|e| e.text_options(ui)),
                 Tool::Pen => {
                     self.vector_colours(
                         ui,

@@ -304,6 +304,7 @@ impl Editor {
             Cmd::Points => self.tool == Tool::Direct,
             Cmd::Pen => self.tool == Tool::Pen,
             Cmd::ShapeTool => self.tool == Tool::Shape,
+            Cmd::TextTool => self.tool == Tool::Text,
             Cmd::Symmetry => self.mirror.is_some(),
             Cmd::Note => self.tool == Tool::Note,
             Cmd::CutLasso => self.cut_lasso,
@@ -432,6 +433,7 @@ impl Editor {
             Cmd::Points => self.tool = Tool::Direct,
             Cmd::Pen => self.tool = Tool::Pen,
             Cmd::ShapeTool => self.tool = Tool::Shape,
+            Cmd::TextTool => self.tool = Tool::Text,
             Cmd::Symmetry => {
                 self.mirror = match self.mirror {
                     Some(_) => None,

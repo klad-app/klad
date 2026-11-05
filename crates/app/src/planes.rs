@@ -20,8 +20,15 @@ pub struct Stored {
 }
 
 pub fn key(base: u64, cels: &[u64]) -> u64 {
-    cels.iter()
-        .fold(fnv(base, &VERSION.to_le_bytes()), |h, k| fnv(h, &k.to_le_bytes()))
+    cels.iter().fold(
+        fnv(
+            base,
+            &[VERSION, klad_render::RENDER_VERSION as u64]
+                .map(u64::to_le_bytes)
+                .concat(),
+        ),
+        |h, k| fnv(h, &k.to_le_bytes()),
+    )
 }
 
 pub fn path(dir: &Path, key: u64) -> PathBuf {
