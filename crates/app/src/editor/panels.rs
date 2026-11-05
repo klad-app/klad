@@ -723,6 +723,28 @@ impl Editor {
             );
             self.windows.export &= open;
         }
+        if self.windows.paintover {
+            let mut open = true;
+            Self::window(
+                ctx,
+                "paintover",
+                (format!("{} Paint over", icon::BRUSH), settings_at),
+                &mut open,
+                |ui| self.check(|e| e.paintover_window(ui)),
+            );
+            self.windows.paintover &= open;
+        }
+        if self.windows.compare {
+            let mut open = true;
+            Self::window(
+                ctx,
+                "compare",
+                (format!("{} Compared with the reference", icon::INFO), settings_at),
+                &mut open,
+                |ui| self.check(|e| e.compare_window(ui)),
+            );
+            self.windows.compare &= open;
+        }
         if self.windows.font {
             let mut open = true;
             Self::window(

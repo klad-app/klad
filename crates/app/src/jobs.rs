@@ -18,6 +18,7 @@ pub enum Tag {
     Arcs,
     Fonts,
     Install,
+    Compare,
 }
 
 #[derive(Clone)]

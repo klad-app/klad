@@ -273,6 +273,9 @@ impl Editor {
                 .then(|| "the gaps are being looked for".to_string()),
             Cmd::ShowArcs if self.checks.arcs.is_some() => None,
             Cmd::ShowArcs => self.track().err().map(|e| e.to_string()),
+            Cmd::CompareReference => super::compare::reference_image(&self.scene.bundle.root, &self.scene.bundle.doc)
+                .is_none()
+                .then(|| "add a reference picture first: a picture layer marked as a reference".to_string()),
             Cmd::ExportGodot => {
                 if self.jobs.busy(crate::jobs::Tag::Export) {
                     Some("an export is running".into())
@@ -340,6 +343,8 @@ impl Editor {
             Cmd::About => self.windows.about,
             Cmd::Export => self.windows.export,
             Cmd::AddFont => self.windows.font,
+            Cmd::PaintOver => self.windows.paintover,
+            Cmd::CompareReference => self.windows.compare,
             Cmd::ShowGaps => self.checks.gaps.is_some(),
             Cmd::ShowParts => self.checks.parts,
             Cmd::ShowArcs => self.checks.arcs.is_some(),
@@ -583,6 +588,8 @@ impl Editor {
             Cmd::About => self.windows.about = !self.windows.about,
             Cmd::Export => self.windows.export = !self.windows.export,
             Cmd::AddFont => self.windows.font = !self.windows.font,
+            Cmd::PaintOver => self.windows.paintover = !self.windows.paintover,
+            Cmd::CompareReference => self.compare_reference()?,
             Cmd::Refill => self.refill()?,
             Cmd::FillLike => self.fill_like()?,
             Cmd::ShowGaps => self.show_gaps()?,

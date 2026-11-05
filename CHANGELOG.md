@@ -12,6 +12,8 @@ The first downloadable builds.
 - `klad --version` and About show the commit a build was made from.
 - In-betweens blend colours evenly (in OKLab), so light can follow a turning limb when the second key is coloured for it.
 - `klad arcs` follows the part of a foot on the ground: a heel-to-toe roll is no longer reported as a slide.
+- `klad paintover` (and "paint over" in the layers panel): brushwork from any picture, strokes that follow its forms and stop at its colour edges, big to small, detail where the picture has it; `--like` and `--frames` carry it through an animation without boiling.
+- `klad compare` (and "compare with the reference" in the editor): a drawing against a reference picture in numbers and words, with a heat map.
 - Large stills render several times faster: strokes land only where they painted, and the CLI replays a drawing's tiles on every core (same pixels).
 
 ## 0.1.0 (2026-11-04)

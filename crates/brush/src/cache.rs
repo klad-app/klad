@@ -2,7 +2,7 @@ use crate::{BrushSet, CelReplay, ENGINE_VERSION, Raster};
 use anyhow::{Context, Result, bail};
 use klad_core::bundle::{Bundle, write_atomic};
 use klad_core::rng::{FNV_OFFSET, fnv};
-use klad_core::stroke::{Mark, decode_cel};
+use klad_core::stroke::{Mark, decode_cel, fingerprint};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
@@ -145,6 +145,17 @@ impl CelCache {
         let start = Instant::now();
         let stale = self.record(cel).and_then(|(k, (keys, footprints))| {
             Ok((CelReplay::from_cache(w, h, keys, footprints), self.raster(cel, k)?))
+        });
+        let stale = stale.and_then(|(replay, raster)| {
+            let known: std::collections::BTreeSet<(u32, u64)> = replay.keys().iter().copied().collect();
+            let kept = marks
+                .iter()
+                .filter(|m| known.contains(&(m.id(), fingerprint(m))))
+                .count();
+            match kept * 2 >= marks.len() {
+                true => Ok((replay, raster)),
+                false => Err(anyhow::anyhow!("most marks are new")),
+            }
         });
         let (replay, raster, how, strokes, dabs) = match stale {
             Ok((mut replay, mut raster)) => {

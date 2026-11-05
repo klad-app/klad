@@ -37,9 +37,9 @@ for keys in "0 2" "3 5" "5 7" "7 9"; do
 done
 "$klad" inbetween "$out" --layers "$layers" --from 9 --loop --spacing in-out | grep 'in-between.* in \|left out\|unpaired\|by part'
 echo "timing:"
-"$klad" retime "$out" 0-2 --pingpong | head -1
-"$klad" retime "$out" 0-3 --on 3 | head -1
-"$klad" retime "$out" 12-19 --on 2 | head -1
+"$klad" retime "$out" 0-2 --pingpong | sed -n 1p
+"$klad" retime "$out" 0-3 --on 3 | sed -n 1p
+"$klad" retime "$out" 12-19 --on 2 | sed -n 1p
 "$klad" timeline "$out" --origin 512,820 >/dev/null
 "$klad" clip "$out"
 echo "the walk's arcs, in-betweened:"

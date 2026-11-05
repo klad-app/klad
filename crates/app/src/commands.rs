@@ -148,6 +148,8 @@ pub enum Cmd {
     OpenRecent,
     CopyPath,
     InstallCommand,
+    PaintOver,
+    CompareReference,
     About,
     Export,
     AddFont,
@@ -470,7 +472,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 152] = [
+    pub const ALL: [Cmd; 154] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -620,9 +622,11 @@ impl Cmd {
         Cmd::AddFont,
         Cmd::Refill,
         Cmd::FillLike,
+        Cmd::PaintOver,
         Cmd::ShowGaps,
         Cmd::ShowParts,
         Cmd::ShowArcs,
+        Cmd::CompareReference,
     ];
 
     pub fn spec(self) -> Spec {
@@ -1967,6 +1971,24 @@ impl Cmd {
                 T::None,
                 R::No,
                 "the version, the licence and every open source part it is built on",
+            ),
+            Cmd::CompareReference => spec(
+                "view.compare",
+                "compare with the reference",
+                icon::INFO,
+                G::View,
+                T::None,
+                R::No,
+                "measure this frame against the reference picture: values, saturation, texture, edges, and where they differ",
+            ),
+            Cmd::PaintOver => spec(
+                "layer.paint-over",
+                "paint over",
+                icon::BRUSH,
+                G::Layers,
+                T::None,
+                R::No,
+                "repaint what is below this layer with brush strokes that follow its forms, and carry them through an animation",
             ),
             Cmd::InstallCommand => spec(
                 "file.install-command",

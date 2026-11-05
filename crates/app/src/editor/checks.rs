@@ -401,6 +401,7 @@ impl Editor {
                 let track = name.trim_start_matches("arcs of ");
                 self.checks.arcs = arcs_from(output, track);
             }
+            Tag::Compare => self.compared(output),
             _ => {}
         }
     }

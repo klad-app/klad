@@ -17,4 +17,4 @@ rm -rf "$out"
 "$klad" new "$out" --width 1920 --height 1080 --layers 0 --background '#1c2232' >/dev/null
 python3 "$here/generate.py" | "$klad" apply "$out" >/dev/null
 "$klad" render "$out" -o "${out%.draw}.png"
-"$klad" hash "$out" --no-cache | head -1
+"$klad" hash "$out" --no-cache | sed -n 1p

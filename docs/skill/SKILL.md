@@ -213,6 +213,30 @@ klad prepare art.draw                                                           
 - Details that make a prop read as made rather than blocked in (an early version of the lantern read "kind of as good, but its details are not too great"): connect what hangs (hook, links, bead, cap: every piece touches the next; a link seen face-on is a closed ring through `--path`, one seen edge-on a small filled bar); give a round form a crisp core shadow with its own `light` pass (`--soft 1`, depth about a third of its width, `shadeOpacity` 1) instead of a soft gradient; build a stone or block from two planes (a top face and a darker side as its own shape) and keep texture to the side plane; plant grass as a few tufts where things meet the ground, leaning away from the object, not a fringe along an edge; ink a shape that enters another as an open path, so its cut edge is not drawn on top.
 - The ops are `ink`, `light`, `hatch`, `paint`, `scatter` and `fill` with `shape`; shapes added earlier in the same `apply` can be used by them. `samples/lantern/` builds the inked prop, and with `PAINTED=1` the painted one (`paint` by form in place of `light` and `hatch`).
 
+## Painting over, and measuring against a reference
+
+`paintover` turns a flat or smooth picture into a painted one: it renders what is below a paint layer (or `--from` layers) and lays brush strokes on that layer, big to small. Each stroke takes the source's colour where it starts and runs along the forms (across the colour gradient) until the colour under it changes; smaller brushes only go where the painting still differs from the source by more than `--threshold`, so detail lands where the source has it. Flat areas get broad, mostly level strokes. The strokes are ordinary strokes in the part `paint over`, so `body` and `relief` light them and the user can edit them.
+
+```bash
+klad add art.draw layer paint name=brushwork            # on top of the drawing
+klad paintover art.draw brushwork --sizes 32,16,8 --threshold 6 [--in rock] [--focus face] [--brush oil-load] [--curve 0.5] [--length 1,8]
+klad paintover walk.draw brushwork --frame 0 --sizes 14,7
+klad paintover walk.draw brushwork --like c37 --frames 0-27    # carry it drawing to drawing through an animation
+```
+
+- Block in and light the picture first (flats, `paint`, shadows), then paint over it: the paint-over keeps your values and edges and adds the hand. Keep the source layers under the brushwork; hide them or not.
+- `--focus <shape>` keeps the smallest brush to the focal area, so detail falls off away from it. Bigger `--threshold` means fewer, bigger strokes.
+- Animation: never paint over each drawing on its own (the strokes jump every frame). Paint over the first drawing, then `--like <its cel> --frames a-b`: each later drawing gets the previous one's strokes moved with the source marks under them, recoloured from the new drawing, and new strokes only where the source changed; the background stays still. The carried strokes keep their order and seeds, so in-betweens of the brushwork layer pair them part by part.
+- `paintover` needs a batch of its own in `apply` (it reads the drawing as it is).
+
+`compare` measures your drawing against a reference picture, so a critique is numbers as well as a look: the value range (L at the 5th, 50th and 95th percentile), saturation, stroke texture, edge sharpness and mean colour difference, with what differs in words, plus a row per `--region` and a heat map of where they differ most.
+
+```bash
+klad compare art.draw study.png --region shade=40,300,200,120 --region cup=610,180,90,120 --heat diff.png
+```
+
+Read the words ("lighter by 4 L", "bluer", "33% busier", "softer edges") and fix the biggest first. In the editor, "compare with the reference" (View) does the same against the drawing's reference picture layer.
+
 ## Building in 3D and painting stroke by stroke
 
 Anything with straight edges or round rims (boxes, buildings, cylinders, cups, rims of holes) is built in 3D and projected, never typed in as corners: typed corners give vanishing points at different heights and verticals of the same length near and far. `docs/skill/drawkit.py` (Python, no dependencies; `python3 docs/skill/drawkit.py --check` tests it) has a `Camera(eye, focal, centre, horizon)` with `project`, `box` (corners and faces with normals), `visible_faces`, `sphere_points`, `cylinder_points`, `extrusion_points`, `silhouette` (the hull of projected points), `shadow` and `shadow_shape` (points projected along the light onto the ground), and `stroke`, the same hand as the CLI's, for generators that place their own strokes. A level camera with the horizon on the canvas gives two-point perspective with upright verticals; moving the camera's centre on the canvas moves the subject without bending the perspective.

@@ -241,6 +241,36 @@ fn every_control_is_pen_sized_and_has_a_hover_hint() {
     h.run_steps(3);
     assert!(h.query_all(By::new().label("page size px")).count() > 0);
     checked += audit(&h, "the export and font windows");
+    {
+        let ed = h.state_mut();
+        ed.windows.export = false;
+        ed.windows.font = false;
+        ed.windows.paintover = true;
+    }
+    h.run_steps(3);
+    assert!(h.query_all(By::new().label("carry it to the next drawings")).count() > 0);
+    checked += audit(&h, "the paint-over window");
+    {
+        let ed = h.state_mut();
+        ed.windows.paintover = false;
+        ed.compare = Some(super::compare::Compared {
+            report: serde_json::json!({
+                "yours": {"value": [40.0, 66.9, 93.4], "chroma": 30.3, "texture": 14.2, "sharpness": 60.4},
+                "reference": {"value": [37.3, 68.4, 94.3], "chroma": 27.5, "texture": 10.6, "sharpness": 57.3},
+                "difference": 5.2,
+                "words": ["10% more saturated", "34% busier"],
+            }),
+            heat: None,
+        });
+        ed.windows.compare = true;
+    }
+    h.run_steps(3);
+    assert!(
+        h.query_all(By::new().label("difference 5.2: 10% more saturated, 34% busier"))
+            .count()
+            > 0
+    );
+    checked += audit(&h, "the compare window");
     assert!(checked > 150, "only {checked} controls checked");
     let _ = std::fs::remove_dir_all(&path);
 }

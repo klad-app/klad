@@ -147,6 +147,7 @@ pub enum Op {
     Scatter(ScatterSpec),
     Foliage(FoliageSpec),
     Grass(GrassSpec),
+    PaintOver(PaintOverSpec),
     Clip(ClipEdit),
     Export {
         godot: Option<String>,
@@ -614,6 +615,66 @@ pub struct GrassSpec {
     pub seed: u32,
     #[serde(default)]
     pub part: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PaintOverSpec {
+    pub layer: String,
+    #[serde(default)]
+    pub frame: u32,
+    #[serde(default)]
+    pub from: Vec<String>,
+    #[serde(default, rename = "in")]
+    pub within: Vec<String>,
+    #[serde(default = "paintover_sizes")]
+    pub sizes: Vec<f32>,
+    #[serde(default = "paintover_threshold")]
+    pub threshold: f32,
+    #[serde(default = "paintover_length")]
+    pub length: [f32; 2],
+    #[serde(default = "paintover_curve")]
+    pub curve: f32,
+    #[serde(default = "paintover_brush")]
+    pub brush: String,
+    #[serde(default)]
+    pub focus: Option<String>,
+    #[serde(default = "paintover_vary")]
+    pub vary: f32,
+    #[serde(default)]
+    pub like: Option<String>,
+    #[serde(default = "paintover_part")]
+    pub part: String,
+    #[serde(default = "first_seed")]
+    pub seed: u32,
+}
+
+fn paintover_sizes() -> Vec<f32> {
+    vec![32.0, 16.0, 8.0]
+}
+
+fn paintover_threshold() -> f32 {
+    6.0
+}
+
+fn paintover_length() -> [f32; 2] {
+    [1.0, 10.0]
+}
+
+fn paintover_curve() -> f32 {
+    0.5
+}
+
+fn paintover_brush() -> String {
+    "oil".into()
+}
+
+fn paintover_vary() -> f32 {
+    0.025
+}
+
+fn paintover_part() -> String {
+    "paint over".into()
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -1309,6 +1370,7 @@ impl Op {
             "paint" => Op::Paint(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "scatter" => Op::Scatter(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "foliage" => Op::Foliage(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
+            "paintover" => Op::PaintOver(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "grass" => Op::Grass(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "clip" => Op::Clip(parse_clip(&mut map)?),
             "export" => Op::Export {
@@ -2596,9 +2658,16 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
             let id = duplicate_layer(doc, layer, out)?;
             out.added.push(id);
         }
-        Op::Ink(_) | Op::Light(_) | Op::Hatch(_) | Op::Paint(_) | Op::Scatter(_) | Op::Foliage(_) | Op::Grass(_) => {
+        Op::Ink(_)
+        | Op::Light(_)
+        | Op::Hatch(_)
+        | Op::Paint(_)
+        | Op::Scatter(_)
+        | Op::Foliage(_)
+        | Op::Grass(_)
+        | Op::PaintOver(_) => {
             bail!(
-                "ink, light, hatch, paint, scatter, foliage and grass are turned into strokes and fills by klad ink, klad light, klad hatch, klad paint, klad scatter, klad foliage, klad grass or klad apply first"
+                "ink, light, hatch, paint, scatter, foliage, grass and paintover are turned into strokes and fills by klad ink, klad light, klad hatch, klad paint, klad scatter, klad foliage, klad grass, klad paintover or klad apply first"
             );
         }
         Op::Inbetween(spec) => {

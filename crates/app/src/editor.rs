@@ -5,6 +5,7 @@ mod cells;
 mod checks;
 mod clips;
 mod commands;
+mod compare;
 mod copy;
 mod depth;
 mod export;
@@ -13,6 +14,7 @@ mod layers;
 mod look;
 mod make;
 mod options;
+mod paintover;
 mod panels;
 mod pins;
 mod prefs;
@@ -507,6 +509,8 @@ struct Windows {
     about: bool,
     export: bool,
     font: bool,
+    paintover: bool,
+    compare: bool,
 }
 
 #[derive(Default)]
@@ -603,6 +607,8 @@ pub(crate) struct Editor {
     between: between::Between,
     checks: checks::Checks,
     export: export::Form,
+    paintover: paintover::Form,
+    compare: Option<compare::Compared>,
     bindings: crate::commands::Bindings,
     capturing: Option<Cmd>,
     key_filter: String,
@@ -760,6 +766,8 @@ impl Editor {
             between: between::Between::default(),
             checks: checks::Checks::default(),
             export: export::Form::default(),
+            paintover: paintover::Form::default(),
+            compare: None,
             bindings: crate::commands::Bindings::default(),
             capturing: None,
             key_filter: String::new(),

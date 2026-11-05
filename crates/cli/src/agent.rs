@@ -556,7 +556,11 @@ pub fn preview(bundle: &Bundle, out: &Output) -> Result<Option<PathBuf>> {
 
 pub fn edit(path: &Path, ops: &[Op], out: &Output) -> Result<()> {
     let mut bundle = Bundle::open(path)?;
-    let ops = crate::shapes::expand(&bundle, ops.to_vec())?;
+    let mut ops = ops.to_vec();
+    crate::paintover::resolve(&bundle, &mut ops)?
+        .iter()
+        .for_each(|n| eprintln!("{n}"));
+    let ops = crate::shapes::expand(&bundle, ops)?;
     let mut ops = vector::pinned(&bundle.doc, &ops)?;
     resolve_strokes(&bundle, &mut ops)?;
     crate::fonts::settle(&bundle, &mut ops)?;

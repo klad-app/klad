@@ -62,7 +62,12 @@ fn closed(outlines: &[Outline]) -> Vec<Vec<P>> {
         .collect()
 }
 
-fn areas(doc: &Document, within: &[String], polygon: &Option<Vec<[f32; 2]>>, what: &str) -> Result<Vec<Vec<P>>> {
+pub(crate) fn areas(
+    doc: &Document,
+    within: &[String],
+    polygon: &Option<Vec<[f32; 2]>>,
+    what: &str,
+) -> Result<Vec<Vec<P>>> {
     let mut found = closed(&shapes::outlines(doc, within)?);
     found.extend(polygon.clone().filter(|p| p.len() >= 3));
     if found.is_empty() {
@@ -326,7 +331,7 @@ fn scatter(doc: &Document, spec: &ScatterSpec) -> Result<Vec<Op>> {
         .collect()
 }
 
-fn inside(polygons: &[Vec<P>], at: P) -> bool {
+pub(crate) fn inside(polygons: &[Vec<P>], at: P) -> bool {
     polygons.iter().fold(false, |odd, poly| {
         let crossings = (0..poly.len())
             .filter(|&i| {

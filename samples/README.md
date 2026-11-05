@@ -14,6 +14,7 @@ Drawings made from scratch with the `klad` CLI, each from a generator that print
 | `sign` | Lettering in fonts that come with klad: a gilded inn sign on a painted board, the text clipped to the board with a shadow and grain over it |
 | `tree` | Foliage that reads as leaves: clumps built from leaf marks with `klad foliage`, each lit as a form and turning with the whole crown, leaves breaking the outline, a bark trunk painted as a cylinder |
 | `meadow` | Grass that reads as grass with `klad grass`: a field receding in soft light patches, a near bank whose blades break its crest, and tufts with seed heads from a brush the build script makes itself (pictures drawn in klad, added with `klad brushes --picture` and `--set`) |
+| `paintover` | Brushwork from a picture: the lemons repainted with `klad paintover`, and the creature's walk painted over once and carried drawing to drawing with `--like` and `--frames`, so the strokes move with the creature and the background stays still |
 | `solids` | Painting stroke by stroke: a sphere, a cube and a cylinder built in 3D with `docs/skill/drawkit.py`, lit, painted with natural strokes |
 
 The generated `.draw` bundles and pictures stay out of git.

@@ -304,7 +304,7 @@ pub fn ground(path: &Path, y: f32, travel: f32, slack: f32) -> Ground {
                 let ((fa, a), (fb, b)) = (w[0], w[1]);
                 let expected = -travel * (fb - fa) as f32;
                 let end = |i: usize| (b.sole[i] - a.sole[i] - expected).abs();
-                let off = end(0).min(end(1));
+                let off = end(0).min(end(1)).min((b.bottom[0] - a.bottom[0] - expected).abs());
                 (touching(&a) && touching(&b) && off > slack).then_some((fa, fb, off))
             })
             .collect(),

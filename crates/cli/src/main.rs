@@ -3,6 +3,7 @@ mod arcs;
 mod bench;
 mod brushes;
 mod colour;
+mod compare;
 mod demo;
 mod edit;
 mod export;
@@ -15,6 +16,7 @@ mod install;
 mod layers;
 mod looks;
 mod marks;
+mod paintover;
 mod paths;
 mod shapes;
 mod sheet;
@@ -31,7 +33,7 @@ use klad_core::history::Stack;
 use klad_core::markedit::{LassoAction, MarkTransform};
 use klad_core::ops::{
     ClipEdit, CopySpec, CopyTarget, FillSpec, FoliageSpec, GrassSpec, HatchSpec, InbetweenSpec, InkSpec, LassoSpec,
-    LightSpec, Op, PaintSpec, PaletteEdit, Place, ScatterSpec, StrokeSpec,
+    LightSpec, Op, PaintOverSpec, PaintSpec, PaletteEdit, Place, ScatterSpec, StrokeSpec,
 };
 use klad_core::retime::{Retime, RetimeSpec};
 use klad_core::stroke::{fills_of, strokes_of};
@@ -1152,6 +1154,82 @@ enum Command {
         frame: u32,
         #[arg(long, help = "Put the new marks in this part of the drawing (see klad part)")]
         part: Option<String>,
+        #[command(flatten)]
+        flags: EditFlags,
+    },
+    #[command(
+        about = "Measure a drawing against a reference picture: values, saturation, texture, edges, colour per region",
+        long_about = "Render the drawing (or read a PNG or JPEG) at the reference's size and compare the two in OKLab: the value range (L at the 5th, 50th and 95th percentile), mean chroma, stroke texture (mean absolute Laplacian of L), edge sharpness (99th percentile of the gradient) and the mean colour difference, with what differs in words (lighter, bluer, busier, softer edges). --region adds a row per named rectangle; --heat writes a picture of where they differ most (black, red, yellow, white as the difference grows to 20).\n\n  klad compare cafe.draw reference.png --region shade=40,300,200,120 --region cup=610,180,90,120 --heat diff.png"
+    )]
+    Compare {
+        drawing: PathBuf,
+        reference: PathBuf,
+        #[arg(long, default_value_t = 0)]
+        frame: u32,
+        #[arg(long = "region", help = "name=x,y,w,h in the reference's pixels; repeat for more")]
+        regions: Vec<String>,
+        #[arg(long)]
+        heat: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(
+        about = "Paint over a picture with brushwork: strokes that follow its forms and stop at its colour edges, big to small",
+        long_about = "Repaint what is below a paint layer (or the layers in --from) with strokes on that layer: big brushes first, then smaller ones only where the painting still differs from the source by more than --threshold (a colour difference in OKLab, x100), so detail lands where the source has it. Each stroke takes the source's colour where it starts, broken a little warm and cool (--vary), and runs along the forms (across the colour gradient) until the colour under it changes, it reaches --length (in brush widths, min,max) or it would bend more than --curve allows (0 straight, 1 follows every turn). --in limits it to closed shapes; --focus lets the smallest brush work only in and near one shape. The strokes are ordinary strokes in the part \"paint over\" (--part), one history step, so they take body and relief and can be edited.\n\nFor animation, paint over one key, then carry it to the next with --like <cel>: every stroke moves with the marks under it, takes its colour from the new drawing, and strokes are only added (part \"paint over added\") where the new drawing needs them. The carried strokes keep their order, so klad inbetween pairs them part by part and nothing boils.\n\n  klad paintover still.draw brushwork --sizes 32,16,8 --threshold 6\n  klad paintover walk.draw brushwork --frame 4 --like c12\n\nAlso a paintover op, alone in its batch: {\"op\":\"paintover\",\"layer\":\"brushwork\",\"sizes\":[32,16,8],\"threshold\":6}."
+    )]
+    Paintover {
+        bundle: PathBuf,
+        layer: String,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "Layers to paint from (default: everything below the layer, with the background)"
+        )]
+        from: Vec<String>,
+        #[arg(long = "in", value_delimiter = ',', help = "Closed vector shapes to paint inside")]
+        within: Vec<String>,
+        #[arg(long, value_delimiter = ',', default_values_t = [32.0, 16.0, 8.0], help = "Brush sizes in px, biggest first")]
+        sizes: Vec<f32>,
+        #[arg(
+            long,
+            default_value_t = 6.0,
+            help = "How far the painting may differ from the source (OKLab difference x100)"
+        )]
+        threshold: f32,
+        #[arg(long, default_value = "1,8", help = "Stroke length in brush widths: min,max")]
+        length: String,
+        #[arg(
+            long,
+            default_value_t = 0.5,
+            help = "How closely strokes follow the forms' turns (0 to 1)"
+        )]
+        curve: f32,
+        #[arg(long, default_value = "oil")]
+        brush: String,
+        #[arg(long, help = "A closed shape: the smallest brush only paints in and near it")]
+        focus: Option<String>,
+        #[arg(
+            long,
+            default_value_t = 0.025,
+            help = "Warm and cool, light and dark break per stroke (OKLab)"
+        )]
+        vary: f32,
+        #[arg(
+            long,
+            help = "Carry the paint-over of this drawing (a cel id on the same layer) to this frame"
+        )]
+        like: Option<String>,
+        #[arg(
+            long,
+            help = "With --like: carry it from drawing to drawing over these frames (a-b), making a drawing on the layer wherever the source starts one"
+        )]
+        frames: Option<String>,
+        #[arg(long, default_value = "paint over")]
+        part: String,
+        #[arg(long, default_value_t = 1)]
+        seed: u32,
+        #[arg(long, default_value_t = 0)]
+        frame: u32,
         #[command(flatten)]
         flags: EditFlags,
     },
@@ -2577,6 +2655,69 @@ fn run() -> Result<()> {
                 part,
             };
             agent::edit(&bundle, &[Op::Foliage(spec)], &output(&flags, frame))?;
+        }
+        Command::Compare {
+            drawing,
+            reference,
+            frame,
+            regions,
+            heat,
+            json,
+        } => {
+            let regions = regions
+                .iter()
+                .map(|r| compare::parse_region(r))
+                .collect::<Result<Vec<_>>>()?;
+            compare::compare(&drawing, &reference, frame, &regions, heat, json)?;
+        }
+        Command::Paintover {
+            bundle,
+            layer,
+            from,
+            within,
+            sizes,
+            threshold,
+            length,
+            curve,
+            brush,
+            focus,
+            vary,
+            like,
+            frames,
+            part,
+            seed,
+            frame,
+            flags,
+        } => {
+            let length: [f32; 2] = parse_numbers(&length)?
+                .try_into()
+                .map_err(|_| anyhow!("--length {length:?} is not min,max"))?;
+            let spec = PaintOverSpec {
+                layer: layer_id(&bundle, &layer)?,
+                frame,
+                from,
+                within,
+                sizes,
+                threshold,
+                length,
+                curve,
+                brush,
+                focus,
+                vary,
+                like,
+                part,
+                seed,
+            };
+            match frames {
+                Some(range) => {
+                    let (a, b) = range
+                        .split_once('-')
+                        .and_then(|(a, b)| Some((a.trim().parse().ok()?, b.trim().parse().ok()?)))
+                        .ok_or_else(|| anyhow!("--frames {range:?} is not first-last"))?;
+                    paintover::chain(&bundle, &spec, (a, b), &output(&flags, frame))?;
+                }
+                None => agent::edit(&bundle, &[Op::PaintOver(spec)], &output(&flags, frame))?,
+            }
         }
         Command::Grass {
             bundle,

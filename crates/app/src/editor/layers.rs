@@ -559,6 +559,7 @@ impl Editor {
                 (Cmd::DuplicateLayer, None),
                 (Cmd::GroupLayer, None),
                 (Cmd::DeleteLayer, None),
+                (Cmd::PaintOver, Some("paint over")),
             ]
             .into_iter()
             .for_each(|(cmd, label)| {
