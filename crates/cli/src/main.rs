@@ -29,8 +29,8 @@ use klad_core::fill::{EXPAND, FillSource, TOLERANCE};
 use klad_core::history::Stack;
 use klad_core::markedit::{LassoAction, MarkTransform};
 use klad_core::ops::{
-    ClipEdit, CopySpec, CopyTarget, FillSpec, FoliageSpec, HatchSpec, InbetweenSpec, InkSpec, LassoSpec, LightSpec, Op,
-    PaintSpec, PaletteEdit, Place, ScatterSpec, StrokeSpec,
+    ClipEdit, CopySpec, CopyTarget, FillSpec, FoliageSpec, GrassSpec, HatchSpec, InbetweenSpec, InkSpec, LassoSpec,
+    LightSpec, Op, PaintSpec, PaletteEdit, Place, ScatterSpec, StrokeSpec,
 };
 use klad_core::retime::{Retime, RetimeSpec};
 use klad_core::stroke::{fills_of, strokes_of};
@@ -1140,6 +1140,66 @@ enum Command {
         brush: String,
         #[arg(long, help = "Only the leaves along the outline, not across the clump")]
         edges_only: bool,
+        #[arg(long, default_value_t = 1)]
+        seed: u32,
+        #[arg(long, default_value_t = 0)]
+        frame: u32,
+        #[arg(long, help = "Put the new marks in this part of the drawing (see klad part)")]
+        part: Option<String>,
+        #[command(flatten)]
+        flags: EditFlags,
+    },
+    #[command(
+        about = "Grow grass in closed shapes: blades lit by the ground, smaller with distance, breaking the top edge",
+        long_about = "Fill closed shapes with grass blades from the far (top) edge to the near (bottom) one: each blade rises from its root, leans with --wind (degrees) and bends, and is smaller and denser towards the top (--far is the far size against the near one). The ground under them rolls in soft patches about --patch px wide, lit by --light (or a --lamp x,y,height): each blade runs from a dark root to a lit tip in a few value families from --shade through --color to --lit. Along the top edge taller blades (--edge) break the outline against what is behind. Near blades are drawn last.\n\nWith a stroke brush (blade, the default, or any round or chalk tip) each blade is a tapered stroke whose colour runs from --color at the root to the lit colour at the tip when the brush blends to a second colour by pressure. With a picture brush (a tip made of pictures, like your own tufts) each blade is one stamp of the picture, turned to the blade. Build your own brush for your grass (klad brushes --picture, --set) and pass it with --brush: the op decides where the marks go and how they are lit, the brush decides what they look like.\n\n  klad grass meadow.draw field --in field-shape --color '#6f8a3c' --light -0.9,-0.45 --blade 30 --far 0.22\n  klad grass meadow.draw bank --in bank --brush my-tuft --blade 160 --density 0.1\n\nAlso a grass op: {\"op\":\"grass\",\"layer\":\"field\",\"in\":[\"field-shape\"],\"color\":\"#6f8a3c\",\"blade\":30,\"far\":0.22,\"wind\":12}."
+    )]
+    Grass {
+        bundle: PathBuf,
+        layer: String,
+        #[arg(long = "in", value_delimiter = ',', help = "Closed vector shapes to grow grass in")]
+        within: Vec<String>,
+        #[arg(long, default_value = "#5f8a3e", help = "The grass's middle colour")]
+        color: String,
+        #[arg(long, help = "The lit tips' colour (default: lighter and warmer)")]
+        lit: Option<String>,
+        #[arg(long, help = "The shadowed roots' colour (default: darker and cooler)")]
+        shade: Option<String>,
+        #[arg(long, value_parser = parse_pair, allow_hyphen_values = true, default_value = "-1,-1")]
+        light: [f32; 2],
+        #[arg(long, help = "A lamp at x,y,height in canvas px instead of a direction")]
+        lamp: Option<String>,
+        #[arg(long, default_value_t = 36.0, help = "Blade length in px at the near edge")]
+        blade: f32,
+        #[arg(long, help = "Blade width in px at the near edge (default: an eighth of the length)")]
+        width: Option<f32>,
+        #[arg(long, default_value_t = 0.45, help = "Size at the far edge against the near one")]
+        far: f32,
+        #[arg(
+            long,
+            default_value_t = 8.0,
+            allow_hyphen_values = true,
+            help = "How far the blades lean, degrees (negative leans left)"
+        )]
+        wind: f32,
+        #[arg(
+            long,
+            default_value_t = 1.0,
+            help = "How close the blades stand (2 is twice as many)"
+        )]
+        density: f32,
+        #[arg(
+            long,
+            default_value_t = 1.35,
+            help = "How much taller the blades along the top edge are"
+        )]
+        edge: f32,
+        #[arg(
+            long,
+            help = "Width of the ground's light patches in px (default: four blade lengths)"
+        )]
+        patch: Option<f32>,
+        #[arg(long, default_value = "blade")]
+        brush: String,
         #[arg(long, default_value_t = 1)]
         seed: u32,
         #[arg(long, default_value_t = 0)]
@@ -2496,6 +2556,58 @@ fn run() -> Result<()> {
                 part,
             };
             agent::edit(&bundle, &[Op::Foliage(spec)], &output(&flags, frame))?;
+        }
+        Command::Grass {
+            bundle,
+            layer,
+            within,
+            color,
+            lit,
+            shade,
+            light,
+            lamp,
+            blade,
+            width,
+            far,
+            wind,
+            density,
+            edge,
+            patch,
+            brush,
+            seed,
+            frame,
+            part,
+            flags,
+        } => {
+            let lamp = lamp
+                .as_deref()
+                .map(|l| -> Result<[f32; 3]> {
+                    parse_numbers(l)?
+                        .try_into()
+                        .map_err(|_| anyhow!("--lamp {l:?} is not x,y,height"))
+                })
+                .transpose()?;
+            let spec = GrassSpec {
+                layer: layer_id(&bundle, &layer)?,
+                frame,
+                within,
+                color,
+                lit,
+                shade,
+                light,
+                lamp,
+                blade,
+                width,
+                far,
+                wind,
+                density,
+                edge,
+                patch,
+                brush,
+                seed,
+                part,
+            };
+            agent::edit(&bundle, &[Op::Grass(spec)], &output(&flags, frame))?;
         }
         Command::Gaps {
             bundle,

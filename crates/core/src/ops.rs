@@ -146,6 +146,7 @@ pub enum Op {
     Paint(PaintSpec),
     Scatter(ScatterSpec),
     Foliage(FoliageSpec),
+    Grass(GrassSpec),
     Clip(ClipEdit),
     Export {
         godot: Option<String>,
@@ -571,6 +572,70 @@ pub struct FoliageSpec {
     pub seed: u32,
     #[serde(default)]
     pub part: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GrassSpec {
+    pub layer: String,
+    #[serde(default)]
+    pub frame: u32,
+    #[serde(default, rename = "in")]
+    pub within: Vec<String>,
+    #[serde(default = "grass_color")]
+    pub color: String,
+    #[serde(default)]
+    pub lit: Option<String>,
+    #[serde(default)]
+    pub shade: Option<String>,
+    #[serde(default = "default_light")]
+    pub light: [f32; 2],
+    #[serde(default)]
+    pub lamp: Option<[f32; 3]>,
+    #[serde(default = "grass_blade")]
+    pub blade: f32,
+    #[serde(default)]
+    pub width: Option<f32>,
+    #[serde(default = "grass_far")]
+    pub far: f32,
+    #[serde(default = "grass_wind")]
+    pub wind: f32,
+    #[serde(default = "full")]
+    pub density: f32,
+    #[serde(default = "grass_edge")]
+    pub edge: f32,
+    #[serde(default)]
+    pub patch: Option<f32>,
+    #[serde(default = "grass_brush")]
+    pub brush: String,
+    #[serde(default = "first_seed")]
+    pub seed: u32,
+    #[serde(default)]
+    pub part: Option<String>,
+}
+
+fn grass_color() -> String {
+    "#5f8a3e".into()
+}
+
+fn grass_blade() -> f32 {
+    36.0
+}
+
+fn grass_far() -> f32 {
+    0.45
+}
+
+fn grass_wind() -> f32 {
+    8.0
+}
+
+fn grass_edge() -> f32 {
+    1.35
+}
+
+fn grass_brush() -> String {
+    "blade".into()
 }
 
 fn foliage_color() -> String {
@@ -1203,6 +1268,7 @@ impl Op {
             "paint" => Op::Paint(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "scatter" => Op::Scatter(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "foliage" => Op::Foliage(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
+            "grass" => Op::Grass(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "clip" => Op::Clip(parse_clip(&mut map)?),
             "export" => Op::Export {
                 godot: match map.remove("godot") {
@@ -2489,9 +2555,9 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
             let id = duplicate_layer(doc, layer, out)?;
             out.added.push(id);
         }
-        Op::Ink(_) | Op::Light(_) | Op::Hatch(_) | Op::Paint(_) | Op::Scatter(_) | Op::Foliage(_) => {
+        Op::Ink(_) | Op::Light(_) | Op::Hatch(_) | Op::Paint(_) | Op::Scatter(_) | Op::Foliage(_) | Op::Grass(_) => {
             bail!(
-                "ink, light, hatch, paint, scatter and foliage are turned into strokes and fills by klad ink, klad light, klad hatch, klad paint, klad scatter, klad foliage or klad apply first"
+                "ink, light, hatch, paint, scatter, foliage and grass are turned into strokes and fills by klad ink, klad light, klad hatch, klad paint, klad scatter, klad foliage, klad grass or klad apply first"
             );
         }
         Op::Inbetween(spec) => {

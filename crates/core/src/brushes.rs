@@ -21,6 +21,7 @@ const LIBRARY: &[(&str, &str)] = &[
     ("fog", include_str!("../brushes/library/fog.json")),
     ("leaves", include_str!("../brushes/library/leaves.json")),
     ("grass", include_str!("../brushes/library/grass.json")),
+    ("blade", include_str!("../brushes/library/blade.json")),
     ("splatter", include_str!("../brushes/library/splatter.json")),
     ("wet", include_str!("../brushes/library/wet.json")),
     ("smudge", include_str!("../brushes/library/smudge.json")),
@@ -531,7 +532,7 @@ mod tests {
             let back = BrushDef::parse(&def.to_json().unwrap()).unwrap();
             assert_eq!(back, def, "{id}");
         });
-        assert_eq!(library_ids().len(), 21);
+        assert_eq!(library_ids().len(), 22);
         assert!(library("ink").unwrap().taper[1] > 0.0);
         assert_eq!(legacy_m1("ink").unwrap().taper, [0.0, 0.0]);
         assert!(legacy_m1("marker").is_none());

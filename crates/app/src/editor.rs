@@ -2513,11 +2513,13 @@ impl Editor {
         let tail = live.recorder.finish();
         tail.iter()
             .for_each(|s| live.painter.push_on(s, &mut self.buffer, self.scene.active_raster()));
+        live.painter.end(&mut self.buffer, self.scene.active_raster());
         if let Some((axis, copy, painter)) = live.twin.as_mut() {
             tail.iter().map(|s| make::mirrored(s, *axis)).for_each(|s| {
                 painter.push_on(&s, &mut self.mirror_buffer, self.scene.active_raster());
                 copy.samples.push(s);
             });
+            painter.end(&mut self.mirror_buffer, self.scene.active_raster());
         }
         live.stroke.samples.extend(tail);
         let repainted = needs_repaint(&live.stroke);

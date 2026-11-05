@@ -3,7 +3,7 @@ use klad_core::bundle::Bundle;
 use klad_core::color;
 use klad_core::doc::Document;
 use klad_core::ops::{
-    FillSpec, FoliageSpec, HatchSpec, InkSpec, LightSpec, Op, PaintSpec, ScatterSpec, StrokeSpec, apply_all,
+    FillSpec, FoliageSpec, GrassSpec, HatchSpec, InkSpec, LightSpec, Op, PaintSpec, ScatterSpec, StrokeSpec, apply_all,
 };
 use klad_render::form::{self, Form, FormRules, Lighting, Shadow};
 use klad_render::shapes::{self, HatchRules, InkRules, Outline, P, Run, ScatterRules};
@@ -527,6 +527,165 @@ fn foliage(doc: &Document, spec: &FoliageSpec) -> Result<Vec<Op>> {
     Ok(leaves.into_iter().map(|(_, op)| op).collect())
 }
 
+fn field(x: f32, y: f32, seed: u32) -> f32 {
+    let at = |x: f32, y: f32, salt: u32| {
+        let (ix, iy) = (x.floor(), y.floor());
+        let (fx, fy) = (x - ix, y - iy);
+        let (sx, sy) = (fx * fx * (3.0 - 2.0 * fx), fy * fy * (3.0 - 2.0 * fy));
+        let h = |dx: i32, dy: i32| klad_core::rng::hash2_unit(ix as i32 + dx, iy as i32 + dy, seed ^ salt);
+        let top = h(0, 0) + (h(1, 0) - h(0, 0)) * sx;
+        let bottom = h(0, 1) + (h(1, 1) - h(0, 1)) * sx;
+        top + (bottom - top) * sy
+    };
+    at(x, y, 0x51) * 0.7 + at(x * 2.3 + 17.0, y * 2.3 + 5.0, 0xa7) * 0.3
+}
+
+fn grass(doc: &Document, bundle: &Bundle, spec: &GrassSpec) -> Result<Vec<Op>> {
+    let found = areas(doc, &spec.within, &None, "grass")?;
+    let colour = |text: &str| -> Result<[f32; 3]> { Ok(color::to_oklab(color::parse_hex(&doc.resolve_color(text)?)?)) };
+    let mid = colour(&spec.color)?;
+    let given = |c: &Option<String>, shift: [f32; 3]| -> Result<[f32; 3]> {
+        match c {
+            Some(c) => colour(c),
+            None => Ok(std::array::from_fn(|i| mid[i] + shift[i])),
+        }
+    };
+    let lit = given(&spec.lit, [0.16, -0.012, 0.05])?;
+    let shade = given(&spec.shade, [-0.2, -0.01, -0.04])?;
+    let hex = |lab: [f32; 3]| color::to_hex(color::from_oklab(lab, 1.0));
+    let picture = klad_brush::BrushSet::for_bundle(bundle)?
+        .def(&spec.brush)
+        .map(|d| matches!(d.tip, klad_core::brushes::TipDef::Image { .. }))
+        .ok_or_else(|| anyhow::anyhow!("no brush {}: klad brushes lists them", spec.brush))?;
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    found.iter().flatten().for_each(|p| {
+        (x0, y0, x1, y1) = (x0.min(p[0]), y0.min(p[1]), x1.max(p[0]), y1.max(p[1]));
+    });
+    let depth = |y: f32| ((y - y0) / (y1 - y0).max(1.0)).clamp(0.0, 1.0);
+    let scale = |y: f32| spec.far + (1.0 - spec.far) * depth(y);
+    let width = spec.width.unwrap_or(spec.blade * 0.12).max(0.5);
+    let patch = spec.patch.unwrap_or(spec.blade * 4.0).max(4.0);
+    let flat = (spec.light[0].powi(2) + spec.light[1].powi(2)).sqrt().max(1e-4);
+    let towards = |p: P| -> P {
+        match spec.lamp {
+            Some([lx, ly, _]) => {
+                let (dx, dy) = (lx - p[0], ly - p[1]);
+                let d = (dx * dx + dy * dy).sqrt().max(1e-4);
+                [dx / d, dy / d]
+            }
+            None => [spec.light[0] / flat, spec.light[1] / flat],
+        }
+    };
+    let mound = |p: P| {
+        let s = scale(p[1]);
+        field(p[0] / (patch * s), p[1] / (patch * 0.3 * s), spec.seed)
+    };
+    let tone_at = |p: P| -> f32 {
+        let l = towards(p);
+        let d = patch * 0.25;
+        let facing = mound([p[0] - l[0] * d, p[1] - l[1] * d]) - mound([p[0] + l[0] * d, p[1] + l[1] * d]);
+        let raw = 0.5 + 1.3 * facing + 0.3 * (mound(p) - 0.5);
+        let near = 0.6 + 0.4 * depth(p[1]);
+        (0.5 + (raw - 0.5) * near).clamp(0.0, 1.0)
+    };
+    let step = |tone: f32| (tone * 3.0).floor().min(2.0) / 3.0 + 1.0 / 6.0;
+    let shaded = |tone: f32| -> [f32; 3] {
+        match tone < 0.5 {
+            true => mix_lab(shade, mid, (tone * 2.0).clamp(0.0, 1.0)),
+            false => mix_lab(mid, lit, (tone * 2.0 - 1.0).clamp(0.0, 1.0)),
+        }
+    };
+    let mut rng = klad_core::rng::Rng::new(spec.seed as u64 * 6_271 + 3);
+    let mut blades: Vec<(f32, Op)> = Vec::new();
+    let mut blade = |rng: &mut klad_core::rng::Rng, root: P, length: f32, tall: f32| -> Result<()> {
+        let s = scale(root[1]);
+        let lean = (spec.wind + rng.signed() * 14.0).to_radians();
+        let dir = [lean.sin(), -lean.cos()];
+        let side = [-dir[1], dir[0]];
+        let length = length * s * tall;
+        let bend = length * (0.08 + 0.08 * rng.signed().abs()) * if spec.wind < 0.0 { -1.0 } else { 1.0 };
+        let tone = tone_at(root);
+        let family = step(tone) + (tone - step(tone)) * 0.55;
+        let l = towards(root);
+        let catches = (dir[0] * l[0] + dir[1] * l[1]).max(0.0) * 0.15;
+        let base = shaded((family - 0.28).max(0.0));
+        let top = shaded((family + 0.12 + catches + rng.signed() * 0.05 * (0.3 + family)).clamp(0.0, 1.0));
+        let jitter = |lab: [f32; 3], r: &mut klad_core::rng::Rng| {
+            [lab[0] + r.signed() * 0.02, lab[1], lab[2] + r.signed() * 0.008]
+        };
+        let (base, top) = (jitter(base, rng), jitter(top, rng));
+        let at = |t: f32| -> [f32; 2] {
+            let curve = bend * t * t;
+            [
+                root[0] + dir[0] * length * t + side[0] * curve,
+                root[1] + dir[1] * length * t + side[1] * curve,
+            ]
+        };
+        let (run, size): (Run, f32) = match picture {
+            true => {
+                let (a, b) = (at(0.48), at(0.52));
+                (vec![[a[0], a[1], 1.0], [b[0], b[1], 1.0]], length)
+            }
+            false => (
+                [(0.0, 1.0), (0.3, 0.85), (0.6, 0.55), (0.85, 0.25), (1.0, 0.05)]
+                    .iter()
+                    .map(|&(t, p)| {
+                        let q = at(t);
+                        [q[0], q[1], p]
+                    })
+                    .collect(),
+                width * s * (0.8 + 0.4 * (rng.signed() + 1.0) / 2.0),
+            ),
+        };
+        let seed = spec.seed.wrapping_mul(1_299_709).wrapping_add(blades.len() as u32 * 7);
+        let mut value = json!({
+            "layer": spec.layer, "frame": spec.frame, "brush": spec.brush,
+            "color": hex(if picture { mix_lab(base, top, 0.45) } else { base }), "second": hex(top),
+            "size": size, "points": run, "seed": seed, "taper": [0.0, 0.0],
+        });
+        if let Some(part) = &spec.part {
+            value["part"] = json!(part);
+        }
+        blades.push((root[1], Op::Stroke(serde_json::from_value(value)?)));
+        Ok(())
+    };
+    let gap = |y: f32| (width * scale(y) * 1.3 / spec.density.max(0.05)).max(1.0);
+    let mut y = y0;
+    while y <= y1 {
+        let mut x = x0 + rng.signed().abs() * gap(y);
+        while x <= x1 {
+            let root = [x + rng.signed() * gap(y) * 0.4, y + rng.signed() * gap(y) * 0.5];
+            if inside(&found, root) {
+                let tall = 0.75 + 0.5 * mound(root);
+                let length = spec.blade * (0.55 + 0.45 * (rng.signed() + 1.0) / 2.0);
+                blade(&mut rng, root, length, tall)?;
+            }
+            x += gap(y) * 1.2;
+        }
+        y += gap(y);
+    }
+    resample(&found, width * 1.4 / spec.density.max(0.05))
+        .into_iter()
+        .try_for_each(|(p, t)| {
+            let probe = (width * 0.5).max(1.0);
+            let mut n = [t[1], -t[0]];
+            if inside(&found, [p[0] + n[0] * probe, p[1] + n[1] * probe]) {
+                n = [-n[0], -n[1]];
+            }
+            if n[1] > -0.3 || rng.signed() < -0.4 {
+                return Ok::<_, anyhow::Error>(());
+            }
+            let root = [
+                p[0] - n[0] * spec.blade * scale(p[1]) * 0.12,
+                p[1] - n[1] * spec.blade * scale(p[1]) * 0.12,
+            ];
+            let length = spec.blade * (0.6 + 0.5 * (rng.signed() + 1.0) / 2.0);
+            blade(&mut rng, root, length, spec.edge * (0.8 + 0.45 * mound(root)))
+        })?;
+    blades.sort_by(|a, b| a.0.total_cmp(&b.0));
+    Ok(blades.into_iter().map(|(_, op)| op).collect())
+}
+
 fn shapes_change(op: &Op) -> bool {
     matches!(
         op,
@@ -551,6 +710,7 @@ pub fn expand(bundle: &Bundle, ops: Vec<Op>) -> Result<Vec<Op>> {
             Op::Paint(spec) => Some(paint(&doc, spec)),
             Op::Scatter(spec) => Some(scatter(&doc, spec)),
             Op::Foliage(spec) => Some(foliage(&doc, spec)),
+            Op::Grass(spec) => Some(grass(&doc, bundle, spec)),
             Op::Fill(spec) => spec.shape.as_ref().map(|id| shape_fill(&doc, spec, id)),
             _ => None,
         };
@@ -635,6 +795,62 @@ mod tests {
             .filter(|p| ((p[0] - 200.0) / 110.0).powi(2) + ((p[1] - 150.0) / 80.0).powi(2) > 1.0)
             .count();
         assert!(outside > 40, "leaves break the outline ({outside})");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn grass_grows_far_to_near_smaller_far_off_and_breaks_the_top_edge() {
+        let (dir, b) = bundle("grass");
+        let ops = parse_lines(
+            r##"{"op":"add","node":{"id":"field","type":"rect","x":0,"y":150,"w":400,"h":150},"in":"l4","frame":0}
+{"op":"grass","layer":"l1","in":["field"],"color":"#6f8a3c","light":[-0.9,-0.45],"blade":30,"far":0.3,"seed":3}"##,
+        )
+        .unwrap();
+        let made = expand(&b, ops.clone()).unwrap();
+        assert_eq!(made, expand(&b, ops).unwrap(), "seeded");
+        let blades: Vec<(P, P, f32, String, Option<String>)> = made
+            .iter()
+            .filter_map(|o| match o {
+                Op::Stroke(s) => {
+                    let p = s.points.as_ref()?;
+                    Some((
+                        [p[0][0], p[0][1]],
+                        [p[p.len() - 1][0], p[p.len() - 1][1]],
+                        s.size,
+                        s.color.clone(),
+                        s.second.clone(),
+                    ))
+                }
+                _ => None,
+            })
+            .collect();
+        assert!(blades.len() > 500, "{} blades", blades.len());
+        assert!(
+            blades.windows(2).all(|w| w[0].0[1] <= w[1].0[1]),
+            "far blades are drawn first"
+        );
+        let long = |pick: &dyn Fn(f32) -> bool| {
+            let chosen: Vec<f32> = blades
+                .iter()
+                .filter(|b| pick(b.0[1]))
+                .map(|b| ((b.1[0] - b.0[0]).powi(2) + (b.1[1] - b.0[1]).powi(2)).sqrt())
+                .collect();
+            chosen.iter().sum::<f32>() / chosen.len().max(1) as f32
+        };
+        let (far, near) = (long(&|y| y < 180.0), long(&|y| y > 270.0));
+        assert!(far < near * 0.75, "far blades are shorter: {far} against {near}");
+        assert!(blades.iter().all(|b| b.1[1] < b.0[1]), "every blade rises");
+        assert!(
+            blades.iter().filter(|b| b.1[1] < 140.0).count() > 10,
+            "the top edge is broken by blades"
+        );
+        let light = |hex: &str| color::to_oklab(color::parse_hex(hex).unwrap())[0];
+        assert!(
+            blades
+                .iter()
+                .all(|b| b.4.as_deref().is_some_and(|tip| light(tip) > light(&b.3))),
+            "each blade is darker at the root than at the tip"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

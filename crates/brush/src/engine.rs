@@ -69,6 +69,7 @@ pub struct StrokePainter {
     seed: u32,
     last: Option<Point>,
     heading: f32,
+    pending: Option<Point>,
     speed: f32,
     carry: f32,
     walked: f32,
@@ -122,6 +123,7 @@ impl StrokePainter {
             seed: stroke.seed,
             last: None,
             heading: 0.0,
+            pending: None,
             speed: 0.0,
             carry: 0.0,
             walked: 0.0,
@@ -152,6 +154,12 @@ impl StrokePainter {
         self.push_on(sample, buffer, None);
     }
 
+    pub fn end(&mut self, buffer: &mut StrokeBuffer, under: Option<&Raster>) {
+        if let Some(first) = self.pending.take() {
+            self.dab(first, 0.0, buffer, under);
+        }
+    }
+
     pub fn push_on(&mut self, sample: &Sample, buffer: &mut StrokeBuffer, under: Option<&Raster>) {
         buffer.mode = self.mode();
         buffer.body = self.brush.def.body;
@@ -164,7 +172,11 @@ impl StrokePainter {
             tilt: sample.tilt(),
         };
         let Some(prev) = self.last else {
-            self.dab(next, 0.0, buffer, under);
+            let pictured = matches!(self.brush.def.tip, klad_core::brushes::TipDef::Image { .. });
+            match (self.brush.angle, pictured) {
+                (Angle::Follow, true) => self.pending = Some(next),
+                _ => self.dab(next, 0.0, buffer, under),
+            }
             self.last = Some(next);
             return;
         };
@@ -177,11 +189,16 @@ impl StrokePainter {
             });
             return;
         }
+        let heading = libm::atan2f(next.y - prev.y, next.x - prev.x);
+        if let Some(first) = self.pending.take() {
+            self.heading = heading;
+            self.dab(first, 0.0, buffer, under);
+        }
         if sample.dt_ms > 0 {
             let now = length / sample.dt_ms as f32 / self.brush.scale;
             self.speed += (now - self.speed) * SPEED_EASE;
         }
-        self.heading = libm::atan2f(next.y - prev.y, next.x - prev.x);
+        self.heading = heading;
         let mut travelled = 0.0f32;
         loop {
             let here = lerp(prev, next, travelled / length);
@@ -1090,6 +1107,7 @@ pub fn draw_stroke_on(buffer: &mut StrokeBuffer, brush: &Brush, stroke: &Stroke,
     let mut painter = StrokePainter::new(brush, stroke);
     buffer.mode = painter.mode();
     stroke.samples.iter().for_each(|s| painter.push_on(s, buffer, under));
+    painter.end(buffer, under);
     painter.dabs()
 }
 
@@ -1364,6 +1382,40 @@ mod tests {
         let (a, b) = (alpha(&single.raster, 160, 64), alpha(&double.raster, 160, 64));
         assert!((a - 0.7).abs() < 0.02, "one stroke {a}");
         assert!(b > a + 0.15, "two strokes {b}");
+    }
+
+    #[test]
+    fn the_first_dab_of_a_follow_brush_faces_the_stroke() {
+        let mut brushes = BrushSet::presets();
+        let mut def = brushes.def("leaves").unwrap().clone();
+        def.tip = klad_core::brushes::TipDef::Image {
+            image: "leaf-lance".into(),
+            more: Vec::new(),
+        };
+        def.spacing = 10.0;
+        def.jitter = Default::default();
+        def.color = None;
+        brushes.insert("lance", def);
+        let up = Stroke::new(1, "lance", [0.0, 0.0, 0.0, 1.0], 80.0, 9)
+            .with_points(&[(128.0, 140.0, 1.0), (128.0, 120.0, 1.0)], 5.0);
+        let out = replay(256, 256, &[up.into()], &brushes).unwrap();
+        let inked: Vec<(usize, usize)> = (0..256)
+            .flat_map(|y| (0..256).map(move |x| (x, y)))
+            .filter(|&(x, y)| rgba(&out.raster, x, y)[3] > 0.5)
+            .collect();
+        let span = |pick: fn(&(usize, usize)) -> usize| {
+            inked.iter().map(pick).max().unwrap_or(0) - inked.iter().map(pick).min().unwrap_or(0)
+        };
+        assert!(!inked.is_empty());
+        assert!(
+            span(|p| p.1) > span(|p| p.0) * 2,
+            "a lance leaf along an upward stroke stands up"
+        );
+        let tap = Stroke::new(2, "lance", [0.0, 0.0, 0.0, 1.0], 80.0, 9).with_points(&[(60.0, 60.0, 1.0)], 5.0);
+        assert!(
+            replay(256, 256, &[tap.into()], &brushes).unwrap().raster.count() > 0,
+            "a tap still leaves a mark"
+        );
     }
 
     #[test]
