@@ -156,7 +156,7 @@ impl CelCache {
             Err(_) => {
                 let count = marks.len();
                 let (replay, raster, dabs) =
-                    CelReplay::replay(w, h, marks, brushes).with_context(|| format!("cel {cel}"))?;
+                    CelReplay::replay_tiled(w, h, marks, brushes).with_context(|| format!("cel {cel}"))?;
                 (replay, raster, How::Replayed, count, dabs)
             }
         };

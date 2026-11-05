@@ -63,6 +63,7 @@ impl Track {
 pub struct Spot {
     pub centre: [f32; 2],
     pub bottom: [f32; 2],
+    pub sole: [f32; 2],
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -109,9 +110,14 @@ fn spot_of(marks: &[Mark], ids: &[u32]) -> Option<Spot> {
         .collect();
     let low = all.iter().map(|p| p[1]).fold(f32::MIN, f32::max);
     let sole: Vec<f32> = all.iter().filter(|p| p[1] >= low - 1.0).map(|p| p[0]).collect();
+    let contact: Vec<f32> = all.iter().filter(|p| p[1] >= low - SLACK).map(|p| p[0]).collect();
     (!sole.is_empty()).then(|| Spot {
         centre: [(x0 + x1) / 2.0, (y0 + y1) / 2.0],
         bottom: [sole.iter().sum::<f32>() / sole.len() as f32, low],
+        sole: [
+            contact.iter().copied().fold(f32::MAX, f32::min),
+            contact.iter().copied().fold(f32::MIN, f32::max),
+        ],
     })
 }
 
@@ -234,6 +240,7 @@ pub fn track(bundle: &Bundle, tracks: &[Track], (from, to): (u32, u32)) -> Resul
                                     .map(|(x, y)| Spot {
                                         centre: [x, y],
                                         bottom: [x, y],
+                                        sole: [x, x],
                                     });
                             Ok((f, at))
                         })
@@ -272,7 +279,7 @@ pub fn ground(path: &Path, y: f32, travel: f32, slack: f32) -> Ground {
         |mut out: Vec<(u32, Spot)>, (f, s)| {
             if out
                 .last()
-                .is_none_or(|(_, last)| last.bottom != s.bottom || last.centre != s.centre)
+                .is_none_or(|(_, last)| last.bottom != s.bottom || last.centre != s.centre || last.sole != s.sole)
             {
                 out.push((f, s));
             }
@@ -296,7 +303,8 @@ pub fn ground(path: &Path, y: f32, travel: f32, slack: f32) -> Ground {
             .filter_map(|w| {
                 let ((fa, a), (fb, b)) = (w[0], w[1]);
                 let expected = -travel * (fb - fa) as f32;
-                let off = (b.bottom[0] - a.bottom[0] - expected).abs();
+                let end = |i: usize| (b.sole[i] - a.sole[i] - expected).abs();
+                let off = end(0).min(end(1));
                 (touching(&a) && touching(&b) && off > slack).then_some((fa, fb, off))
             })
             .collect(),
@@ -428,6 +436,7 @@ pub fn report(bundle: &Bundle, tracks: &[Track], span: (u32, u32), checks: &Chec
                         "frame": f,
                         "at": s.map(|s| s.centre),
                         "bottom": s.map(|s| s.bottom),
+                        "sole": s.map(|s| s.sole),
                         "moved": steps.get(f),
                     })).collect::<Vec<_>>(),
                     "under": g.as_ref().map(|g| g.under.iter().map(|(f, d)| json!({"frame": f, "by": d})).collect::<Vec<_>>()),
@@ -522,6 +531,7 @@ mod tests {
                         Some(Spot {
                             centre: [x, y - 10.0],
                             bottom: [x, y],
+                            sole: [x, x],
                         }),
                     )
                 })
@@ -660,6 +670,63 @@ mod tests {
         assert_eq!(g.under.len(), 1);
         assert_eq!(g.under[0].0, 4);
         assert!(moved(&foot)[0].1 > 3.9);
+    }
+
+    #[test]
+    fn a_foot_rolling_from_heel_to_toe_does_not_slide_and_a_pushed_one_does() {
+        use klad_core::stroke::Stroke;
+        let foot = |heel: (f32, f32), toe: (f32, f32)| -> Vec<Mark> {
+            let line: Vec<(f32, f32, f32)> = (0..=12)
+                .map(|i| {
+                    let t = i as f32 / 12.0;
+                    (heel.0 + (toe.0 - heel.0) * t, heel.1 + (toe.1 - heel.1) * t, 1.0)
+                })
+                .collect();
+            vec![
+                Stroke::new(1, "ink", [0.0, 0.0, 0.0, 1.0], 4.0, 1)
+                    .with_points(&line, 0.0)
+                    .into(),
+            ]
+        };
+        let at = |marks: Vec<Mark>| spot_of(&marks, &[1]);
+        let roll = Path {
+            label: "foot".into(),
+            spots: [
+                foot((100.0, 250.0), (128.0, 238.0)),
+                foot((100.0, 250.0), (130.0, 250.0)),
+                foot((102.0, 238.0), (130.0, 250.0)),
+            ]
+            .into_iter()
+            .enumerate()
+            .map(|(f, m)| (f as u32, at(m)))
+            .collect(),
+        };
+        let bottoms: Vec<f32> = roll.spots.iter().map(|(_, s)| s.unwrap().bottom[0]).collect();
+        assert!(
+            bottoms[2] - bottoms[0] > 20.0,
+            "the lowest point jumps from heel to toe: {bottoms:?}"
+        );
+        let g = ground(&roll, 250.0, 0.0, SLACK);
+        assert_eq!(g.touches, [0, 1, 2]);
+        assert!(g.slides.is_empty(), "a roll is not a slide: {:?}", g.slides);
+        let pushed = Path {
+            label: "foot".into(),
+            spots: [
+                foot((100.0, 250.0), (130.0, 250.0)),
+                foot((110.0, 250.0), (140.0, 250.0)),
+            ]
+            .into_iter()
+            .enumerate()
+            .map(|(f, m)| (f as u32, at(m)))
+            .collect(),
+        };
+        let g = ground(&pushed, 250.0, 0.0, SLACK);
+        assert_eq!(g.slides.len(), 1);
+        assert!((g.slides[0].2 - 10.0).abs() < 0.5, "{:?}", g.slides);
+        assert!(
+            ground(&pushed, 250.0, -10.0, SLACK).slides.is_empty(),
+            "travel accounts for it"
+        );
     }
 
     #[test]

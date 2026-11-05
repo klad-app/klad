@@ -188,7 +188,7 @@ fn load_cel(bundle: &Bundle, brushes: &BrushSet, layer: &str, cel: &str, use_cac
             };
             let count = marks.len();
             let (replay, raster, dabs) =
-                CelReplay::replay(width, height, marks, brushes).with_context(|| format!("cel {cel}"))?;
+                CelReplay::replay_tiled(width, height, marks, brushes).with_context(|| format!("cel {cel}"))?;
             cache.store(cel, cache.key(&bytes), &raster, &replay)?;
             klad_brush::cache::CelLoad {
                 raster,

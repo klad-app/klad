@@ -1,14 +1,17 @@
 use crate::brush::{BrushSet, StrokeBlend};
 use crate::engine::{commit, draw_stroke_on, land_stroke};
 use crate::fill::{fill_tiles, paint_fill_where};
-use crate::tiles::{Raster, StrokeBuffer, TILE_PX, Tile};
+use crate::tiles::{Raster, StrokeBuffer, TILE, TILE_PX, Tile};
 use anyhow::Result;
 use half::f16;
-use klad_core::stroke::{Mark, Stroke, fingerprint};
+use klad_core::brushes::Curve;
+use klad_core::stroke::{Mark, Sample, Stroke, fingerprint};
+use rayon::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 pub const EVERY: usize = 128;
+const TILED_FROM: usize = 32;
 pub const BUDGET: usize = 128 << 20;
 
 #[derive(Clone)]
@@ -50,6 +53,117 @@ fn painted(
     })
 }
 
+fn reach(stroke: &Stroke, brushes: &BrushSet) -> Option<f32> {
+    let def = brushes.def(&stroke.brush)?;
+    let most = |c: Option<Curve>| c.map_or(1.0, |c| c.min.abs().max(c.max.abs()));
+    let size = &def.dynamics.size;
+    let radius =
+        0.5 * stroke.size * most(size.pressure) * most(size.tilt) * most(size.speed) * (1.0 + def.jitter.size.abs());
+    Some((radius.max(0.6) * (1.0 + 2.0 * def.jitter.scatter.abs()) + 2.0) * 1.25)
+}
+
+fn guess(raster: &Raster, brushes: &BrushSet, mark: &Mark) -> Vec<usize> {
+    let (cols, rows) = (raster.cols, raster.rows);
+    let span = |a: f32, b: f32, n: usize| {
+        let last = n as f32 * TILE as f32 - 1.0;
+        ((a.clamp(0.0, last) as usize) / TILE)..=((b.clamp(0.0, last) as usize) / TILE)
+    };
+    match mark {
+        Mark::Fill(fill) => crate::fill::fill_tiles(raster, fill),
+        Mark::Stroke(stroke) => {
+            let points: Vec<(f32, f32)> = stroke.samples.iter().map(Sample::pos).collect();
+            let Some(pad) = reach(stroke, brushes).filter(|_| !points.is_empty()) else {
+                return (0..cols * rows).collect();
+            };
+            let (x0, x1) = points
+                .iter()
+                .fold((f32::MAX, f32::MIN), |(a, b), p| (a.min(p.0), b.max(p.0)));
+            let (y0, y1) = points
+                .iter()
+                .fold((f32::MAX, f32::MIN), |(a, b), p| (a.min(p.1), b.max(p.1)));
+            span(y0 - pad, y1 + pad, rows)
+                .flat_map(|ty| span(x0 - pad, x1 + pad, cols).map(move |tx| ty * cols + tx))
+                .collect()
+        }
+    }
+}
+
+type Tiled = (Raster, Vec<Vec<u32>>, usize);
+type TileJob = (usize, Tile, Vec<(usize, Vec<usize>, usize)>);
+
+fn tiled(width: u32, height: u32, marks: &[Mark], brushes: &BrushSet) -> Result<Option<Tiled>> {
+    let mut raster = Raster::new(width, height);
+    let tiles = raster.cols * raster.rows;
+    let reads = marks.iter().any(|m| match m {
+        Mark::Stroke(stroke) => brushes.def(&stroke.brush).is_none_or(|d| d.reads_pixels()),
+        Mark::Fill(_) => false,
+    });
+    if reads || tiles < 2 || marks.len() < TILED_FROM {
+        return Ok(None);
+    }
+    let guesses: Vec<Vec<usize>> = marks.iter().map(|m| guess(&raster, brushes, m)).collect();
+    let mut jobs: Vec<Vec<usize>> = vec![Vec::new(); tiles];
+    guesses
+        .iter()
+        .enumerate()
+        .for_each(|(i, g)| g.iter().for_each(|&t| jobs[t].push(i)));
+    let done: Vec<TileJob> = jobs
+        .par_iter()
+        .enumerate()
+        .filter(|(_, job)| !job.is_empty())
+        .map(|(t, job)| {
+            let mut own = Raster::new(width, height);
+            let mut buffer = StrokeBuffer::new(width, height);
+            let mut only = vec![false; tiles];
+            only[t] = true;
+            buffer.set_mask(Some(only));
+            let seen = job
+                .iter()
+                .map(|&i| {
+                    let (footprint, dabs) = painted(&mut own, &mut buffer, brushes, &marks[i])?;
+                    Ok((i, footprint, dabs))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            Ok((t, own.tile(t), seen))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut footprints: Vec<Option<Vec<u32>>> = vec![None; marks.len()];
+    let mut fills: Vec<Vec<u32>> = vec![Vec::new(); marks.len()];
+    let mut dabs = 0;
+    done.iter().for_each(|(_, _, seen)| {
+        seen.iter().for_each(|(i, footprint, n)| match &marks[*i] {
+            Mark::Fill(_) => fills[*i].extend(footprint.iter().map(|&t| t as u32)),
+            Mark::Stroke(_) => {
+                if footprints[*i].is_none() {
+                    footprints[*i] = Some(footprint.iter().map(|&t| t as u32).collect());
+                    dabs += n;
+                }
+            }
+        })
+    });
+    let footprints: Vec<Vec<u32>> = marks
+        .iter()
+        .enumerate()
+        .map(|(i, m)| match m {
+            Mark::Fill(_) => {
+                let mut f = std::mem::take(&mut fills[i]);
+                f.sort_unstable();
+                f
+            }
+            Mark::Stroke(_) => footprints[i].take().unwrap_or_default(),
+        })
+        .collect();
+    let guessed = footprints
+        .iter()
+        .zip(&guesses)
+        .all(|(f, g)| f.iter().all(|t| g.contains(&(*t as usize))));
+    if !guessed {
+        return Ok(None);
+    }
+    done.iter().for_each(|(t, tile, _)| put(&mut raster, *t, tile));
+    Ok(Some((raster, footprints, dabs)))
+}
+
 fn put(raster: &mut Raster, index: usize, tile: &Tile) {
     raster.restore(index, tile);
 }
@@ -80,6 +194,24 @@ impl CelReplay {
             Ok::<_, anyhow::Error>(dabs + more)
         })?;
         Ok((cel, raster, dabs))
+    }
+
+    pub fn replay_tiled(
+        width: u32,
+        height: u32,
+        marks: Vec<Mark>,
+        brushes: &BrushSet,
+    ) -> Result<(Self, Raster, usize)> {
+        match tiled(width, height, &marks, brushes)? {
+            Some((raster, footprints, dabs)) => {
+                let mut cel = Self::new(width, height);
+                cel.keys = marks.iter().map(|m| (m.id(), fingerprint(m))).collect();
+                cel.footprints = footprints;
+                cel.marks = marks;
+                Ok((cel, raster, dabs))
+            }
+            None => Self::replay(width, height, marks, brushes),
+        }
     }
 
     pub fn from_cache(width: u32, height: u32, keys: Vec<(u32, u64)>, footprints: Vec<Vec<u32>>) -> Self {
@@ -385,6 +517,39 @@ mod tests {
 
     fn brushes() -> BrushSet {
         BrushSet::presets()
+    }
+
+    #[test]
+    fn tiles_replayed_on_their_own_match_one_replay_for_every_dry_brush() {
+        let set = brushes();
+        let mut synth = Synth::canvas(W as f32, H as f32);
+        synth.brushes = set
+            .defs()
+            .filter(|(_, d)| !d.reads_pixels())
+            .map(|(id, _)| id.to_string())
+            .collect();
+        assert!(synth.brushes.len() > 10, "{:?}", synth.brushes);
+        let mut all = sample(30);
+        all.extend(marks(synth.strokes(260, 11)));
+        all.iter_mut().enumerate().for_each(|(i, m)| m.set_id(i as u32 + 1));
+        let (one, raster, dabs) = CelReplay::replay(W, H, all.clone(), &set).unwrap();
+        let (tiled, fast, fast_dabs) = CelReplay::replay_tiled(W, H, all.clone(), &set).unwrap();
+        assert_eq!(fast.hash(), raster.hash());
+        assert_eq!(
+            (fast_dabs, tiled.footprints(), tiled.keys()),
+            (dabs, one.footprints(), one.keys())
+        );
+        assert_eq!(tiled.checkpoints(), [0], "the tiled path was taken");
+        let mut wet = all.clone();
+        let mut synth = Synth::canvas(W as f32, H as f32);
+        synth.brushes = vec!["wet".into()];
+        wet.extend(marks(synth.strokes(2, 5)));
+        wet.iter_mut().enumerate().for_each(|(i, m)| m.set_id(i as u32 + 1));
+        let (serial, _, _) = CelReplay::replay_tiled(W, H, wet, &set).unwrap();
+        assert!(
+            serial.checkpoints().len() > 1,
+            "a brush that reads pixels replays in order"
+        );
     }
 
     fn edited(marks: &[Mark], changes: Vec<MarkChange>) -> Vec<Mark> {

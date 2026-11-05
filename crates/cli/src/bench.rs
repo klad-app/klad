@@ -1,6 +1,6 @@
 use crate::layers::compress_raster;
 use anyhow::Result;
-use klad_brush::{BrushSet, Raster, StrokeBuffer, draw_stroke, replay};
+use klad_brush::{BrushSet, CelReplay, Raster, StrokeBuffer, draw_stroke, replay};
 use klad_core::doc::{Document, Layer, Node, Shape};
 use klad_core::rng::Rng;
 use klad_core::stroke::{Mark, Stroke, decode_cel, encode_cel, encode_raw, marks};
@@ -25,6 +25,7 @@ pub fn run(count: usize, size: u32, seed: u64) -> Result<()> {
     brush_speed(&brushes)?;
     repaint_speed(&brushes)?;
     replay_speed(&strokes, size, &brushes)?;
+    still_speed(&brushes, seed)?;
     compose_speed(&brushes, seed)?;
     Ok(())
 }
@@ -173,6 +174,43 @@ fn replay_speed(strokes: &[Stroke], size: u32, brushes: &BrushSet) -> Result<()>
         "  as 8 layers    1 thread {:.2} s, {threads} threads {:.2} s, identical pixels {same}",
         serial_ms / 1000.0,
         parallel_ms / 1000.0
+    );
+    Ok(())
+}
+
+fn still_speed(brushes: &BrushSet, seed: u64) -> Result<()> {
+    let (w, h) = (960u32, 480u32);
+    let mut rng = Rng::new(seed ^ 0x5717);
+    let all: Vec<Mark> = (0..41_731u32)
+        .map(|i| {
+            let (x, y) = (rng.unit() * w as f32, rng.unit() * h as f32);
+            let a = rng.unit() * std::f32::consts::TAU;
+            let length = 8.0 + rng.unit() * 32.0;
+            let size = match i < 31_735 {
+                true => 4.0 + rng.unit() * 12.0,
+                false => 1.5 + rng.unit() * 1.5,
+            };
+            let points: Vec<(f32, f32, f32)> = (0..5)
+                .map(|k| {
+                    let t = k as f32 / 4.0;
+                    (x + a.cos() * length * t, y + a.sin() * length * t, [0.2, 0.9, 1.0, 0.8, 0.1][k])
+                })
+                .collect();
+            let colour = [0.3 + rng.unit() * 0.6, 0.3 + rng.unit() * 0.5, 0.3 + rng.unit() * 0.4, 1.0];
+            Stroke::new(i + 1, "oil", colour, size, i).with_points(&points, 8.0).into()
+        })
+        .collect();
+    let start = Instant::now();
+    let (_, serial, dabs) = CelReplay::replay(w, h, all.clone(), brushes)?;
+    let one = ms(start);
+    let start = Instant::now();
+    let (_, tiled, _) = CelReplay::replay_tiled(w, h, all, brushes)?;
+    let spread = ms(start);
+    println!(
+        "still            41731 oil strokes at {w}x{h}, {dabs} dabs: in order {:.2} s, tile by tile {:.2} s, identical pixels {}",
+        one / 1000.0,
+        spread / 1000.0,
+        serial.hash() == tiled.hash()
     );
     Ok(())
 }

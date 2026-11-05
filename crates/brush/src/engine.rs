@@ -8,6 +8,7 @@ use klad_core::color::Rgba;
 use klad_core::cut::Cut;
 use klad_core::rng::{Rng, hash2_unit};
 use klad_core::stroke::{Mark, Sample, Stroke};
+use std::ops::Range;
 
 const MIN_RADIUS: f32 = 0.6;
 const SPEED_EASE: f32 = 0.5;
@@ -713,7 +714,15 @@ fn stamp(buffer: &mut StrokeBuffer, brush: &Brush, dab: Dab, bristles: Option<(&
                 mut paint,
                 mut lift,
                 mut ridge,
-            } = buffer.tiles_mut(ty * cols + tx);
+            } = buffer.tiles_mut(
+                ty * cols + tx,
+                [
+                    x0.max(tx * TILE) - tx * TILE,
+                    y0.max(ty * TILE) - ty * TILE,
+                    x1.min(tx * TILE + TILE) - tx * TILE,
+                    y1.min(ty * TILE + TILE) - ty * TILE,
+                ],
+            );
             let (ox, oy) = (tx * TILE, ty * TILE);
             for y in y0.max(oy)..y1.min(oy + TILE) {
                 let py = y as f32 + 0.5 - cy;
@@ -850,7 +859,7 @@ fn stamp_replace(
     changes.into_iter().for_each(|(x, y, value, height)| {
         let index = (y / TILE) * cols + x / TILE;
         let at = (y % TILE) * TILE + x % TILE;
-        let tiles = buffer.tiles_mut(index);
+        let tiles = buffer.tiles_mut(index, [x % TILE, y % TILE, x % TILE + 1, y % TILE + 1]);
         tiles.coverage[at] = 1.0;
         if let Some(paint) = tiles.paint {
             paint[at * 4..at * 4 + 4].copy_from_slice(&value);
@@ -933,20 +942,33 @@ fn blend_replace(target: &mut [f16], coverage: &[f32], paint: &[f32], opacity: f
         });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn land(
     target: &mut [f16],
     coverage: &[f32],
     paint: Option<&[f32]>,
+    rows: &[Range<usize>],
     mode: Mode,
     color: Rgba,
     opacity: f32,
     blend: StrokeBlend,
 ) {
-    match (mode, paint) {
-        (Mode::Colour, Some(paint)) => blend_colours(target, coverage, paint, color, opacity, blend),
-        (Mode::Replace, Some(paint)) => blend_replace(target, coverage, paint, opacity, blend == StrokeBlend::Atop),
-        _ => blend_coverage(target, coverage, color, opacity, blend),
-    }
+    rows.iter().cloned().for_each(|r| {
+        let (a, b) = (r.start * 4, r.end * 4);
+        match (mode, paint) {
+            (Mode::Colour, Some(paint)) => {
+                blend_colours(&mut target[a..b], &coverage[r], &paint[a..b], color, opacity, blend)
+            }
+            (Mode::Replace, Some(paint)) => blend_replace(
+                &mut target[a..b],
+                &coverage[r],
+                &paint[a..b],
+                opacity,
+                blend == StrokeBlend::Atop,
+            ),
+            _ => blend_coverage(&mut target[a..b], &coverage[r], color, opacity, blend),
+        }
+    });
 }
 
 pub fn land_tile(
@@ -958,10 +980,12 @@ pub fn land_tile(
     blend: StrokeBlend,
 ) {
     if let Some(coverage) = buffer.coverage(index) {
+        let rows: Vec<Range<usize>> = buffer.rows(index).collect();
         land(
             target,
             coverage,
             buffer.paint(index),
+            &rows,
             buffer.mode,
             color,
             opacity,
@@ -1010,8 +1034,18 @@ fn commit_cut(
             (StrokeBlend::Normal, _) | (_, Mode::Replace) => Some(raster.ensure(index)),
             (StrokeBlend::Erase | StrokeBlend::Atop, _) => raster.at_mut(index),
         };
+        let rows: Vec<Range<usize>> = buffer.rows(index).collect();
         if let (Some(target), Some(coverage)) = (target, buffer.coverage(index)) {
-            land(target, coverage, buffer.paint(index), mode, color, opacity, blend);
+            land(
+                target,
+                coverage,
+                buffer.paint(index),
+                &rows,
+                mode,
+                color,
+                opacity,
+                blend,
+            );
         }
         land_body(raster, buffer, index, color, opacity, blend);
     });
@@ -1047,13 +1081,14 @@ fn land_body(raster: &mut Raster, buffer: &StrokeBuffer, index: usize, color: Rg
         _ => None,
     };
     let mode = buffer.mode;
+    let rows: Vec<Range<usize>> = buffer.rows(index).collect();
     let heights = raster.heights_mut().ensure(index);
-    coverage
-        .iter()
-        .zip(heights.iter_mut())
-        .enumerate()
-        .filter(|(_, (c, _))| **c > 0.0)
-        .for_each(|(px, (&c, h))| {
+    rows.into_iter()
+        .flatten()
+        .map(|px| (px, coverage[px]))
+        .filter(|(_, c)| *c > 0.0)
+        .for_each(|(px, c)| {
+            let h = &mut heights[px];
             let mut a = (c * alpha).clamp(0.0, 1.0);
             if let Some(under) = &under {
                 a *= under[px];
@@ -1154,8 +1189,7 @@ pub fn replay_onto(raster: &mut Raster, marks: &[Mark], brushes: &BrushSet) -> R
 }
 
 pub fn replay(width: u32, height: u32, marks: &[Mark], brushes: &BrushSet) -> Result<Replayed> {
-    let mut raster = Raster::new(width, height);
-    let dabs = replay_onto(&mut raster, marks, brushes)?;
+    let (_, raster, dabs) = crate::replay::CelReplay::replay_tiled(width, height, marks.to_vec(), brushes)?;
     Ok(Replayed { raster, dabs })
 }
 

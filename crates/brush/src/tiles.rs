@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 pub const TILE: usize = 256;
 pub const TILE_PX: usize = TILE * TILE;
+const EMPTY: [u16; 4] = [TILE as u16, TILE as u16, 0, 0];
 
 #[derive(Clone)]
 pub struct TileGrid<T, const C: usize> {
@@ -265,6 +266,7 @@ pub struct StrokeBuffer {
     pub lifting: bool,
     touched: Vec<usize>,
     marked: Vec<bool>,
+    rects: Vec<[u16; 4]>,
     dirty: Vec<usize>,
     dirty_marked: Vec<bool>,
     mask: Option<Vec<bool>>,
@@ -284,6 +286,7 @@ impl StrokeBuffer {
             lifting: false,
             touched: Vec::new(),
             dirty_marked: marked.clone(),
+            rects: vec![EMPTY; marked.len()],
             marked,
             dirty: Vec::new(),
             mask: None,
@@ -317,7 +320,14 @@ impl StrokeBuffer {
         &self.grid
     }
 
-    pub fn tile_mut(&mut self, index: usize) -> &mut [f32] {
+    pub fn tile_mut(&mut self, index: usize, rect: [usize; 4]) -> &mut [f32] {
+        let r = &mut self.rects[index];
+        *r = [
+            r[0].min(rect[0] as u16),
+            r[1].min(rect[1] as u16),
+            r[2].max(rect[2] as u16),
+            r[3].max(rect[3] as u16),
+        ];
         if !self.marked[index] {
             self.marked[index] = true;
             self.touched.push(index);
@@ -329,8 +339,18 @@ impl StrokeBuffer {
         self.grid.ensure(index)
     }
 
-    pub fn tiles_mut(&mut self, index: usize) -> Tiles<'_> {
-        self.tile_mut(index);
+    pub fn rect(&self, index: usize) -> Option<[usize; 4]> {
+        let r = self.rects[index];
+        (r[0] < r[2] && r[1] < r[3]).then(|| r.map(usize::from))
+    }
+
+    pub fn rows(&self, index: usize) -> impl Iterator<Item = std::ops::Range<usize>> + use<> {
+        let r = self.rect(index).unwrap_or([0; 4]);
+        (r[1]..r[3]).map(move |y| y * TILE + r[0]..y * TILE + r[2])
+    }
+
+    pub fn tiles_mut(&mut self, index: usize, rect: [usize; 4]) -> Tiles<'_> {
+        self.tile_mut(index, rect);
         Tiles {
             coverage: self.grid.ensure(index),
             paint: match self.mode {
@@ -391,18 +411,22 @@ impl StrokeBuffer {
         let touched = std::mem::take(&mut self.touched);
         touched.iter().for_each(|&i| {
             self.marked[i] = false;
-            if let Some(tile) = self.grid.at_mut(i) {
-                tile.fill(0.0);
-            }
-            if let Some(tile) = self.paint.at_mut(i) {
-                tile.fill(0.0);
-            }
-            if let Some(tile) = self.lift.at_mut(i) {
-                tile.fill(0.0);
-            }
-            if let Some(tile) = self.ridge.at_mut(i) {
-                tile.fill(0.0);
-            }
+            let rows: Vec<std::ops::Range<usize>> = self.rows(i).collect();
+            rows.iter().for_each(|row| {
+                if let Some(tile) = self.grid.at_mut(i) {
+                    tile[row.clone()].fill(0.0);
+                }
+                if let Some(tile) = self.paint.at_mut(i) {
+                    tile[row.start * 4..row.end * 4].fill(0.0);
+                }
+                if let Some(tile) = self.lift.at_mut(i) {
+                    tile[row.clone()].fill(0.0);
+                }
+                if let Some(tile) = self.ridge.at_mut(i) {
+                    tile[row.clone()].fill(0.0);
+                }
+            });
+            self.rects[i] = EMPTY;
         });
         self.touched = touched;
         self.touched.clear();
@@ -451,7 +475,7 @@ mod tests {
         buffer.set_mask(Some(mask));
         assert!(buffer.skip(1));
         assert!(!buffer.skip(2));
-        buffer.tile_mut(2)[0] = 0.5;
+        buffer.tile_mut(2, [0, 0, 1, 1])[0] = 0.5;
         assert_eq!(buffer.touched(), &[1, 2]);
         assert!(buffer.coverage(1).is_none());
         buffer.reset();
@@ -461,8 +485,8 @@ mod tests {
     #[test]
     fn buffer_reset_clears_only_touched() {
         let mut buffer = StrokeBuffer::new(512, 512);
-        buffer.tile_mut(3)[10] = 0.5;
-        buffer.tile_mut(3)[11] = 0.25;
+        buffer.tile_mut(3, [10, 0, 12, 1])[10] = 0.5;
+        buffer.tile_mut(3, [10, 0, 12, 1])[11] = 0.25;
         assert_eq!(buffer.touched(), &[3]);
         assert_eq!(buffer.take_dirty(), vec![3]);
         assert!(buffer.take_dirty().is_empty());

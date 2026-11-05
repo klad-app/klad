@@ -1,3 +1,4 @@
+use crate::color::{from_oklab, from_u16, to_oklab, to_u16};
 use crate::fill::{Coverage, Fill, FillSource};
 use crate::markedit::Affine;
 use crate::stroke::{Author, Mark, Sample, Stroke, fingerprint};
@@ -1169,7 +1170,13 @@ fn lerp32(a: f32, b: f32, t: f32) -> f32 {
 }
 
 fn colour(a: [u16; 4], b: [u16; 4], t: f32) -> [u16; 4] {
-    std::array::from_fn(|i| lerp32(a[i] as f32, b[i] as f32, t).round().clamp(0.0, 65535.0) as u16)
+    if a == b {
+        return a;
+    }
+    let (ca, cb) = (from_u16(a), from_u16(b));
+    let (la, lb) = (to_oklab(ca), to_oklab(cb));
+    let lab = std::array::from_fn(|i| lerp32(la[i], lb[i], t));
+    to_u16(from_oklab(lab, lerp32(ca[3], cb[3], t)))
 }
 
 fn stroke_at(s: &StrokePlan, line: &[P], sim: Sim, t: f32) -> Stroke {
@@ -1285,6 +1292,7 @@ pub fn made_hash(marks: &[Mark]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::color::Rgba;
     use crate::fill::{FillRef, Seed};
 
     fn stroke(id: u32, points: &[(f32, f32)], size: f32) -> Mark {
@@ -1476,6 +1484,45 @@ mod tests {
         };
         assert_eq!((seed.x, seed.gap, reference.name()), (20.0, 3.0, "l1"));
         assert_eq!(plan.floods().len(), 1);
+    }
+
+    #[test]
+    fn colours_blend_between_keys_through_oklab() {
+        let coloured = |c: Rgba| -> Mark {
+            let pts: Vec<(f32, f32, f32)> = arm(0.0).iter().map(|&(x, y)| (x, y, 1.0)).collect();
+            Stroke::new(1, "ink", c, 6.0, 7).with_points(&pts, 8.0).into()
+        };
+        let lit = [0.93, 0.62, 0.25, 1.0];
+        let shade = [0.36, 0.38, 0.72, 1.0];
+        let fill = |c: Rgba| {
+            Mark::Fill(Fill::new(
+                3,
+                c,
+                FillSource::Polygon(vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]]),
+                Coverage::default(),
+            ))
+        };
+        let made = plan(
+            &[coloured(lit), fill(lit)],
+            &[coloured(shade), fill(shade)],
+            Match::Id,
+            &[],
+        );
+        let mid = made.at(0.5);
+        let (la, lb) = (to_oklab(lit), to_oklab(shade));
+        let want: [f32; 3] = std::array::from_fn(|i| (la[i] + lb[i]) / 2.0);
+        [mid[0].as_stroke().unwrap().color, mid[1].as_fill().unwrap().color]
+            .iter()
+            .for_each(|&c| {
+                let got = to_oklab(from_u16(c));
+                assert!((0..3).all(|i| (got[i] - want[i]).abs() < 0.004), "{got:?} {want:?}");
+            });
+        let same = plan(&[coloured(lit)], &[coloured(lit)], Match::Id, &[]);
+        assert_eq!(
+            same.at(0.5)[0].as_stroke().unwrap().color,
+            to_u16(lit),
+            "keys of one colour keep it exactly"
+        );
     }
 
     #[test]
