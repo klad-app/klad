@@ -152,6 +152,7 @@ pub fn run(effects: &[Effect], img: Img, space: Space, by: Layer, height: Height
 
 const LIFT: f32 = 0.85;
 const DROP: f32 = 0.55;
+const STACK: f32 = 1.6;
 
 pub fn relief(img: &Img, r: &Relief, scale: f32, height: &Img) -> Result<Img> {
     let [hr, hg, hb, _] = parse_hex(&r.highlight)?;
@@ -159,7 +160,8 @@ pub fn relief(img: &Img, r: &Relief, scale: f32, height: &Img) -> Result<Img> {
     let (high, low) = ([hr, hg, hb], [sr, sg, sb]);
     let length = r.light[0].hypot(r.light[1]).max(1e-6);
     let (lx, ly) = (r.light[0] / length, r.light[1] / length);
-    let soft = blur(height, r.softness * scale);
+    let stacked = height.each(|_, _, p| [STACK * libm::tanhf(p[0] / STACK), 0.0, 0.0, p[3]]);
+    let soft = blur(&stacked, r.softness * scale);
     let k = r.strength * scale * 0.5;
     Ok(img.each(|gx, gy, p| {
         if p[3] <= 1e-5 {
@@ -172,18 +174,20 @@ pub fn relief(img: &Img, r: &Relief, scale: f32, height: &Img) -> Result<Img> {
         if e.abs() < 1e-5 {
             return p;
         }
-        let (to, t) = match e > 0.0 {
-            true => (high, (e * LIFT).min(1.0)),
-            false => (low, (-e * DROP).min(1.0)),
-        };
         let a = p[3];
         let un = [p[0] / a, p[1] / a, p[2] / a];
-        [
-            (un[0] + (to[0] - un[0]) * t) * a,
-            (un[1] + (to[1] - un[1]) * t) * a,
-            (un[2] + (to[2] - un[2]) * t) * a,
-            a,
-        ]
+        let lit = libm::sqrtf((0.2126 * un[0] + 0.7152 * un[1] + 0.0722 * un[2]).clamp(0.0, 1.0));
+        let out: [f32; 3] = match e > 0.0 {
+            true => {
+                let t = (e * LIFT * lit).min(1.0);
+                std::array::from_fn(|i| un[i] + (high[i] - un[i]) * t)
+            }
+            false => {
+                let t = (-e * DROP).min(1.0);
+                std::array::from_fn(|i| un[i] * (1.0 + (low[i] - 1.0) * t))
+            }
+        };
+        [out[0] * a, out[1] * a, out[2] * a, a]
     }))
 }
 

@@ -11,7 +11,7 @@ use klad_core::stroke::{Mark, Sample, Stroke};
 
 const MIN_RADIUS: f32 = 0.6;
 const SPEED_EASE: f32 = 0.5;
-const SQUASH: f32 = 0.55;
+const SQUASH: f32 = 0.85;
 const DEEPEST: f32 = 32.0;
 
 #[derive(Clone, Copy, Debug)]
@@ -448,12 +448,22 @@ struct Dab {
 
 const GROOVES: usize = 256;
 const RUN: f32 = 8.0;
-const LIPS: usize = 64;
+const EDGE: f32 = 2.5;
+const PROFILE: usize = 128;
+
+struct Profile {
+    lips: [f32; PROFILE + 1],
+    caps: [f32; PROFILE + 1],
+    depth: f32,
+    spread: f32,
+}
 
 struct Bristles {
     grooves: [f32; GROOVES + 1],
-    lips: [f32; LIPS + 1],
     run: f32,
+    tall: f32,
+    scale: f32,
+    radius: f32,
 }
 
 impl Bristles {
@@ -469,10 +479,28 @@ impl Bristles {
         Self {
             grooves: std::array::from_fn(|k| {
                 let x = k as f32 / GROOVES as f32 * count;
-                0.45 + 0.55 * (wave(x, 0) * 0.65 + wave(x * 2.3, 1) * 0.35)
+                wave(x, 0) * 0.65 + wave(x * 2.3, 1) * 0.35
             }),
-            lips: std::array::from_fn(|k| 0.9 + 0.2 * smoothstep(0.5, 0.9, k as f32 / LIPS as f32)),
             run: size * RUN,
+            tall: libm::sqrtf(size / scale / 24.0).clamp(0.4, 1.6),
+            scale,
+            radius: size * 0.5,
+        }
+    }
+
+    fn profile(&self, radius: f32, roundness: f32, load: f32, p: f32) -> Profile {
+        let band = (EDGE * self.scale / (radius * roundness).max(1e-3)).clamp(0.35, 0.6);
+        let k = load * self.tall * (0.3 + 0.7 * p.clamp(0.0, 1.0));
+        let at = |i: usize| i as f32 / PROFILE as f32;
+        Profile {
+            lips: std::array::from_fn(|i| {
+                let across = at(i);
+                k * (0.72 + 0.43 * smoothstep(1.0 - 3.0 * band, 1.0 - band, across))
+                    * (1.0 - smoothstep(1.0 - band, 1.0, across))
+            }),
+            caps: std::array::from_fn(|i| 1.0 - smoothstep(1.0 - band, 1.0, at(i))),
+            depth: 0.3 + 0.3 * ((1.0 - load) / 0.45).clamp(0.0, 1.0),
+            spread: radius / self.radius,
         }
     }
 
@@ -480,11 +508,19 @@ impl Bristles {
         1.0 - 0.45 * smoothstep(0.0, self.run.max(1.0), along)
     }
 
-    fn thickness(&self, d: f32, v: f32, load: f32) -> f32 {
-        let groove = self.grooves[((v.clamp(-1.0, 1.0) * 0.5 + 0.5) * GROOVES as f32) as usize];
-        let lip = self.lips[(d.min(1.0) * LIPS as f32) as usize];
-        lip * groove * load
+    fn thickness(&self, profile: &Profile, d: f32, v: f32) -> f32 {
+        let lateral = (v * profile.spread).clamp(-1.0, 1.0);
+        let wave = self.grooves[((lateral * 0.5 + 0.5) * GROOVES as f32) as usize];
+        let groove = 1.0 - profile.depth * (1.0 - wave);
+        lookup(&profile.lips, v.abs()) * lookup(&profile.caps, d) * groove
     }
+}
+
+fn lookup(table: &[f32; PROFILE + 1], at: f32) -> f32 {
+    let x = at.clamp(0.0, 1.0) * PROFILE as f32;
+    let i = (x as usize).min(PROFILE - 1);
+    let f = x - i as f32;
+    table[i] + (table[i + 1] - table[i]) * f
 }
 
 const RING: [(f32, f32); 8] = [
@@ -644,6 +680,7 @@ fn stamp(buffer: &mut StrokeBuffer, brush: &Brush, dab: Dab, bristles: Option<(&
     let inv_round = 1.0 / brush.def.roundness;
     let cols = buffer.grid().cols;
     let edge = Edge::of(&brush.tip, radius);
+    let profile = bristles.map(|(b, load)| (b, b.profile(radius, brush.def.roundness, load, dab.p)));
     for ty in y0 / TILE..=(y1 - 1) / TILE {
         for tx in x0 / TILE..=(x1 - 1) / TILE {
             if buffer.skip(ty * cols + tx) {
@@ -678,11 +715,11 @@ fn stamp(buffer: &mut StrokeBuffer, brush: &Brush, dab: Dab, bristles: Option<(&
                     if let Some(texture) = &brush.grain {
                         a = (a - texture_value(texture, x, y, dab.p)).max(0.0);
                     }
-                    if let (Some(ridge), Some((bristles, load))) = (ridge.as_deref_mut(), bristles)
+                    if let (Some(ridge), Some((bristles, profile))) = (ridge.as_deref_mut(), &profile)
                         && a > 0.0
                     {
                         let r = &mut ridge[row + x - ox];
-                        *r = r.max(bristles.thickness(libm::sqrtf(d2), v, load));
+                        *r = r.max(bristles.thickness(profile, libm::sqrtf(d2), v));
                     }
                     if a > 0.0 && reach > 0.0 {
                         let at = row + x - ox;
@@ -1013,7 +1050,7 @@ fn land_body(raster: &mut Raster, buffer: &StrokeBuffer, index: usize, color: Rg
                 }
                 if body > 0.0 {
                     let thick = ridge.map_or(1.0, |r| r[px]);
-                    let laid = (c * (0.5 + 0.5 * alpha)).clamp(0.0, 1.0) * under.as_ref().map_or(1.0, |u| u[px]);
+                    let laid = smoothstep(0.0, 0.35, c) * (0.5 + 0.5 * alpha) * under.as_ref().map_or(1.0, |u| u[px]);
                     value = value * (1.0 - SQUASH * a) + body * laid * thick;
                 }
             }
@@ -1572,7 +1609,11 @@ mod tests {
         let mut twice = thick_and("oil-load");
         twice[1] = coloured("oil-load", 60.0, (130.0, 64.0), (300.0, 64.0), [0.8, 0.6, 0.2, 1.0], 2).into();
         let two = replay(512, 128, &twice, &brushes).unwrap().raster;
-        assert!(height(&two, 175, 64) > middle * 1.2, "overlap builds up");
+        let overlap = height(&two, 175, 64);
+        assert!(
+            overlap > middle * 1.02 && overlap < middle * 1.5,
+            "new paint pushes most of the wet paint under it aside: {overlap} over {middle}"
+        );
         assert_eq!(two.hash(), replay(512, 128, &twice, &brushes).unwrap().raster.hash());
         let (mut cel, mut raster, _) = crate::replay::CelReplay::replay(512, 128, twice.clone(), &brushes).unwrap();
         let mut edited = twice.clone();
@@ -1597,16 +1638,18 @@ mod tests {
         assert!(height(&smudged, 262, 64) > 0.05, "smudge pulls the paint along");
         let wet = replay(512, 128, &thick_and("wet"), &brushes).unwrap().raster;
         assert!(height(&wet, 262, 64) > 0.02, "wet paint carries some of it");
-        let top = height(&thick, 150, 64);
-        let slope = |r: &Raster| {
-            (200..280)
-                .filter(|&x| (0.1 * top..0.9 * top).contains(&height(r, x, 64)))
-                .count()
+        let steepest = |r: &Raster| {
+            (60..68)
+                .flat_map(|y| (140..280).map(move |x| (x, y)))
+                .map(|(x, y)| (height(r, x + 1, y) - height(r, x, y)).abs())
+                .fold(0.0, f32::max)
         };
         let blended = replay(512, 128, &thick_and("blender"), &brushes).unwrap().raster;
         assert!(
-            slope(&blended) > slope(&thick) + 3,
-            "the blender flattens the paint's end"
+            steepest(&blended) < steepest(&thick) * 0.8,
+            "the blender flattens the paint: {} against {}",
+            steepest(&blended),
+            steepest(&thick)
         );
     }
 }

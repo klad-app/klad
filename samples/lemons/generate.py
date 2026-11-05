@@ -31,7 +31,7 @@ SHAPES = {
                                   "C 820 509 704 540 560 540 C 416 540 300 509 300 470 Z"},
     "lemon-c": {"type": "path", "d": lemon(905, 706, 102, 70, -8)},
 }
-RELIEF_STRENGTH = {"table": 1.2, "inside": 2, "lemon-a": 4, "lemon-b": 4, "bowl": 2.5, "lemon-c": 4}
+RELIEF_LOOK = {"table": (1.2, 1.8), "inside": (2, 0.8), "lemon-a": (4, 3.5), "lemon-b": (3.7, 3.3), "bowl": (1.7, 2.05), "lemon-c": (5.1, 4.4)}
 PAINT = {
     "table": dict(color="table", form="flat", facing=[0, -1, 0.9], angle=2, weight=20, decisive=0.6),
     "inside": dict(color="clay inside", form="flat", facing=[0.35, 0.5, 1], angle=0, weight=12),
@@ -64,7 +64,8 @@ def ops():
         out.append(paint)
         out.append({"op": "set", "id": f"{id}-layer", "lockAlpha": False})
         if RELIEF:
-            out.append({"op": "set", "id": f"{id}-layer", "effects": [{"relief": {"light": LIGHT, "highlight": KEY, "strength": RELIEF_STRENGTH[id]}}]})
+            strength, softness = RELIEF_LOOK[id]
+            out.append({"op": "set", "id": f"{id}-layer", "effects": [{"relief": {"light": LIGHT, "highlight": KEY, "strength": strength, "softness": softness}}]})
     shadows = [("cast", 650, 704, 285, 40, COLOURS["cast"], 16), ("cast", 610, 694, 200, 16, COLOURS["contact"], 6),
                ("cast-front", 948, 768, 110, 20, COLOURS["cast"], 10), ("cast-front", 925, 768, 70, 8, COLOURS["contact"], 4)]
     out += [{"op": "add", "node": {"type": "ellipse", "cx": x, "cy": y, "rx": rx, "ry": ry, "fill": c, "blur": b}, "in": f"{l}-layer"}
