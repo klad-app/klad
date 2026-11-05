@@ -2,7 +2,9 @@ use anyhow::{Context, Result, bail};
 use klad_core::bundle::Bundle;
 use klad_core::color;
 use klad_core::doc::Document;
-use klad_core::ops::{FillSpec, HatchSpec, InkSpec, LightSpec, Op, PaintSpec, ScatterSpec, StrokeSpec, apply_all};
+use klad_core::ops::{
+    FillSpec, FoliageSpec, HatchSpec, InkSpec, LightSpec, Op, PaintSpec, ScatterSpec, StrokeSpec, apply_all,
+};
 use klad_render::form::{self, Form, FormRules, Lighting, Shadow};
 use klad_render::shapes::{self, HatchRules, InkRules, Outline, P, Run, ScatterRules};
 use serde_json::json;
@@ -323,6 +325,208 @@ fn scatter(doc: &Document, spec: &ScatterSpec) -> Result<Vec<Op>> {
         .collect()
 }
 
+fn inside(polygons: &[Vec<P>], at: P) -> bool {
+    polygons.iter().fold(false, |odd, poly| {
+        let crossings = (0..poly.len())
+            .filter(|&i| {
+                let (a, b) = (poly[i], poly[(i + 1) % poly.len()]);
+                (a[1] > at[1]) != (b[1] > at[1]) && at[0] < a[0] + (at[1] - a[1]) / (b[1] - a[1]) * (b[0] - a[0])
+            })
+            .count();
+        odd ^ (crossings % 2 == 1)
+    })
+}
+
+fn resample(poly: &[Vec<P>], step: f32) -> Vec<(P, P)> {
+    poly.iter()
+        .flat_map(|points| {
+            let n = points.len();
+            let mut out = Vec::new();
+            let mut carry = 0.0;
+            (0..n).for_each(|i| {
+                let (a, b) = (points[i], points[(i + 1) % n]);
+                let len = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt();
+                if len < 1e-4 {
+                    return;
+                }
+                let t = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+                let mut d = carry;
+                while d < len {
+                    out.push(([a[0] + t[0] * d, a[1] + t[1] * d], t));
+                    d += step;
+                }
+                carry = d - len;
+            });
+            out
+        })
+        .collect()
+}
+
+fn mix_lab(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
+    std::array::from_fn(|i| a[i] + (b[i] - a[i]) * t)
+}
+
+fn foliage(doc: &Document, spec: &FoliageSpec) -> Result<Vec<Op>> {
+    let found = areas(doc, &spec.within, &None, "foliage")?;
+    let colour = |text: &str| -> Result<[f32; 3]> { Ok(color::to_oklab(color::parse_hex(&doc.resolve_color(text)?)?)) };
+    let mid = colour(&spec.color)?;
+    let given = |c: &Option<String>, shift: [f32; 3]| -> Result<[f32; 3]> {
+        match c {
+            Some(c) => colour(c),
+            None => Ok(std::array::from_fn(|i| mid[i] + shift[i])),
+        }
+    };
+    let lit = given(&spec.lit, [0.15, -0.012, 0.05])?;
+    let shade = given(&spec.shade, [-0.2, -0.01, -0.045])?;
+    let glow = given(&spec.glow, [0.1, -0.03, 0.09])?;
+    let hex = |lab: [f32; 3]| color::to_hex(color::from_oklab(lab, 1.0));
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    found.iter().flatten().for_each(|p| {
+        (x0, y0, x1, y1) = (x0.min(p[0]), y0.min(p[1]), x1.max(p[0]), y1.max(p[1]));
+    });
+    let (cx, cy, rx, ry) = (
+        (x0 + x1) / 2.0,
+        (y0 + y1) / 2.0,
+        ((x1 - x0) / 2.0).max(1.0),
+        ((y1 - y0) / 2.0).max(1.0),
+    );
+    let crown = match &spec.mass {
+        Some(id) => {
+            let outline = areas(doc, std::slice::from_ref(id), &None, "foliage's mass")?;
+            let (mut a0, mut b0, mut a1, mut b1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+            outline.iter().flatten().for_each(|p| {
+                (a0, b0, a1, b1) = (a0.min(p[0]), b0.min(p[1]), a1.max(p[0]), b1.max(p[1]));
+            });
+            Some((
+                (a0 + a1) / 2.0,
+                (b0 + b1) / 2.0,
+                ((a1 - a0) / 2.0).max(1.0),
+                ((b1 - b0) / 2.0).max(1.0),
+            ))
+        }
+        None => None,
+    };
+    let bulge = |p: P, (cx, cy, rx, ry): (f32, f32, f32, f32)| -> [f32; 3] {
+        let (u, v) = ((p[0] - cx) / rx, (p[1] - cy) / ry);
+        let flat = (u * u + v * v).min(1.0);
+        let n = [u * 0.9, v * 0.9, (1.0 - flat).max(0.0).sqrt() + 0.15];
+        let d = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        [n[0] / d, n[1] / d, n[2] / d]
+    };
+    let blended = |p: P, own: [f32; 3]| -> [f32; 3] {
+        match crown {
+            Some(c) => {
+                let big = bulge(p, c);
+                let n: [f32; 3] = std::array::from_fn(|i| own[i] * 0.45 + big[i] * 0.55);
+                let d = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-4);
+                [n[0] / d, n[1] / d, n[2] / d]
+            }
+            None => own,
+        }
+    };
+    let flat = (spec.light[0].powi(2) + spec.light[1].powi(2)).sqrt().max(1e-4);
+    let sun = [spec.light[0] / flat * 0.8, spec.light[1] / flat * 0.8, 0.6];
+    let towards = |p: P| -> [f32; 3] {
+        match spec.lamp {
+            Some([lx, ly, lz]) => {
+                let v = [lx - p[0], ly - p[1], lz.max(1.0)];
+                let d = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().max(1e-4);
+                [v[0] / d, v[1] / d, v[2] / d]
+            }
+            None => sun,
+        }
+    };
+    let tone_at = |p: P, normal: [f32; 3]| -> f32 {
+        let l = towards(p);
+        let lambert = normal[0] * l[0] + normal[1] * l[1] + normal[2] * l[2];
+        let under = normal[1].max(0.0) * 0.4;
+        (0.42 + 0.7 * lambert - under).clamp(0.0, 1.0)
+    };
+    let mut rng = klad_core::rng::Rng::new(spec.seed as u64 * 7_919 + 13);
+    let mut leaves: Vec<(f32, Op)> = Vec::new();
+    let mut leaf = |rng: &mut klad_core::rng::Rng, at: P, out: P, size: f32, tone: f32, shine: bool| -> Result<()> {
+        let stepped = (tone * 3.0).floor().min(2.0) / 3.0 + 1.0 / 6.0;
+        let tone = (stepped + (tone - stepped) * 0.35 + rng.signed() * 0.05 * (0.2 + tone)).clamp(0.0, 1.0);
+        let lab = match (shine, tone < 0.5) {
+            (true, _) => glow,
+            (false, true) => mix_lab(shade, mid, (tone * 2.0).clamp(0.0, 1.0)),
+            (false, false) => mix_lab(mid, lit, (tone * 2.0 - 1.0).clamp(0.0, 1.0)),
+        };
+        let spread = 0.015 + 0.03 * tone;
+        let lab = [
+            lab[0] + rng.signed() * spread,
+            lab[1] + rng.signed() * 0.006,
+            lab[2] + rng.signed() * 0.01,
+        ];
+        let turn = rng.signed() * 0.9;
+        let (s, c) = (turn.sin(), turn.cos());
+        let d = [out[0] * c - out[1] * s, out[0] * s + out[1] * c];
+        let reach = size * (0.3 + 0.2 * (rng.signed() + 1.0));
+        let a = [at[0] - d[0] * size * 0.3, at[1] - d[1] * size * 0.3];
+        let b = [at[0] + d[0] * reach, at[1] + d[1] * reach];
+        let run: Run = vec![[a[0], a[1], 0.8], [b[0], b[1], 1.0]];
+        let seed = spec.seed.wrapping_mul(2_750_159).wrapping_add(leaves.len() as u32 * 31);
+        let op = stroke(
+            &spec.layer,
+            spec.frame,
+            &spec.brush,
+            &hex(lab),
+            size,
+            1.0,
+            Some([0.0, 0.0]),
+            seed,
+            &run,
+            &spec.part,
+        )?;
+        leaves.push((tone, op));
+        Ok(())
+    };
+    if spec.body {
+        let step = spec.leaf * 0.6 / spec.density.max(0.05);
+        let (cols, rows) = (((x1 - x0) / step).ceil() as i32, ((y1 - y0) / step).ceil() as i32);
+        (0..rows)
+            .flat_map(|r| (0..cols).map(move |c| (r, c)))
+            .try_for_each(|(r, c)| {
+                let p = [
+                    x0 + (c as f32 + 0.5 + rng.signed() * 0.45) * step,
+                    y0 + (r as f32 + 0.5 + rng.signed() * 0.45) * step,
+                ];
+                if !inside(&found, p) {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                let (u, v) = ((p[0] - cx) / rx, (p[1] - cy) / ry);
+                let normal = blended(p, bulge(p, (cx, cy, rx, ry)));
+                let out = {
+                    let d = (u * u + v * v).sqrt().max(1e-3);
+                    [u / d, v / d]
+                };
+                let size = spec.leaf * (0.75 + 0.2 * (rng.signed() + 1.0));
+                leaf(&mut rng, p, out, size, tone_at(p, normal), false)
+            })?;
+    }
+    let step = spec.leaf * 0.4 / spec.density.max(0.05);
+    resample(&found, step).into_iter().try_for_each(|(p, t)| {
+        let probe = (spec.leaf * 0.25).max(1.0);
+        let mut n = [t[1], -t[0]];
+        if inside(&found, [p[0] + n[0] * probe, p[1] + n[1] * probe]) {
+            n = [-n[0], -n[1]];
+        }
+        let normal = blended(p, [n[0] * 0.92, n[1] * 0.92, 0.38]);
+        let tone = tone_at(p, normal);
+        let up = (-n[1]).max(0.0);
+        let keep = (0.5 + 0.5 * tone + 0.25 * up).min(1.0);
+        if (rng.signed() + 1.0) / 2.0 > keep {
+            return Ok::<_, anyhow::Error>(());
+        }
+        let size = spec.leaf * (0.75 + 0.25 * (rng.signed() + 1.0));
+        let shine = tone < 0.35 && up < 0.5 && rng.signed() > 0.75;
+        let at = [p[0] + n[0] * size * 0.05, p[1] + n[1] * size * 0.05];
+        leaf(&mut rng, at, n, size, tone, shine)
+    })?;
+    leaves.sort_by(|a, b| a.0.total_cmp(&b.0));
+    Ok(leaves.into_iter().map(|(_, op)| op).collect())
+}
+
 fn shapes_change(op: &Op) -> bool {
     matches!(
         op,
@@ -346,6 +550,7 @@ pub fn expand(bundle: &Bundle, ops: Vec<Op>) -> Result<Vec<Op>> {
             Op::Hatch(spec) => Some(hatch(&doc, spec)),
             Op::Paint(spec) => Some(paint(&doc, spec)),
             Op::Scatter(spec) => Some(scatter(&doc, spec)),
+            Op::Foliage(spec) => Some(foliage(&doc, spec)),
             Op::Fill(spec) => spec.shape.as_ref().map(|id| shape_fill(&doc, spec, id)),
             _ => None,
         };
@@ -388,6 +593,49 @@ mod tests {
         doc.layers.push(Layer::vector("l4", "sketch", "c4", Vec::new()));
         doc.next_id = 20;
         (dir.clone(), Bundle::create(&dir, doc).unwrap())
+    }
+
+    #[test]
+    fn foliage_builds_a_clump_from_leaves_lit_as_a_form_with_a_broken_edge() {
+        let (dir, b) = bundle("foliage");
+        let ops = parse_lines(
+            r##"{"op":"add","node":{"id":"clump","type":"ellipse","cx":200,"cy":150,"rx":110,"ry":80},"in":"l4","frame":0}
+{"op":"foliage","layer":"l1","in":["clump"],"color":"#4d7a3b","light":[-0.6,-0.8],"leaf":12,"seed":4}"##,
+        )
+        .unwrap();
+        let made = expand(&b, ops.clone()).unwrap();
+        assert_eq!(made, expand(&b, ops).unwrap(), "seeded");
+        let leaves: Vec<(f32, f32, f32)> = made
+            .iter()
+            .filter_map(|o| match o {
+                Op::Stroke(s) => {
+                    let points = s.points.as_ref()?;
+                    let (x, y) = (points[0][0], points[0][1]);
+                    let lab = color::to_oklab(color::parse_hex(&s.color).ok()?);
+                    assert_eq!(s.brush, "leaves");
+                    Some((x, y, lab[0]))
+                }
+                _ => None,
+            })
+            .collect();
+        assert!(leaves.len() > 200, "{} leaves", leaves.len());
+        let mean = |pick: &dyn Fn(f32, f32) -> bool| {
+            let chosen: Vec<f32> = leaves.iter().filter(|(x, y, _)| pick(*x, *y)).map(|l| l.2).collect();
+            chosen.iter().sum::<f32>() / chosen.len().max(1) as f32
+        };
+        let lit = mean(&|x, y| x < 170.0 && y < 130.0);
+        let dark = mean(&|x, y| x > 230.0 && y > 170.0);
+        assert!(lit > dark + 0.08, "the lit side is lighter: {lit} against {dark}");
+        let outside = made
+            .iter()
+            .filter_map(|o| match o {
+                Op::Stroke(s) => s.points.as_ref().and_then(|p| p.last().copied()),
+                _ => None,
+            })
+            .filter(|p| ((p[0] - 200.0) / 110.0).powi(2) + ((p[1] - 150.0) / 80.0).powi(2) > 1.0)
+            .count();
+        assert!(outside > 40, "leaves break the outline ({outside})");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

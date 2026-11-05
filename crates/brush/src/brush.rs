@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 pub enum Tip {
     Round { hardness: f32 },
     Mask(Arc<TipMask>),
+    Masks(Vec<Arc<TipMask>>),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -134,13 +135,24 @@ fn tip_of(def: &TipDef, pictures: &Pictures) -> Result<Tip> {
     Ok(match def {
         TipDef::Round { hardness } => Tip::Round { hardness: *hardness },
         TipDef::Chalk { seed } => Tip::Mask(memo(&CHALK, *seed, || TipMask::chalk(*seed))),
-        TipDef::Image { image } => match (library_index(image), pictures.get(image)) {
-            (_, Some(picture)) => Tip::Mask(memo(&PICTURE_TIPS, picture.hash, || images::tip_from(picture))),
-            (Some(i), None) => Tip::Mask(memo(&LIBRARY_TIPS, i, || {
-                images::library_tip(TIP_IMAGES[i]).expect("a library tip")
-            })),
-            (None, None) => return Err(missing(image)),
-        },
+        TipDef::Image { image, more } if more.is_empty() => Tip::Mask(picture_tip(image, pictures)?),
+        TipDef::Image { image, more } => Tip::Masks(
+            [image]
+                .into_iter()
+                .chain(more)
+                .map(|i| picture_tip(i, pictures))
+                .collect::<Result<_>>()?,
+        ),
+    })
+}
+
+fn picture_tip(image: &str, pictures: &Pictures) -> Result<Arc<TipMask>> {
+    Ok(match (library_index(image), pictures.get(image)) {
+        (_, Some(picture)) => memo(&PICTURE_TIPS, picture.hash, || images::tip_from(picture)),
+        (Some(i), None) => memo(&LIBRARY_TIPS, i, || {
+            images::library_tip(TIP_IMAGES[i]).expect("a library tip")
+        }),
+        (None, None) => return Err(missing(image)),
     })
 }
 
@@ -370,6 +382,32 @@ impl BrushSet {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tip_with_more_pictures_holds_one_mask_each_and_round_trips() {
+        let def = brushes::library("leaves").unwrap();
+        assert!(def.images().is_empty(), "library pictures are not the bundle's");
+        match Brush::from_def(&def).tip {
+            Tip::Masks(masks) => {
+                assert_eq!(masks.len(), 5);
+                assert!(
+                    masks[0].data != masks[1].data && masks[1].data != masks[3].data,
+                    "the shapes differ"
+                );
+            }
+            _ => panic!("leaves draws from several pictures"),
+        }
+        let text = serde_json::to_string(&def.tip).unwrap();
+        assert!(text.contains("\"more\""), "{text}");
+        let one = TipDef::Image {
+            image: "leaf".into(),
+            more: Vec::new(),
+        };
+        assert!(
+            !serde_json::to_string(&one).unwrap().contains("more"),
+            "a single picture is written as before"
+        );
+    }
 
     #[test]
     fn every_preset_builds() {

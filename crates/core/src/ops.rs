@@ -145,6 +145,7 @@ pub enum Op {
     Hatch(HatchSpec),
     Paint(PaintSpec),
     Scatter(ScatterSpec),
+    Foliage(FoliageSpec),
     Clip(ClipEdit),
     Export {
         godot: Option<String>,
@@ -534,6 +535,58 @@ pub struct ScatterSpec {
     pub seed: u32,
     #[serde(default)]
     pub part: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FoliageSpec {
+    pub layer: String,
+    #[serde(default)]
+    pub frame: u32,
+    #[serde(default, rename = "in")]
+    pub within: Vec<String>,
+    #[serde(default = "foliage_color")]
+    pub color: String,
+    #[serde(default)]
+    pub lit: Option<String>,
+    #[serde(default)]
+    pub shade: Option<String>,
+    #[serde(default)]
+    pub glow: Option<String>,
+    #[serde(default = "default_light")]
+    pub light: [f32; 2],
+    #[serde(default)]
+    pub lamp: Option<[f32; 3]>,
+    #[serde(default = "foliage_leaf")]
+    pub leaf: f32,
+    #[serde(default)]
+    pub mass: Option<String>,
+    #[serde(default = "full")]
+    pub density: f32,
+    #[serde(default = "foliage_brush")]
+    pub brush: String,
+    #[serde(default = "foliage_body")]
+    pub body: bool,
+    #[serde(default = "first_seed")]
+    pub seed: u32,
+    #[serde(default)]
+    pub part: Option<String>,
+}
+
+fn foliage_color() -> String {
+    "#4f7a3c".into()
+}
+
+fn foliage_leaf() -> f32 {
+    14.0
+}
+
+fn foliage_brush() -> String {
+    "leaves".into()
+}
+
+fn foliage_body() -> bool {
+    true
 }
 
 fn ink_weight() -> f32 {
@@ -1149,6 +1202,7 @@ impl Op {
             "hatch" => Op::Hatch(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "paint" => Op::Paint(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "scatter" => Op::Scatter(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
+            "foliage" => Op::Foliage(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "clip" => Op::Clip(parse_clip(&mut map)?),
             "export" => Op::Export {
                 godot: match map.remove("godot") {
@@ -2435,9 +2489,9 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
             let id = duplicate_layer(doc, layer, out)?;
             out.added.push(id);
         }
-        Op::Ink(_) | Op::Light(_) | Op::Hatch(_) | Op::Paint(_) | Op::Scatter(_) => {
+        Op::Ink(_) | Op::Light(_) | Op::Hatch(_) | Op::Paint(_) | Op::Scatter(_) | Op::Foliage(_) => {
             bail!(
-                "ink, light, hatch, paint and scatter are turned into strokes and fills by klad ink, klad light, klad hatch, klad paint, klad scatter or klad apply first"
+                "ink, light, hatch, paint, scatter and foliage are turned into strokes and fills by klad ink, klad light, klad hatch, klad paint, klad scatter, klad foliage or klad apply first"
             );
         }
         Op::Inbetween(spec) => {

@@ -66,6 +66,7 @@ pub struct StrokePainter {
     size: f32,
     flow: f32,
     rng: Rng,
+    seed: u32,
     last: Option<Point>,
     heading: f32,
     speed: f32,
@@ -118,6 +119,7 @@ impl StrokePainter {
             size: stroke.size,
             flow: stroke.flow,
             rng: Rng::new(stroke.seed as u64),
+            seed: stroke.seed,
             last: None,
             heading: 0.0,
             speed: 0.0,
@@ -321,6 +323,7 @@ impl StrokePainter {
             count,
             color,
             lift,
+            pick: klad_core::rng::hash2(self.dabs as i32, self.seed as i32, 0x1eaf) as usize,
         };
         match self.brush.def.paint {
             Some(PaintDef::Smudge { strength }) => {
@@ -444,6 +447,7 @@ struct Dab {
     count: usize,
     color: Option<[f32; 3]>,
     lift: Option<f32>,
+    pick: usize,
 }
 
 const GROOVES: usize = 256;
@@ -539,7 +543,7 @@ enum Replace {
     Blend,
 }
 
-fn tip_value(tip: &Tip, u: f32, v: f32, d2: f32, radius: f32) -> f32 {
+fn tip_value(tip: &Tip, u: f32, v: f32, d2: f32, radius: f32, pick: usize) -> f32 {
     match tip {
         Tip::Round { hardness } => {
             let d = libm::sqrtf(d2);
@@ -548,6 +552,7 @@ fn tip_value(tip: &Tip, u: f32, v: f32, d2: f32, radius: f32) -> f32 {
             (1.0 - t * t * (3.0 - 2.0 * t)).min(edge)
         }
         Tip::Mask(mask) => mask.sample(u, v),
+        Tip::Masks(masks) => masks[pick % masks.len()].sample(u, v),
     }
 }
 
@@ -569,7 +574,7 @@ impl Edge {
                     soft: smoothstep(0.5, 2.0, fade),
                 })
             }
-            Tip::Mask(_) => None,
+            Tip::Mask(_) | Tip::Masks(_) => None,
         }
     }
 
@@ -603,7 +608,7 @@ fn dual_value(brush: &Brush, dab: &Dab, u: f32, v: f32, radius: f32) -> f32 {
         let d2 = ru * ru + rv * rv;
         match d2 >= 1.0 {
             true => most,
-            false => most.max(tip_value(&dual.tip, ru, rv, d2, radius * dual.size)),
+            false => most.max(tip_value(&dual.tip, ru, rv, d2, radius * dual.size, 0)),
         }
     })
 }
@@ -706,7 +711,7 @@ fn stamp(buffer: &mut StrokeBuffer, brush: &Brush, dab: Dab, bristles: Option<(&
                     }
                     let (cover, reach) = match &edge {
                         Some(edge) => edge.cover(libm::sqrtf(d2) * radius),
-                        None => (tip_value(&brush.tip, u, v, d2, radius), 1.0),
+                        None => (tip_value(&brush.tip, u, v, d2, radius, dab.pick), 1.0),
                     };
                     let mut a = cover * flow;
                     if dab.count > 0 {
@@ -787,7 +792,7 @@ fn stamp_replace(
             if d2 >= reach2 {
                 return None;
             }
-            let mut a = tip_value(&brush.tip, u, v, d2, radius) * flow;
+            let mut a = tip_value(&brush.tip, u, v, d2, radius, dab.pick) * flow;
             if dab.count > 0 {
                 a *= dual_value(brush, &dab, u, v, radius);
             }

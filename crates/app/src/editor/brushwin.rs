@@ -45,7 +45,8 @@ fn tip_name(tip: &TipDef) -> String {
     match tip {
         TipDef::Round { .. } => "round".into(),
         TipDef::Chalk { .. } => "chalk".into(),
-        TipDef::Image { image } => image.clone(),
+        TipDef::Image { image, more } if more.is_empty() => image.clone(),
+        TipDef::Image { image, more } => format!("{image} +{}", more.len()),
     }
 }
 
@@ -63,7 +64,14 @@ fn tip_choice(ui: &mut egui::Ui, salt: &str, tip: &mut TipDef, pictures: &[Strin
             pick(ui, "round", TipDef::Round { hardness: 0.8 });
             pick(ui, "chalk", TipDef::Chalk { seed: 7 });
             pictures.iter().for_each(|name| {
-                pick(ui, name, TipDef::Image { image: name.clone() });
+                pick(
+                    ui,
+                    name,
+                    TipDef::Image {
+                        image: name.clone(),
+                        more: Vec::new(),
+                    },
+                );
             });
         })
         .response
@@ -205,6 +213,7 @@ impl Editor {
                 def.dual = dual.then(|| DualDef {
                     tip: TipDef::Image {
                         image: "bristle-round".into(),
+                        more: Vec::new(),
                     },
                     size: 0.5,
                     scatter: 1.0,

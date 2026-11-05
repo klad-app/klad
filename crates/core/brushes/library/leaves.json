@@ -1,9 +1,10 @@
 {
   "format": "draw-anything-brush/1",
   "name": "Leaves",
-  "tip": { "image": { "image": "leaf" } },
+  "tip": { "image": { "image": "leaf", "more": ["leaf-oval", "leaf-oval", "leaf-lance", "leaf-twig"] } },
   "spacing": 0.6,
   "angle": "follow",
-  "jitter": { "size": 0.5, "angle": 1.2, "scatter": 1.2 },
-  "color": { "hue": 8.0, "saturation": 0.1, "value": 0.15, "strokeValue": 0.05 }
+  "jitter": { "size": 0.35, "angle": 0.5, "scatter": 0.45 },
+  "dynamics": { "size": { "pressure": { "min": 0.5 } } },
+  "color": { "hue": 4.0, "saturation": 0.05, "value": 0.04, "pressure": { "min": 0.0 } }
 }

@@ -49,7 +49,7 @@ fn tip(def: &BrushDef) -> String {
     let main = match &def.tip {
         TipDef::Round { hardness } => format!("round {hardness}"),
         TipDef::Chalk { seed } => format!("chalk {seed}"),
-        TipDef::Image { image } => image.clone(),
+        TipDef::Image { image, more } => [image].into_iter().chain(more).cloned().collect::<Vec<_>>().join("+"),
     };
     let extras: Vec<&str> = [
         (def.dual.is_some(), "dual"),

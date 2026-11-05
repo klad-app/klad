@@ -527,6 +527,7 @@ pub fn summarize(ops: &[Op]) -> String {
             Op::Hatch(spec) => format!("hatch on {}", spec.layer),
             Op::Paint(spec) => format!("paint on {}", spec.layer),
             Op::Scatter(spec) => format!("scatter on {}", spec.layer),
+            Op::Foliage(spec) => format!("foliage on {}", spec.layer),
             Op::Inbetween(spec) if spec.redo => "redo in-betweens".to_string(),
             Op::Inbetween(spec) => format!(
                 "in-between {} frames {} to {}",

@@ -29,8 +29,8 @@ use klad_core::fill::{EXPAND, FillSource, TOLERANCE};
 use klad_core::history::Stack;
 use klad_core::markedit::{LassoAction, MarkTransform};
 use klad_core::ops::{
-    ClipEdit, CopySpec, CopyTarget, FillSpec, HatchSpec, InbetweenSpec, InkSpec, LassoSpec, LightSpec, Op, PaintSpec,
-    PaletteEdit, Place, ScatterSpec, StrokeSpec,
+    ClipEdit, CopySpec, CopyTarget, FillSpec, FoliageSpec, HatchSpec, InbetweenSpec, InkSpec, LassoSpec, LightSpec, Op,
+    PaintSpec, PaletteEdit, Place, ScatterSpec, StrokeSpec,
 };
 use klad_core::retime::{Retime, RetimeSpec};
 use klad_core::stroke::{fills_of, strokes_of};
@@ -1096,6 +1096,56 @@ enum Command {
             help = "How much each stroke is drawn like a hand: its own pressure curve, tapers and width (0 gives even strokes)"
         )]
         hand: f32,
+        #[command(flatten)]
+        flags: EditFlags,
+    },
+    #[command(
+        about = "Paint closed shapes as clumps of leaves, lit as forms",
+        long_about = "Build each closed shape out of leaves: leaf marks across the clump take their colour from a round form lit by --light (or a --lamp x,y,height), in a few value steps from --shade through --color to --lit (by default darker and cooler, lighter and warmer than --color), with the most variety in the light; then leaves along the outline, most on the side facing the light and the sky, a few glowing (--glow) at the shadow side's edge, so the silhouette breaks up and the sky shows between them. --mass names a shape around the whole crown, so every clump also turns with the big form. --leaf is the leaf size in px, --density how close the leaves sit. Fill a darker, slightly smaller core under each clump first and paint clumps back to front on one layer. The brush is leaves (several leaf shapes, one per dab).\n\n  klad foliage tree.draw canopy --in clump1 --color '#4d7a3b' --light -0.6,-0.8 --leaf 16 --mass crown\n\nAlso a foliage op: {\"op\":\"foliage\",\"layer\":\"canopy\",\"in\":[\"clump1\"],\"color\":\"#4d7a3b\",\"light\":[-0.6,-0.8],\"leaf\":16,\"mass\":\"crown\"}."
+    )]
+    Foliage {
+        bundle: PathBuf,
+        layer: String,
+        #[arg(
+            long = "in",
+            value_delimiter = ',',
+            help = "Closed vector shapes, each a clump of leaves"
+        )]
+        within: Vec<String>,
+        #[arg(long, default_value = "#4f7a3c", help = "The leaves' middle colour")]
+        color: String,
+        #[arg(long, help = "The lit leaves' colour (default: lighter and warmer)")]
+        lit: Option<String>,
+        #[arg(long, help = "The shadowed leaves' colour (default: darker and cooler)")]
+        shade: Option<String>,
+        #[arg(
+            long,
+            help = "Light through thin leaves at the shadow edge (default: a warm yellow-green)"
+        )]
+        glow: Option<String>,
+        #[arg(long, value_parser = parse_pair, allow_hyphen_values = true, default_value = "-1,-1")]
+        light: [f32; 2],
+        #[arg(long, help = "A lamp at x,y,height in canvas px instead of a direction")]
+        lamp: Option<String>,
+        #[arg(long, default_value_t = 14.0, help = "Leaf size in px")]
+        leaf: f32,
+        #[arg(long, default_value_t = 1.0, help = "How close the leaves sit (2 is twice as many)")]
+        density: f32,
+        #[arg(
+            long,
+            help = "A shape around the whole crown, so each clump also turns with the big form"
+        )]
+        mass: Option<String>,
+        #[arg(long, default_value = "leaves")]
+        brush: String,
+        #[arg(long, help = "Only the leaves along the outline, not across the clump")]
+        edges_only: bool,
+        #[arg(long, default_value_t = 1)]
+        seed: u32,
+        #[arg(long, default_value_t = 0)]
+        frame: u32,
+        #[arg(long, help = "Put the new marks in this part of the drawing (see klad part)")]
+        part: Option<String>,
         #[command(flatten)]
         flags: EditFlags,
     },
@@ -2398,6 +2448,54 @@ fn run() -> Result<()> {
                 hand,
             };
             agent::edit(&bundle, &[Op::Scatter(spec)], &output(&flags, frame))?;
+        }
+        Command::Foliage {
+            bundle,
+            layer,
+            within,
+            color,
+            lit,
+            shade,
+            glow,
+            light,
+            lamp,
+            leaf,
+            density,
+            mass,
+            brush,
+            edges_only,
+            seed,
+            frame,
+            part,
+            flags,
+        } => {
+            let lamp = lamp
+                .as_deref()
+                .map(|l| -> Result<[f32; 3]> {
+                    parse_numbers(l)?
+                        .try_into()
+                        .map_err(|_| anyhow!("--lamp {l:?} is not x,y,height"))
+                })
+                .transpose()?;
+            let spec = FoliageSpec {
+                layer: layer_id(&bundle, &layer)?,
+                frame,
+                within,
+                color,
+                lit,
+                shade,
+                glow,
+                light,
+                lamp,
+                leaf,
+                mass,
+                density,
+                brush,
+                body: !edges_only,
+                seed,
+                part,
+            };
+            agent::edit(&bundle, &[Op::Foliage(spec)], &output(&flags, frame))?;
         }
         Command::Gaps {
             bundle,

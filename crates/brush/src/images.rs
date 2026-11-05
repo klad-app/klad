@@ -167,6 +167,48 @@ fn leaf(u: f32, v: f32) -> f32 {
     body * rib
 }
 
+fn blade(u: f32, v: f32, half: f32, rib: f32) -> f32 {
+    if u.abs() >= 1.0 || half <= 0.0 {
+        return 0.0;
+    }
+    let body = 1.0 - smoothstep(half * 0.86, half, v.abs());
+    let vein = match u > -0.8 && u < 0.8 {
+        true => 1.0 - rib * (1.0 - smoothstep(0.012, 0.03, v.abs())),
+        false => 1.0,
+    };
+    body * vein
+}
+
+fn leaf_oval(u: f32, v: f32) -> f32 {
+    let half = 0.5 * libm::powf((1.0 - u * u).max(0.0), 0.6) * (1.0 - 0.22 * u);
+    blade(u, v, half, 0.45)
+}
+
+fn leaf_lance(u: f32, v: f32) -> f32 {
+    blade(u, v, 0.2 * libm::powf((1.0 - u * u).max(0.0), 0.9), 0.3)
+}
+
+fn leaf_lobed(u: f32, v: f32) -> f32 {
+    let lobes = 0.7 + 0.3 * libm::cosf((u + 0.1) * std::f32::consts::PI * 3.0);
+    let half = 0.46 * libm::powf((1.0 - u * u).max(0.0), 0.55) * lobes;
+    blade(u, v, half, 0.4)
+}
+
+fn leaf_twig(u: f32, v: f32) -> f32 {
+    let small = |cu: f32, cv: f32, turn: f32, scale: f32| {
+        let (s, c) = (libm::sinf(turn), libm::cosf(turn));
+        let (du, dv) = (u - cu, v - cv);
+        leaf_oval((du * c + dv * s) / scale, (dv * c - du * s) / scale)
+    };
+    let stem = match u > -0.95 && u < 0.35 {
+        true => 1.0 - smoothstep(0.02, 0.04, v.abs()),
+        false => 0.0,
+    };
+    stem.max(small(0.55, 0.0, 0.0, 0.45))
+        .max(small(0.05, -0.33, -0.9, 0.38))
+        .max(small(-0.35, 0.3, 0.95, 0.36))
+}
+
 fn grass(u: f32, v: f32) -> f32 {
     let height = (1.0 - v) / 2.0;
     (0..5).fold(0.0f32, |most, k| {
@@ -201,6 +243,10 @@ pub fn library_tip(name: &str) -> Option<TipMask> {
         "leaf" => leaf,
         "grass" => grass,
         "splatter" => splatter,
+        "leaf-oval" => leaf_oval,
+        "leaf-lance" => leaf_lance,
+        "leaf-lobed" => leaf_lobed,
+        "leaf-twig" => leaf_twig,
         _ => return None,
     };
     let data = (0..TIP_SIZE * TIP_SIZE)

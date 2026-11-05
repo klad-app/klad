@@ -82,12 +82,31 @@ pub struct BrushDef {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase", deny_unknown_fields)]
 pub enum TipDef {
-    Round { hardness: f32 },
-    Chalk { seed: u32 },
-    Image { image: String },
+    Round {
+        hardness: f32,
+    },
+    Chalk {
+        seed: u32,
+    },
+    Image {
+        image: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        more: Vec<String>,
+    },
 }
 
-pub const TIP_IMAGES: [&str; 6] = ["bristle-flat", "bristle-round", "sponge", "leaf", "grass", "splatter"];
+pub const TIP_IMAGES: [&str; 10] = [
+    "bristle-flat",
+    "bristle-round",
+    "sponge",
+    "leaf",
+    "grass",
+    "splatter",
+    "leaf-oval",
+    "leaf-lance",
+    "leaf-lobed",
+    "leaf-twig",
+];
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -323,7 +342,7 @@ impl TipDef {
         match self {
             TipDef::Round { hardness } => within(&format!("{what} hardness"), *hardness, 0.0, 1.0),
             TipDef::Chalk { .. } => Ok(()),
-            TipDef::Image { image } => valid_image(image),
+            TipDef::Image { image, more } => [image].into_iter().chain(more).try_for_each(|i| valid_image(i)),
         }
     }
 }
@@ -436,15 +455,15 @@ impl BrushDef {
     }
 
     pub fn images(&self) -> Vec<&str> {
-        fn tip(t: &TipDef) -> Option<&str> {
+        fn tip(t: &TipDef) -> Vec<&str> {
             match t {
-                TipDef::Image { image } => Some(image.as_str()),
-                _ => None,
+                TipDef::Image { image, more } => [image].into_iter().chain(more).map(String::as_str).collect(),
+                _ => Vec::new(),
             }
         }
         tip(&self.tip)
             .into_iter()
-            .chain(self.dual.as_ref().and_then(|d| tip(&d.tip)))
+            .chain(self.dual.as_ref().map(|d| tip(&d.tip)).unwrap_or_default())
             .chain(self.grain.as_ref().and_then(|g| g.image.as_deref()))
             .filter(|name| !TIP_IMAGES.contains(name))
             .collect()
