@@ -54,13 +54,13 @@ impl Name {
     }
 }
 
-fn bundle_stem(bundle: &Bundle) -> String {
+pub(crate) fn bundle_stem(bundle: &Bundle) -> String {
     let root = bundle.root.components().collect::<PathBuf>();
     root.file_stem()
         .map_or("export".into(), |s| s.to_string_lossy().to_string())
 }
 
-fn bundle_dir(bundle: &Bundle) -> PathBuf {
+pub(crate) fn bundle_dir(bundle: &Bundle) -> PathBuf {
     let root = bundle.root.components().collect::<PathBuf>();
     match root.parent() {
         Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
@@ -68,7 +68,7 @@ fn bundle_dir(bundle: &Bundle) -> PathBuf {
     }
 }
 
-fn file_safe(text: &str) -> String {
+pub(crate) fn file_safe(text: &str) -> String {
     text.chars()
         .map(|c| match c {
             'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => c,
@@ -389,7 +389,7 @@ pub fn relative(from: &Path, to: &Path) -> PathBuf {
     }
 }
 
-fn read(path: &Path) -> Option<String> {
+pub(crate) fn read(path: &Path) -> Option<String> {
     fs::read_to_string(path).ok()
 }
 

@@ -334,6 +334,24 @@ impl Editor {
         self.timeline.godot.1.trim().to_string()
     }
 
+    pub(super) fn export_godot_as(&mut self, how: &str) {
+        let typed = self.godot_folder();
+        let args = godot_args(&self.scene.bundle.root, how, &resolve(&self.bundle_home(), &typed));
+        self.start_job(Spec {
+            tag: Tag::Export,
+            name: format!(
+                "export a Godot {} ({typed})",
+                if how == "--godot-rig" { "rig" } else { "parallax scene" }
+            ),
+            exe: PathBuf::new(),
+            args,
+            env: Vec::new(),
+            reruns: 3,
+            summary: |out, _| out.lines().last().unwrap_or_default().to_string(),
+            failure: |_, err| failure(err),
+        });
+    }
+
     pub(super) fn export_godot(&mut self) {
         let typed = self.godot_folder();
         let mut args: Vec<String> = vec![
@@ -358,9 +376,28 @@ impl Editor {
     }
 }
 
+pub(super) fn godot_args(bundle: &std::path::Path, how: &str, folder: &std::path::Path) -> Vec<String> {
+    vec![
+        "export".into(),
+        bundle.to_string_lossy().to_string(),
+        how.to_string(),
+        folder.to_string_lossy().to_string(),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_scene_and_rig_buttons_run_the_cli_export() {
+        let args = godot_args(
+            std::path::Path::new("/w/a.draw"),
+            "--godot-rig",
+            std::path::Path::new("/w/game/art"),
+        );
+        assert_eq!(args.join(" "), "export /w/a.draw --godot-rig /w/game/art");
+    }
 
     #[test]
     fn overlapping_clips_take_separate_lanes() {

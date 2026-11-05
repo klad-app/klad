@@ -20,6 +20,7 @@ mod marks;
 mod paintover;
 mod paths;
 mod rig;
+mod scene;
 mod shapes;
 mod sheet;
 mod sprites;
@@ -1498,6 +1499,20 @@ enum Command {
             help = "Keep the --godot folder as the document's, replacing the one it has"
         )]
         store: bool,
+        #[arg(
+            long = "godot-scene",
+            num_args = 0..=1,
+            conflicts_with_all = ["sheet", "frames"],
+            help = "A Godot parallax scene: each top-level layer a texture (with its fog) on a Parallax2D that scrolls by 1/(1+depth), into this folder (default: the document's export.godot)"
+        )]
+        godot_scene: Option<Option<PathBuf>>,
+        #[arg(
+            long = "godot-rig",
+            num_args = 0..=1,
+            conflicts_with_all = ["sheet", "frames"],
+            help = "A Godot rig: the rest drawing as Polygon2Ds weighted to a Skeleton2D, and an AnimationPlayer with the poses of every clip, into this folder"
+        )]
+        godot_rig: Option<Option<PathBuf>>,
         #[arg(long, default_value_t = 2, help = "Sheets: transparent pixels around each picture")]
         padding: u32,
         #[arg(long, default_value_t = 4096, help = "Sheets: largest page side in px")]
@@ -3085,10 +3100,23 @@ fn run() -> Result<()> {
             frames,
             godot,
             store,
+            godot_scene,
+            godot_rig,
             padding,
             max,
             out,
         } => {
+            let scenes = godot_scene.is_some() || godot_rig.is_some();
+            if let Some(dir) = godot_scene {
+                scene::parallax(&bundle, dir.or(out.clone()), frame)?
+                    .iter()
+                    .for_each(|f| println!("{}", f.display()));
+            }
+            if let Some(dir) = godot_rig {
+                scene::rig(&bundle, dir.or(out.clone()))?
+                    .iter()
+                    .for_each(|f| println!("{}", f.display()));
+            }
             let look = sprites::Look {
                 layer: layer.clone(),
                 scale,
@@ -3100,6 +3128,7 @@ fn run() -> Result<()> {
                 (Some(spec), _, _) => sprites::sheet(&bundle, &spec, &look, &packing, out)?,
                 (_, Some(spec), _) => sprites::frames(&bundle, &spec, &look, out)?,
                 (_, _, Some(dir)) => sprites::godot(&bundle, dir.or(out), store, &look, &packing)?,
+                _ if scenes => {}
                 _ => export::run(
                     &bundle,
                     export::Export {

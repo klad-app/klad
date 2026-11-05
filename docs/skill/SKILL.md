@@ -213,6 +213,28 @@ klad prepare art.draw                                                           
 - Details that make a prop read as made rather than blocked in (an early version of the lantern read "kind of as good, but its details are not too great"): connect what hangs (hook, links, bead, cap: every piece touches the next; a link seen face-on is a closed ring through `--path`, one seen edge-on a small filled bar); give a round form a crisp core shadow with its own `light` pass (`--soft 1`, depth about a third of its width, `shadeOpacity` 1) instead of a soft gradient; build a stone or block from two planes (a top face and a darker side as its own shape) and keep texture to the side plane; plant grass as a few tufts where things meet the ground, leaning away from the object, not a fringe along an edge; ink a shape that enters another as an open path, so its cut edge is not drawn on top.
 - The ops are `ink`, `light`, `hatch`, `paint`, `scatter` and `fill` with `shape`; shapes added earlier in the same `apply` can be used by them. `samples/lantern/` builds the inked prop, and with `PAINTED=1` the painted one (`paint` by form in place of `light` and `hatch`).
 
+## Bones, poses and keys
+
+Draw a character once and pose it, instead of redrawing every frame. Put its paint layers (lines, colour, shading) in a group and give the group bones: the skeleton poses every layer in it together. Name parts as you draw (`"part"` on strokes and fills): they are what weights and the rig export use.
+
+```bash
+klad bone art.draw figure --add body --head 400,590 --tail 400,360
+klad bone art.draw figure --add upper --parent body --head 452,392 --tail 560,360    # a child starts at its parent's end, or anywhere
+klad weights art.draw figure --auto                          # blend from the bones
+klad weights art.draw figure --bone head --part head         # a part held rigidly by one bone
+klad weights art.draw figure --bone upper --set '470,380,20,1 500,370,16,0.8'    # soft dabs: x,y,radius,weight
+klad pose art.draw figure --from 0 --to 4 --bone upper=-35 --bone fore=-55 --hold 4
+klad inbetween art.draw --layers colour,lines --from 0 --to 4      # poses of one rest drawing in-between on the bones
+klad render art.draw --frame 4 --overlay bones                      # or --overlay weights:upper
+klad key art.draw lantern --frame 0 y=0 --ease in-out; klad key art.draw lantern --frame 12 y=-18
+klad export art.draw --godot-rig game/art --godot-scene game/art
+```
+
+- Angles are degrees from the rest pose, positive turning clockwise on screen; a child follows its parent. Pose from the rest drawing (`--from` its frame); posing a frame again re-poses it.
+- Automatic weights bend joints over a short stretch; hold rigid things (head, hands, props) with `--part`, or a stiff limb with dabs at 1. Look at `--overlay weights:<bone>` before posing.
+- Keys move whole layers, groups and shapes (`x`, `y`, `rotate`, `sx`, `sy`, `scale`, `opacity`) between frames with an ease (`linear`, `in`, `out`, `in-out`, `step`, or a curve `x1,y1,x2,y2`); a segment follows its first key's ease. A lantern that floats, a glow that pulses, a far plane that drifts: no drawing per frame.
+- Godot: `--godot` exports frames (always works), `--godot-rig` a Skeleton2D with Polygon2D parts and an AnimationPlayer per clip (only frames that are poses of the rest drawing; the others are listed), `--godot-scene` one Parallax2D per top-level layer scrolling by its depth. `samples/rig` builds all of it.
+
 ## Painting over, and measuring against a reference
 
 `paintover` turns a flat or smooth picture into a painted one: it renders what is below a paint layer (or `--from` layers) and lays brush strokes on that layer, big to small. Each stroke takes the source's colour where it starts and runs along the forms (across the colour gradient) until the colour under it changes; smaller brushes only go where the painting still differs from the source by more than `--threshold`, so detail lands where the source has it. Flat areas get broad, mostly level strokes. The strokes are ordinary strokes in the part `paint over`, so `body` and `relief` light them and the user can edit them.

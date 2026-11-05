@@ -211,6 +211,23 @@ impl Editor {
             {
                 self.export_godot();
             }
+            if ui
+                .button("as a parallax scene")
+                .hint("each top-level layer a texture with its fog, on a Parallax2D that scrolls by its depth")
+                .clicked()
+            {
+                self.export_godot_as("--godot-scene");
+            }
+            let rigged = self.scene.bundle.doc.all_layers().iter().any(|l| !l.bones.is_empty());
+            if ui
+                .add_enabled(rigged, egui::Button::new("as a rig"))
+                .hint(
+                    "the rest drawing on Polygon2Ds weighted to a Skeleton2D, and the poses of every clip; needs bones",
+                )
+                .clicked()
+            {
+                self.export_godot_as("--godot-rig");
+            }
         });
         if run {
             self.export()?;

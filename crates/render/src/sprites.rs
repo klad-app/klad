@@ -339,11 +339,11 @@ pub fn aseprite(sheet: &Sheet) -> Value {
     json!({ "frames": frames, "meta": meta })
 }
 
-fn quoted(text: &str) -> String {
+pub fn quoted(text: &str) -> String {
     format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-fn number(v: f32) -> String {
+pub fn number(v: f32) -> String {
     let text = format!("{v:.3}");
     let text = text.trim_end_matches('0').trim_end_matches('.');
     match text {
