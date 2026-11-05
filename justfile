@@ -29,6 +29,7 @@ notices-check:
     diff -q "${TMPDIR:-/tmp}/draw-notices.md" THIRD-PARTY-NOTICES.md
 
 audit: notices-check
+    @cargo deny --version >/dev/null 2>&1 || { echo "cargo-deny is not installed: cargo install cargo-deny --locked" >&2; exit 1; }
     cargo deny check
 
 fmt:

@@ -2,9 +2,17 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 out="${1:-$here/../THIRD-PARTY-NOTICES.md}"
+if ! cargo about --version >/dev/null 2>&1; then
+  echo "cargo-about is not installed: cargo install cargo-about --locked --features cli" >&2
+  exit 1
+fi
 crates="$(mktemp)"
-trap 'rm -f "$crates"' EXIT
-cargo about generate --config "$here/about.toml" "$here/about.hbs" -o "$crates" 2>/dev/null
+log="$(mktemp)"
+trap 'rm -f "$crates" "$log"' EXIT
+if ! cargo about generate --config "$here/about.toml" "$here/about.hbs" -o "$crates" 2>"$log"; then
+  cat "$log" >&2
+  exit 1
+fi
 section() {
   printf '### %s\n\n%s\n\n' "$1" "$2"
   shift 2

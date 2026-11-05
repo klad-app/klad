@@ -348,26 +348,56 @@ pub struct GapAsk {
     pub min: usize,
 }
 
+fn marks_on(bundle: &Bundle, layer: &str, frames: (u32, u32)) -> Result<Vec<Mark>> {
+    let Some(owner) = bundle.doc.layer(layer) else {
+        bail!("no layer {layer}");
+    };
+    let cels: std::collections::BTreeSet<String> = (frames.0..=frames.1)
+        .filter_map(|f| owner.content_at(f).map(|c| c.id.clone()))
+        .collect();
+    let marks = cels
+        .iter()
+        .map(|cel| bundle.read_marks(layer, cel))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(marks.into_iter().flatten().collect())
+}
+
+fn seeded(bundle: &Bundle, layer: &str, frames: (u32, u32)) -> Result<Vec<(FillRef, f32, f32)>> {
+    Ok(marks_on(bundle, layer, frames)?
+        .iter()
+        .filter_map(Mark::as_fill)
+        .filter_map(|f| match &f.source {
+            FillSource::Seed { seed, reference } => Some((reference.clone(), seed.gap, seed.tolerance)),
+            _ => None,
+        })
+        .collect())
+}
+
+fn filled_from(bundle: &Bundle, lines: &str, frames: (u32, u32)) -> Result<Option<String>> {
+    let counts = bundle
+        .doc
+        .all_layers()
+        .into_iter()
+        .filter(|l| l.kind() == Kind::Paint && l.id != lines)
+        .map(|l| {
+            let from = seeded(bundle, &l.id, frames)?
+                .iter()
+                .filter(|(r, _, _)| *r == FillRef::Layer(lines.to_string()))
+                .count();
+            Ok((from, l.id.clone()))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(counts
+        .into_iter()
+        .filter(|(n, _)| *n > 0)
+        .max_by_key(|(n, _)| *n)
+        .map(|(_, id)| id))
+}
+
 fn settle(bundle: &Bundle, layer: &str, frames: (u32, u32), ask: &GapAsk) -> Result<(FillRef, f32, f32)> {
     let doc = &bundle.doc;
     let owner = doc.layer(layer).ok_or_else(|| anyhow!("no layer {layer}"))?;
-    let mut seen: Vec<(FillRef, f32, f32)> = Vec::new();
-    (frames.0..=frames.1)
-        .filter_map(|f| owner.content_at(f).map(|c| c.id.clone()))
-        .collect::<std::collections::BTreeSet<_>>()
-        .iter()
-        .try_for_each(|cel| {
-            bundle
-                .read_marks(layer, cel)?
-                .iter()
-                .filter_map(Mark::as_fill)
-                .for_each(|f| {
-                    if let FillSource::Seed { seed, reference } = &f.source {
-                        seen.push((reference.clone(), seed.gap, seed.tolerance));
-                    }
-                });
-            Ok::<_, anyhow::Error>(())
-        })?;
+    let seen = seeded(bundle, layer, frames)?;
     let reference = match &ask.reference {
         Some(key) => {
             let spec = FillSpec {
@@ -381,16 +411,14 @@ fn settle(bundle: &Bundle, layer: &str, frames: (u32, u32), ask: &GapAsk) -> Res
             seen.iter().for_each(|(r, _, _)| {
                 counts.entry(r.name().to_string()).or_insert((0, r.clone())).0 += 1;
             });
-            counts
-                .into_values()
-                .max_by_key(|(n, _)| *n)
-                .map(|(_, r)| r)
-                .ok_or_else(|| {
-                    anyhow!(
-                        "{} has no flood fills on those frames to take the lines from; give --ref (this, all or a layer)",
-                        owner.name
-                    )
-                })?
+            match counts.into_values().max_by_key(|(n, _)| *n) {
+                Some((_, r)) => r,
+                None if marks_on(bundle, layer, frames)?.iter().any(|m| m.as_fill().is_none()) => FillRef::This,
+                None => bail!(
+                    "{} has no strokes or flood fills on those frames and no layer fills from it; give --ref (this, all or a layer)",
+                    owner.name
+                ),
+            }
         }
     };
     let gap = ask
@@ -414,8 +442,21 @@ pub fn gaps(path: &Path, ask: &GapAsk, out: &Output) -> Result<()> {
             owner.kind().name()
         );
     }
-    let layer = owner.id.clone();
     let span = klad_render::sheet::range(doc, &ask.frames)?;
+    let layer = match &ask.reference {
+        None if seeded(&bundle, &owner.id, span)?.is_empty() => {
+            filled_from(&bundle, &owner.id, span)?.unwrap_or_else(|| owner.id.clone())
+        }
+        _ => owner.id.clone(),
+    };
+    let asked = owner.name.clone();
+    let owner = doc.layer(&layer).ok_or_else(|| anyhow!("no layer {layer}"))?;
+    if owner.name != asked && !out.json {
+        println!(
+            "{asked} has no flood fills; {} fills from it, so it is checked",
+            owner.name
+        );
+    }
     let (reference, gap, tolerance) = settle(&bundle, &layer, span, ask)?;
     let brushes = BrushSet::for_bundle(&bundle)?;
     let found = (span.0..=span.1)
@@ -543,6 +584,15 @@ mod tests {
             overlay: None,
         };
         gaps(&dir, &ask("all"), &out).unwrap();
+        let lines = GapAsk {
+            layer: "lines".into(),
+            reference: None,
+            ..ask("all")
+        };
+        gaps(&dir, &lines, &out).unwrap();
+        let opened = Bundle::open(&dir).unwrap();
+        assert_eq!(filled_from(&opened, "lines", (0, 7)).unwrap(), Some("colour".into()));
+        assert_eq!(settle(&opened, "lines", (0, 7), &lines).unwrap().0, FillRef::This);
         let spec = FillSpec {
             at: None,
             like: Some("col0".into()),

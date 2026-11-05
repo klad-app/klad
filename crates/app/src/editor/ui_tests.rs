@@ -2182,8 +2182,18 @@ fn the_cli_only_features_run_from_the_editor_and_give_what_the_cli_gives() {
     let cli = gaps_from(&run(&["gaps", t, "colour", "--json", "--frame", "0"]), "colour").unwrap();
     assert_eq!(h.state().checks.gaps.as_ref().unwrap().frames, cli.frames);
     assert_eq!(cli.frames[0].1.len(), 1, "the right box has no fill");
+    h.state_mut().invoke(Cmd::ShowGaps).unwrap();
+    assert!(h.state().checks.gaps.is_none());
 
     activate(&mut h, "lines");
+    h.state_mut().invoke(Cmd::ShowGaps).unwrap();
+    settle(&mut h, |ed| ed.checks.gaps.is_some());
+    assert_eq!(
+        h.state().checks.gaps.as_ref().unwrap().frames,
+        cli.frames,
+        "gaps on the lines check the layer that fills from them"
+    );
+    h.state_mut().invoke(Cmd::ShowGaps).unwrap();
     let (cel, id) = {
         let ed = h.state();
         (ed.scene.active_cel().unwrap(), ed.scene.active_marks()[0].id())
