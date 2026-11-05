@@ -127,6 +127,7 @@ fn layer_shell(layer: &Layer) -> Layer {
         depth: layer.depth,
         reference: layer.reference,
         bones: layer.bones.clone(),
+        keys: layer.keys.clone(),
     }
 }
 
@@ -159,6 +160,7 @@ fn node_shell(node: &Node) -> Node {
         blur: node.blur,
         clip: node.clip.clone(),
         visible: node.visible,
+        keys: node.keys.clone(),
     }
 }
 

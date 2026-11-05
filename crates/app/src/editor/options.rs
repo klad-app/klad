@@ -292,6 +292,7 @@ impl Editor {
                 Tool::Shape => (Cmd::ShapeTool, "rectangles and ellipses"),
                 Tool::Text => (Cmd::TextTool, "text"),
                 Tool::Note => (Cmd::Note, "note"),
+                Tool::Bone => (Cmd::BoneTool, "bones"),
             };
             ui.label(RichText::new(format!("{} {name}", cmd.spec().icon)).strong());
             ui.separator();
@@ -392,6 +393,7 @@ impl Editor {
                     );
                 }
                 Tool::Text => self.check(|e| e.text_options(ui)),
+                Tool::Bone => self.check(|e| e.bone_options(ui)),
                 Tool::Pen => {
                     self.vector_colours(
                         ui,

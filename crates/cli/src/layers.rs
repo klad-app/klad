@@ -149,14 +149,15 @@ pub struct Vectors {
 impl Vectors {
     pub fn add_to(&mut self, doc: &Document, frame: u32, rasters: &mut Rasters) -> Result<()> {
         let (w, h) = (doc.canvas.width, doc.canvas.height);
-        let cels: Vec<(String, u64, &Vec<Node>)> = doc
+        let cels: Vec<(String, u64, Vec<Node>)> = doc
             .all_layers()
             .into_iter()
             .filter(|l| l.kind() == Kind::Vector)
             .filter_map(|l| l.content_at(frame))
             .map(|c| {
-                let hash = fnv(FNV_OFFSET, &serde_json::to_vec(&c.nodes).unwrap_or_default());
-                (c.id.clone(), hash, &c.nodes)
+                let nodes = klad_core::doc::nodes_at(&c.nodes, frame);
+                let hash = fnv(FNV_OFFSET, &serde_json::to_vec(&nodes).unwrap_or_default());
+                (c.id.clone(), hash, nodes)
             })
             .collect();
         let fresh = cels

@@ -13,6 +13,7 @@ mod frames;
 mod history;
 mod inbetween;
 mod install;
+mod keys;
 mod layers;
 mod looks;
 mod marks;
@@ -1236,6 +1237,31 @@ enum Command {
         hold: Option<u32>,
         #[command(flatten)]
         flags: EditFlags,
+    },
+    #[command(
+        about = "Key a layer, group or shape: its position, turn, scale or opacity at a frame, eased to the next key",
+        long_about = "Keys animate a layer, a group or a vector shape without a drawing per frame: x and y (px), rotate (degrees), sx, sy or scale, and opacity, each with its own keys. Between two keys the value follows the first key's ease: linear, in, out, in-out, step, or a curve x1,y1,x2,y2 (as in CSS). Before the first key and after the last the value holds. A layer or group turns and scales about the canvas centre; a shape about its own pivot. --rm removes the keys at that frame (only the named properties, or all).\n\n  klad key art.draw lantern --frame 0 y=0\n  klad key art.draw lantern --frame 12 y=-14 --ease in-out\n  klad key art.draw glow --frame 6 opacity=0.4\n  klad key art.draw lantern --frame 12 --rm\n\nAlso a key op: {\"op\":\"key\",\"id\":\"lantern\",\"frame\":12,\"y\":-14,\"ease\":\"in-out\"}."
+    )]
+    Key {
+        bundle: PathBuf,
+        id: String,
+        #[arg(long)]
+        frame: u32,
+        #[arg(help = "prop=value: x, y, rotate, sx, sy, scale, opacity")]
+        values: Vec<String>,
+        #[arg(long, default_value = "linear")]
+        ease: String,
+        #[arg(long)]
+        rm: bool,
+        #[command(flatten)]
+        flags: EditFlags,
+    },
+    #[command(about = "List the keys of every keyed layer, group and shape (or one)")]
+    Keys {
+        bundle: PathBuf,
+        id: Option<String>,
+        #[arg(long)]
+        json: bool,
     },
     #[command(
         about = "Measure a drawing against a reference picture: values, saturation, texture, edges, colour per region",
@@ -2765,6 +2791,33 @@ fn run() -> Result<()> {
             agent::edit(&bundle, &[Op::Bone(spec)], &output(&flags, 0))?;
         }
         Command::Bones { bundle, json } => rig::list(&Bundle::open(&bundle)?, json)?,
+        Command::Key {
+            bundle,
+            id,
+            frame,
+            values,
+            ease,
+            rm,
+            flags,
+        } => {
+            let opened = Bundle::open(&bundle)?;
+            let id = match opened.doc.locate(&id) {
+                Some(_) => id,
+                None => opened.doc.find_layer(&id)?.id.clone(),
+            };
+            let mut op = serde_json::json!({"op": "key", "id": id, "frame": frame, "rm": rm, "ease": ease});
+            values.iter().try_for_each(|v| -> Result<()> {
+                let (k, n) = v.split_once('=').ok_or_else(|| anyhow!("{v:?} is not prop=value"))?;
+                op[k.trim()] = serde_json::json!(n.trim().parse::<f64>()?);
+                Ok(())
+            })?;
+            agent::edit(
+                &bundle,
+                &klad_core::ops::parse_lines(&op.to_string())?,
+                &output(&flags, frame),
+            )?;
+        }
+        Command::Keys { bundle, id, json } => keys::list(&Bundle::open(&bundle)?, id.as_deref(), json)?,
         Command::Weights {
             bundle,
             layer,

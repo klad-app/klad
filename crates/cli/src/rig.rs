@@ -1,22 +1,12 @@
 use anyhow::{Context, Result, anyhow, bail};
 use klad_core::bundle::Bundle;
-use klad_core::doc::{Document, Kind, Layer};
-use klad_core::ops::{Applied, Op, PoseSpec, PosedCel, WeightsSpec, apply, rig_owner};
-use klad_core::rig::{Bone, CELL, Pose, Rig, Weights, tips};
+use klad_core::doc::{Document, Layer};
+use klad_core::ops::{Applied, Op, PoseSpec, PosedCel, apply, rig_owner};
+use klad_core::rig::{Bone, CELL, Pose, Rig, Weights, family, painted, tips, weights_for};
 use klad_core::stroke::Mark;
 use klad_render::overlay::Heat;
 use serde_json::json;
 use std::collections::BTreeMap;
-
-fn family(layer: &Layer) -> Vec<&Layer> {
-    std::iter::once(layer)
-        .chain(layer.children().iter().flat_map(family))
-        .collect()
-}
-
-pub fn painted(owner: &Layer) -> Vec<&Layer> {
-    family(owner).into_iter().filter(|l| l.kind() == Kind::Paint).collect()
-}
 
 pub fn owners(doc: &Document) -> Vec<&Layer> {
     doc.all_layers().into_iter().filter(|l| !l.bones.is_empty()).collect()
@@ -63,100 +53,6 @@ pub fn heat(bundle: &Bundle, bone: &str) -> Result<Heat> {
         width: weights.width,
         values: at,
     })
-}
-
-fn weights_for(
-    bundle: &Bundle,
-    doc: &Document,
-    spec: &WeightsSpec,
-    current: &BTreeMap<String, Weights>,
-) -> Result<Weights> {
-    let owner = rig_owner(doc, &spec.layer)?;
-    let canvas = (doc.canvas.width, doc.canvas.height);
-    if owner.bones.is_empty() {
-        bail!("{} has no bones yet: add them with klad bone first", owner.name);
-    }
-    let mut w = match current.get(&owner.id) {
-        Some(w) => w.clone(),
-        None => bundle.read_weights(&owner.id)?,
-    };
-    if (w.width, w.height) != Weights::new(canvas).dims() {
-        w = Weights::new(canvas);
-    }
-    if spec.auto {
-        let fresh = Weights::auto(&owner.bones, canvas);
-        match &spec.bone {
-            Some(b) => {
-                let map = fresh.maps.get(b).cloned().ok_or_else(|| anyhow!("no bone {b}"))?;
-                w.maps.insert(b.clone(), map);
-            }
-            None => w = fresh,
-        }
-    }
-    let bone = || -> Result<String> {
-        let b = spec.bone.clone().context("say which bone: \"bone\"")?;
-        if !owner.bones.iter().any(|o| o.name == b) {
-            bail!("no bone {b} on {}", owner.name);
-        }
-        Ok(b)
-    };
-    if !spec.set.is_empty() {
-        let b = bone()?;
-        spec.set.iter().for_each(|d| w.dab(&b, [d[0], d[1]], d[2], d[3]));
-    }
-    if let Some(part) = &spec.part {
-        let b = bone()?;
-        let mut cells = Vec::new();
-        painted(owner).iter().try_for_each(|layer| -> Result<()> {
-            let Some(cel) = layer.content_at(spec.frame) else {
-                return Ok(());
-            };
-            let Some(ids) = cel.parts.get(part) else {
-                return Ok(());
-            };
-            let marks = bundle.read_marks(&layer.id, &cel.id)?;
-            marks.iter().filter(|m| ids.contains(&m.id())).for_each(|m| match m {
-                Mark::Stroke(s) => s.samples.iter().for_each(|q| {
-                    let (x, y) = q.pos();
-                    let r = (s.size * 0.5 / CELL as f32).ceil() as i64 + 1;
-                    let (cx, cy) = ((x / CELL as f32) as i64, (y / CELL as f32) as i64);
-                    (-r..=r)
-                        .flat_map(|dy| (-r..=r).map(move |dx| (cx + dx, cy + dy)))
-                        .for_each(|c| cells.push(c));
-                }),
-                Mark::Fill(f) => {
-                    let c = &f.coverage;
-                    (c.y..c.y + c.height).step_by(CELL as usize / 2).for_each(|y| {
-                        (c.x..c.x + c.width)
-                            .step_by(CELL as usize / 2)
-                            .filter(|&x| c.at(x, y) > 0)
-                            .for_each(|x| cells.push(((x / CELL) as i64, (y / CELL) as i64)));
-                    });
-                }
-            });
-            Ok(())
-        })?;
-        let (gw, gh) = (w.width as i64, w.height as i64);
-        let mut cells: Vec<(u32, u32)> = cells
-            .into_iter()
-            .filter(|(x, y)| *x >= 0 && *y >= 0 && *x < gw && *y < gh)
-            .map(|(x, y)| (x as u32, y as u32))
-            .collect();
-        cells.sort_unstable();
-        cells.dedup();
-        if cells.is_empty() {
-            bail!("no marks in the part {part} at frame {}", spec.frame);
-        }
-        w.fill(&b, &cells, spec.value);
-        if spec.value >= 1.0 {
-            let others: Vec<String> = w.maps.keys().filter(|k| **k != b).cloned().collect();
-            others.iter().for_each(|o| w.fill(o, &cells, 0.0));
-        }
-    }
-    if spec.smooth {
-        w.smooth();
-    }
-    Ok(w)
 }
 
 fn rest_of(layer: &Layer, frame: u32) -> Option<String> {

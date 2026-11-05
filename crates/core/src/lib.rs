@@ -6,6 +6,7 @@ pub mod doc;
 pub mod fill;
 pub mod generators;
 pub mod history;
+pub mod keys;
 pub mod look;
 pub mod markedit;
 pub mod migrate;

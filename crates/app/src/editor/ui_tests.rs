@@ -2528,3 +2528,87 @@ fn text_is_typed_on_the_canvas_and_edited_in_place() {
     );
     assert!(path.join("fonts/Cinzel.ttf").is_file(), "picking a font copies it in");
 }
+
+#[test]
+fn bones_are_drawn_weighted_and_posed_on_the_canvas() {
+    let path = sample("bones");
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    activate(&mut h, "lines");
+    h.key_press(Key::J);
+    h.run_steps(2);
+    assert_eq!(h.state().tool, Tool::Bone);
+    let (a, b, c) = (
+        canvas_at(&h, 40.0, 40.0),
+        canvas_at(&h, 170.0, 120.0),
+        canvas_at(&h, 300.0, 200.0),
+    );
+    drag(&mut h, a, b);
+    h.run_steps(2);
+    drag(&mut h, b, c);
+    h.run_steps(2);
+    let bones = |h: &Harness<'static, Editor>| h.state().scene.bundle.doc.layer("l6").unwrap().bones.clone();
+    let made = bones(&h);
+    assert_eq!(made.len(), 2, "{made:?}");
+    assert_eq!(
+        made[1].parent.as_deref(),
+        Some("bone 1"),
+        "a bone started on a tail is its child"
+    );
+    assert!((made[1].tail[0] - 300.0).abs() < 2.0 && (made[1].tail[1] - 200.0).abs() < 2.0);
+    h.state_mut().bones.name = "shin".into();
+    h.state_mut()
+        .bone_edit(|s| {
+            s.rename = Some("bone 2".into());
+            s.to_name = Some("shin".into());
+        })
+        .unwrap();
+    assert_eq!(bones(&h)[1].name, "shin");
+    h.state_mut().bones.mode = super::bones::Mode::Weights;
+    h.state_mut().bones.selected = Some("shin".into());
+    let (dab, more) = (canvas_at(&h, 250.0, 170.0), canvas_at(&h, 260.0, 175.0));
+    drag(&mut h, dab, more);
+    h.run_steps(2);
+    let weights = h.state().scene.bundle.read_weights("l6").unwrap();
+    assert!(
+        weights.maps.contains_key("shin"),
+        "painting weights writes the bone's map"
+    );
+    h.state_mut().bones.mode = super::bones::Mode::Pose;
+    let (end, there) = (canvas_at(&h, 290.0, 190.0), canvas_at(&h, 200.0, 260.0));
+    drag(&mut h, end, there);
+    h.run_steps(2);
+    let turned = h.state().bones.pose.get("shin").copied().unwrap_or(0.0);
+    assert!(turned > 20.0, "dragging the shin's end turns it: {turned}");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn a_layer_is_keyed_from_the_inspector_and_eases_between_its_keys() {
+    let path = sample("keyed-layer");
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    activate(&mut h, "lines");
+    let id = h.state().scene.active_id().unwrap();
+    h.state_mut()
+        .key_here(&id, std::collections::BTreeMap::from([("y".to_string(), 0.0)]), false)
+        .unwrap();
+    h.state_mut().scene.frame = 6;
+    h.state_mut().key_ease = klad_core::keys::Ease::Linear;
+    h.state_mut()
+        .key_here(&id, std::collections::BTreeMap::from([("y".to_string(), -30.0)]), false)
+        .unwrap();
+    h.run_steps(2);
+    let layer = h.state().scene.bundle.doc.find_layer("lines").unwrap().clone();
+    assert_eq!(layer.keyed(3).1.unwrap().y, -15.0);
+    assert!(
+        h.query_all(By::new().label_contains("keys")).count() > 0,
+        "the inspector shows the keys section"
+    );
+    h.state_mut()
+        .key_here(&id, std::collections::BTreeMap::new(), true)
+        .unwrap();
+    assert_eq!(
+        h.state().scene.bundle.doc.find_layer("lines").unwrap().keys["y"].len(),
+        1
+    );
+    let _ = std::fs::remove_dir_all(&path);
+}

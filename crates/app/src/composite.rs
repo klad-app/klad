@@ -954,7 +954,9 @@ fn structure(doc: &Document, frame: u32) -> u64 {
         layers.iter().for_each(|l| {
             out.extend(l.id.as_bytes());
             out.extend(l.kind().name().as_bytes());
-            out.extend(l.opacity.to_le_bytes());
+            let (opacity, moved) = l.keyed(frame);
+            out.extend(opacity.to_le_bytes());
+            out.extend(serde_json::to_vec(&moved).unwrap_or_default());
             out.push(l.blend as u8);
             out.push(l.visible as u8);
             out.push(l.clip as u8);

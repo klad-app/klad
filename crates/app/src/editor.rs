@@ -1,4 +1,5 @@
 mod between;
+mod bones;
 mod brushwin;
 mod buffer;
 mod cells;
@@ -10,6 +11,7 @@ mod copy;
 mod depth;
 mod export;
 mod history;
+mod keys;
 mod layers;
 mod look;
 mod make;
@@ -110,6 +112,7 @@ enum Tool {
     Shape,
     Text,
     Note,
+    Bone,
 }
 
 struct PenPath {
@@ -609,6 +612,8 @@ pub(crate) struct Editor {
     export: export::Form,
     paintover: paintover::Form,
     compare: Option<compare::Compared>,
+    bones: bones::BoneTool,
+    key_ease: klad_core::keys::Ease,
     bindings: crate::commands::Bindings,
     capturing: Option<Cmd>,
     key_filter: String,
@@ -768,6 +773,8 @@ impl Editor {
             export: export::Form::default(),
             paintover: paintover::Form::default(),
             compare: None,
+            bones: bones::BoneTool::default(),
+            key_ease: klad_core::keys::Ease::Linear,
             bindings: crate::commands::Bindings::default(),
             capturing: None,
             key_filter: String::new(),
@@ -2410,6 +2417,9 @@ impl Editor {
             (Tool::Shape, Phase::Move) => self.shape_move(c),
             (Tool::Shape, Phase::Up) => self.shape_up()?,
             (Tool::Text, Phase::Down) => self.text_down(c)?,
+            (Tool::Bone, Phase::Down) => self.bone_down(c),
+            (Tool::Bone, Phase::Move) => self.bone_move(c),
+            (Tool::Bone, Phase::Up) => self.bone_up()?,
             (Tool::Pen, Phase::Down) => self.pen_down(view, rect, e.pos, c)?,
             (Tool::Pen, Phase::Move) => self.pen_move(c),
             (Tool::Pen, Phase::Up) => {
@@ -2853,6 +2863,12 @@ impl Editor {
         self.parallax(ui, view, rect);
         self.prepare_typing(&ctx, view, rect);
         self.decorate(ui, view, rect);
+        let hover = ui
+            .input(|i| i.pointer.hover_pos())
+            .filter(|p| rect.contains(*p))
+            .map(|p| view.to_canvas(p - rect.min, rect.size()));
+        let painter = ui.painter().with_clip_rect(rect);
+        self.decorate_bones(&painter, |c| rect.min + view.to_screen(c, rect.size()), hover);
         if self.live.is_some()
             || self.lasso.is_some()
             || self.drag.is_some()
@@ -3476,8 +3492,9 @@ impl Editor {
             self.apply(vec![Op::Remove {
                 ids: vec![id.to_string()],
             }])?;
+            return Ok(());
         }
-        Ok(())
+        self.animation_section(ui, id)
     }
 
     fn paint_editor(&mut self, ui: &mut egui::Ui, id: &str, node: &Node) -> Option<Paint> {
@@ -3787,7 +3804,8 @@ impl Editor {
         self.set(&id, props)?;
         self.depth_section(ui, &layer)?;
         self.adjust_section(ui, &layer)?;
-        self.effects_section(ui, &layer)
+        self.effects_section(ui, &layer)?;
+        self.animation_section(ui, &id)
     }
 
     fn colour_panel(&mut self, ui: &mut egui::Ui) -> Result<()> {

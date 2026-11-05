@@ -147,6 +147,8 @@ pub struct Layer {
     pub reference: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bones: Vec<crate::rig::Bone>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub keys: crate::keys::Keys,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -296,6 +298,8 @@ pub struct Node {
     pub clip: Option<String>,
     #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub visible: bool,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub keys: crate::keys::Keys,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -517,6 +521,7 @@ impl Layer {
             depth: None,
             reference: false,
             bones: Vec::new(),
+            keys: BTreeMap::new(),
         }
     }
 
@@ -674,6 +679,7 @@ impl Node {
             blur: 0.0,
             clip: None,
             visible: true,
+            keys: BTreeMap::new(),
         }
     }
 
@@ -1218,6 +1224,59 @@ impl Document {
             check_cels(layer)
         })
     }
+}
+
+impl Layer {
+    pub fn keyed(&self, frame: u32) -> (f32, Option<Transform>) {
+        if self.keys.is_empty() {
+            return (self.opacity, None);
+        }
+        let v = |p: &str, d: f32| crate::keys::value(&self.keys, p, frame).unwrap_or(d);
+        let moved = ["x", "y", "rotate", "sx", "sy"]
+            .iter()
+            .any(|p| self.keys.contains_key(*p));
+        (
+            v("opacity", self.opacity),
+            moved.then(|| Transform {
+                x: v("x", 0.0),
+                y: v("y", 0.0),
+                rotate: v("rotate", 0.0),
+                sx: v("sx", 1.0),
+                sy: v("sy", 1.0),
+                pivot: None,
+            }),
+        )
+    }
+}
+
+impl Node {
+    pub fn keyed(&self, frame: u32) -> std::borrow::Cow<'_, Node> {
+        if self.keys.is_empty() {
+            return std::borrow::Cow::Borrowed(self);
+        }
+        let mut node = self.clone();
+        let v = |p: &str, d: f32| crate::keys::value(&self.keys, p, frame).unwrap_or(d);
+        node.transform.x = v("x", self.transform.x);
+        node.transform.y = v("y", self.transform.y);
+        node.transform.rotate = v("rotate", self.transform.rotate);
+        node.transform.sx = v("sx", self.transform.sx);
+        node.transform.sy = v("sy", self.transform.sy);
+        node.opacity = v("opacity", self.opacity);
+        std::borrow::Cow::Owned(node)
+    }
+}
+
+pub fn nodes_at(nodes: &[Node], frame: u32) -> Vec<Node> {
+    nodes
+        .iter()
+        .map(|n| {
+            let mut node = n.keyed(frame).into_owned();
+            if let Some(children) = node.shape.children_mut() {
+                *children = nodes_at(children, frame);
+            }
+            node
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -151,6 +151,7 @@ pub enum Op {
     Bone(BoneSpec),
     Weights(WeightsSpec),
     Pose(PoseSpec),
+    Key(KeySpec),
     Clip(ClipEdit),
     Export {
         godot: Option<String>,
@@ -682,6 +683,15 @@ pub struct PoseSpec {
     pub hold: Option<u32>,
     #[serde(skip)]
     pub resolved: Option<Vec<PosedCel>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct KeySpec {
+    pub id: String,
+    pub frame: u32,
+    pub values: BTreeMap<String, f32>,
+    pub ease: crate::keys::Ease,
+    pub rm: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1451,6 +1461,45 @@ impl Op {
             "scatter" => Op::Scatter(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "foliage" => Op::Foliage(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "paintover" => Op::PaintOver(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
+            "key" => {
+                let id = map
+                    .remove("id")
+                    .and_then(|v| v.as_str().map(String::from))
+                    .ok_or_else(|| anyhow!("a key needs \"id\": the layer, group or shape it animates"))?;
+                let frame = whole(&mut map, "frame")?.unwrap_or(0);
+                let rm = flag(&mut map, "rm")?;
+                let ease = match map.remove("ease") {
+                    None => crate::keys::Ease::Linear,
+                    Some(Value::String(e)) => crate::keys::Ease::parse(&e)?,
+                    Some(other) => serde_json::from_value(other)
+                        .map_err(|_| anyhow!("ease must be linear, in, out, in-out, step or a curve"))?,
+                };
+                let mut values = BTreeMap::new();
+                std::mem::take(&mut map).into_iter().try_for_each(|(k, v)| {
+                    let n = v.as_f64().ok_or_else(|| anyhow!("key {k}: a number"))? as f32;
+                    match k.as_str() {
+                        "scale" => {
+                            values.insert("sx".to_string(), n);
+                            values.insert("sy".to_string(), n);
+                        }
+                        p if crate::keys::PROPS.contains(&p) => {
+                            values.insert(p.to_string(), n);
+                        }
+                        other => bail!("no keyable property {other:?}: x, y, rotate, sx, sy, scale, opacity"),
+                    }
+                    Ok(())
+                })?;
+                if values.is_empty() && !rm {
+                    bail!("a key needs a value: x, y, rotate, sx, sy, scale or opacity");
+                }
+                Op::Key(KeySpec {
+                    id,
+                    frame,
+                    values,
+                    ease,
+                    rm,
+                })
+            }
             "bone" => Op::Bone(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "weights" => Op::Weights(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "pose" => Op::Pose(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
@@ -1693,6 +1742,39 @@ fn bone(doc: &mut Document, spec: &BoneSpec, out: &mut Applied) -> Result<()> {
     crate::rig::check(&bones)?;
     doc.layer_at_mut(&path).bones = bones;
     out.changed.push(id);
+    Ok(())
+}
+
+fn key(doc: &mut Document, spec: &KeySpec, out: &mut Applied) -> Result<()> {
+    let keys: &mut crate::keys::Keys = match doc.locate(&spec.id) {
+        Some(Loc::Layer(path)) => &mut doc.layer_at_mut(&path).keys,
+        Some(Loc::Node(layer, cel, nodes)) => {
+            let (last, parent) = nodes.split_last().ok_or_else(|| anyhow!("no node {}", spec.id))?;
+            &mut node_list(doc, &layer, cel, parent)?[*last].keys
+        }
+        _ => bail!("{} is not a layer, group or shape: keys go on those", spec.id),
+    };
+    match spec.rm {
+        true => match spec.values.is_empty() {
+            true => crate::keys::remove(keys, None, spec.frame),
+            false => spec
+                .values
+                .keys()
+                .for_each(|p| crate::keys::remove(keys, Some(p), spec.frame)),
+        },
+        false => spec.values.iter().try_for_each(|(p, v)| {
+            crate::keys::set(
+                keys,
+                p,
+                crate::keys::Key {
+                    frame: spec.frame,
+                    value: *v,
+                    ease: spec.ease,
+                },
+            )
+        })?,
+    }
+    out.changed.push(spec.id.clone());
     Ok(())
 }
 
@@ -2915,6 +2997,7 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
             );
         }
         Op::Bone(spec) => bone(doc, spec, out)?,
+        Op::Key(spec) => key(doc, spec, out)?,
         Op::Weights(spec) => {
             let Some(made) = &spec.resolved else {
                 bail!("weights are computed by klad weights (or klad apply) first");

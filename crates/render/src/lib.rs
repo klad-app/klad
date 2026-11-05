@@ -318,16 +318,22 @@ fn draw_clipped(canvas: &Canvas, base: &Layer, clipped: &[&Layer], ctx: Ctx) -> 
     draw_onions(canvas, std::iter::once(base).chain(shown.iter().copied()), ctx)?;
     let effects = ctx.effects(base);
     if !effects.is_empty() || shown.iter().any(|l| l.reads_under()) {
-        return effected(canvas, ctx, &effects, Some(base), base.opacity, base.blend, &|c, x| {
-            draw_unit(c, base, &shown, x)
-        })
+        return effected(
+            canvas,
+            ctx,
+            &effects,
+            Some(base),
+            base.keyed(ctx.frame).0,
+            base.blend,
+            &|c, x| draw_unit(c, base, &shown, x),
+        )
         .with_context(|| format!("layer {}", base.id));
     }
     if shown.is_empty() {
         return draw_layer(canvas, base, ctx);
     }
     let inner = ctx.nested();
-    layer_paint_isolated(canvas, base.opacity, base.blend);
+    layer_paint_isolated(canvas, base.keyed(ctx.frame).0, base.blend);
     let drawn = draw_content(canvas, base, inner)
         .and_then(|_| shown.iter().try_for_each(|layer| draw_clip(canvas, base, layer, inner)));
     canvas.restore();
@@ -335,7 +341,7 @@ fn draw_clipped(canvas: &Canvas, base: &Layer, clipped: &[&Layer], ctx: Ctx) -> 
 }
 
 pub(crate) fn draw_clipped_alone(canvas: &Canvas, base: &Layer, layer: &Layer, ctx: Ctx) -> Result<()> {
-    layer_paint_isolated(canvas, layer.opacity, Blend::Normal);
+    layer_paint_isolated(canvas, layer.keyed(ctx.frame).0, Blend::Normal);
     let drawn = draw_styled(canvas, layer, ctx).and_then(|_| {
         mode_layer(canvas, BlendMode::DstIn);
         let base_drawn = draw_content(canvas, base, ctx.nested());
@@ -347,7 +353,7 @@ pub(crate) fn draw_clipped_alone(canvas: &Canvas, base: &Layer, layer: &Layer, c
 }
 
 fn draw_clip(canvas: &Canvas, base: &Layer, layer: &Layer, ctx: Ctx) -> Result<()> {
-    layer_paint_isolated(canvas, layer.opacity, layer.blend);
+    layer_paint_isolated(canvas, layer.keyed(ctx.frame).0, layer.blend);
     let drawn = draw_styled(canvas, layer, ctx).and_then(|_| {
         mode_layer(canvas, BlendMode::DstIn);
         let base_drawn = draw_content(canvas, base, ctx);
@@ -387,21 +393,16 @@ pub(crate) fn draw_layer(canvas: &Canvas, layer: &Layer, ctx: Ctx) -> Result<()>
         };
     }
     let effects = ctx.effects(layer);
+    let opacity = layer.keyed(ctx.frame).0;
     if !effects.is_empty() {
-        return effected(
-            canvas,
-            ctx,
-            &effects,
-            Some(layer),
-            layer.opacity,
-            layer.blend,
-            &|c, x| draw_content(c, layer, x),
-        )
+        return effected(canvas, ctx, &effects, Some(layer), opacity, layer.blend, &|c, x| {
+            draw_content(c, layer, x)
+        })
         .with_context(|| format!("layer {}", layer.id));
     }
-    let isolate = layer.opacity < 1.0 || layer.blend != Blend::Normal || layer.mask_at(ctx.frame).is_some();
+    let isolate = opacity < 1.0 || layer.blend != Blend::Normal || layer.mask_at(ctx.frame).is_some();
     if isolate {
-        layer_paint_isolated(canvas, layer.opacity, layer.blend);
+        layer_paint_isolated(canvas, opacity, layer.blend);
     }
     let drawn = draw_content(canvas, layer, ctx);
     if isolate {
@@ -681,6 +682,31 @@ fn draw_paint_cel(canvas: &Canvas, cel: &str, ctx: Ctx) -> Result<()> {
 }
 
 fn draw_content(canvas: &Canvas, layer: &Layer, ctx: Ctx) -> Result<()> {
+    let Some(moved) = layer.keyed(ctx.frame).1 else {
+        return draw_unmoved(canvas, layer, ctx);
+    };
+    let pivot = ctx.doc.map_or((0.0, 0.0), |d| {
+        (d.canvas.width as f32 / 2.0, d.canvas.height as f32 / 2.0)
+    });
+    canvas.save();
+    canvas.translate((moved.x + pivot.0, moved.y + pivot.1));
+    canvas.rotate(moved.rotate, None);
+    canvas.scale((moved.sx, moved.sy));
+    canvas.translate((-pivot.0, -pivot.1));
+    let whole = Ctx {
+        area: None,
+        sampling: Some(
+            ctx.sampling
+                .unwrap_or(SamplingOptions::new(FilterMode::Linear, MipmapMode::None)),
+        ),
+        ..ctx
+    };
+    let drawn = draw_unmoved(canvas, layer, whole);
+    canvas.restore();
+    drawn
+}
+
+fn draw_unmoved(canvas: &Canvas, layer: &Layer, ctx: Ctx) -> Result<()> {
     match &layer.content {
         LayerContent::Paint { .. } => layer
             .content_at(ctx.frame)
@@ -690,7 +716,7 @@ fn draw_content(canvas: &Canvas, layer: &Layer, ctx: Ctx) -> Result<()> {
                 .content_at(ctx.frame)
                 .map_or(Ok(()), |cel| match ctx.rasters.get(&cel.id) {
                     Some(r) => draw_raster(canvas, r, ctx),
-                    None => vector::draw_nodes(canvas, &cel.nodes),
+                    None => vector::draw_nodes(canvas, &klad_core::doc::nodes_at(&cel.nodes, ctx.frame)),
                 })
         }
         LayerContent::Group { children } => draw_layers(canvas, children, ctx.nested()),

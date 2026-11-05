@@ -10,6 +10,7 @@ pub enum Cmd {
     Pen,
     ShapeTool,
     TextTool,
+    BoneTool,
     Symmetry,
     Parallax,
     MakeRepeat,
@@ -472,13 +473,14 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 154] = [
+    pub const ALL: [Cmd; 155] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
         Cmd::Pen,
         Cmd::ShapeTool,
         Cmd::TextTool,
+        Cmd::BoneTool,
         Cmd::Symmetry,
         Cmd::Parallax,
         Cmd::MakeRepeat,
@@ -702,6 +704,15 @@ impl Cmd {
                 T::Press(const { &[plain(Key::T)] }),
                 R::No,
                 "click on the canvas and type: Return starts a new line, Esc finishes; click text to edit it",
+            ),
+            Cmd::BoneTool => spec(
+                "tool.bones",
+                "bones",
+                icon::TURN,
+                G::Tools,
+                T::Press(const { &[plain(Key::J)] }),
+                R::No,
+                "draw a skeleton on the layer or group, paint how much each bone moves the drawing, and pose it",
             ),
             Cmd::Symmetry => spec(
                 "brush.mirror",
