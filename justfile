@@ -19,7 +19,7 @@ lint:
     cargo clippy --workspace --all-targets -- -D warnings
 
 samples: build
-    for s in lantern ink-shapes bounce creature solids lemons; do FORCE=1 bash samples/$s/build.sh >/dev/null && echo "samples/$s/$s.draw"; done
+    for s in lantern ink-shapes bounce creature courier solids lemons ruin; do FORCE=1 bash samples/$s/build.sh >/dev/null && echo "samples/$s/$s.draw"; done
 
 notices:
     bash licenses/notices.sh

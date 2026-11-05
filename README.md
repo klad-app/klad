@@ -24,6 +24,16 @@ klad arcs creature.draw --track 'lines:near leg' --clip walk --check
 klad export creature.draw --godot ../game/art
 ```
 
+![The courier's idle](docs/images/courier-idle.gif) ![The courier's run](docs/images/courier-run.gif)
+
+The courier in `samples/courier` is drawn from shapes on every frame: a pose function places the body, legs and lantern, and the CLI fills, lights and inks them on thirteen layers. Its 16 drawings play as an idle and a run at 12 frames a second and export to Godot with that timing.
+
+```sh
+klad fill courier.draw flats --shape shell-4 --color shell --frame 4
+klad light courier.draw --from shell-4 --light -0.6,-0.8 --shade shade --rim rim --frame 4
+klad ink courier.draw lines --from shell-4,head-4,near-leg-4 --weight 5 --frame 4
+```
+
 ## Status
 
 Early, and open for testing. What works today:
@@ -41,7 +51,7 @@ There are no downloads yet; build it from source (about ten minutes the first ti
 1. Install Rust with [rustup](https://rustup.rs) and [`just`](https://github.com/casey/just) (`brew install just`, or `cargo install just`). On Linux also `pkg-config`, `libfreetype-dev` and `libfontconfig1-dev`.
 2. `git clone https://github.com/klad-app/klad && cd klad`, then `just build` makes the `klad` binary in `target/release/` (on Linux in `target/linux/release/`).
 3. On a Mac, `target/release/klad open` starts the editor on its start window: make a drawing and start painting.
-4. `just samples` builds the sample drawings in `samples/` (a lantern, a walking creature, painted solids, a bowl of lemons, a bouncing ball, ink examples); open one with `target/release/klad open samples/lantern/lantern.draw`.
+4. `just samples` builds the sample drawings in `samples/` (a lantern, a walking creature, a running courier, an underground ruin, painted solids, a bowl of lemons, a bouncing ball, ink examples); open one with `target/release/klad open samples/lantern/lantern.draw`.
 
 ## Drawing with an agent
 

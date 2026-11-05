@@ -8,6 +8,8 @@ Drawings made from scratch with the `klad` CLI, each from a generator that print
 | `ink-shapes` | The ink options side by side: weight from the light, breaks, gaps, wobble, tapers |
 | `bounce` | Frame-by-frame timing: keys, holds, a clip and the exports |
 | `creature` | A walk and an idle from keys with named parts, in-betweened, coloured from the first drawing, with arcs checked |
+| `courier` | A game character drawn from shapes on every frame: a pose function moves the body, legs and lantern, then fill, light and ink make the drawing; an idle and a run as clips, exported to Godot |
+| `ruin` | A game background lit by one lantern: stone blocks with chalk and dry-brush tool marks, relief per pillar facing the lamp, depth planes in fog, glow |
 | `lemons` | Painting by form with `klad paint` on locked flats, and a shadow colour: lavender shadows instead of brown ones (`PLAIN=1`: without it; `RELIEF=1`: with a relief effect on every object, lighting the thickness of the oil strokes) |
 | `solids` | Painting stroke by stroke: a sphere, a cube and a cylinder built in 3D with `docs/skill/drawkit.py`, lit, painted with natural strokes |
 
