@@ -12,6 +12,7 @@ const V4: &str = "draw-anything/4";
 const V5: &str = "draw-anything/5";
 const V6: &str = "draw-anything/6";
 const V7: &str = "draw-anything/7";
+const V8: &str = "draw-anything/8";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileMove {
@@ -44,7 +45,7 @@ pub fn migrate(value: Value) -> Result<Migrated> {
             moves: Vec::new(),
             embed_m1_brushes: false,
         }),
-        V2 | V3 | V4 | V5 | V6 | V7 => Ok(Migrated {
+        V2 | V3 | V4 | V5 | V6 | V7 | V8 => Ok(Migrated {
             value: to_current(value),
             moves: Vec::new(),
             embed_m1_brushes: false,

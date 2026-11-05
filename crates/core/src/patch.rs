@@ -126,6 +126,7 @@ fn layer_shell(layer: &Layer) -> Layer {
         effects: layer.effects.clone(),
         depth: layer.depth,
         reference: layer.reference,
+        bones: layer.bones.clone(),
     }
 }
 
@@ -138,6 +139,7 @@ fn cel_shell(cel: &Cel) -> Cel {
         tween: cel.tween.clone(),
         nodes: Vec::new(),
         parts: cel.parts.clone(),
+        pose: cel.pose.clone(),
     }
 }
 

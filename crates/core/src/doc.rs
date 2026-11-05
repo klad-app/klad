@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const FORMAT: &str = "draw-anything/8";
+pub const FORMAT: &str = "draw-anything/9";
 pub const MAX_SIZE: u32 = 16384;
 pub const MASK: usize = usize::MAX;
 
@@ -145,6 +145,8 @@ pub struct Layer {
     pub depth: Option<f32>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub reference: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bones: Vec<crate::rig::Bone>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -253,6 +255,8 @@ pub struct Cel {
     pub nodes: Vec<Node>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub parts: BTreeMap<String, Vec<u32>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pose: Option<crate::rig::Pose>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -512,6 +516,7 @@ impl Layer {
             effects: Vec::new(),
             depth: None,
             reference: false,
+            bones: Vec::new(),
         }
     }
 
@@ -633,6 +638,7 @@ impl Cel {
             tween: None,
             nodes: Vec::new(),
             parts: BTreeMap::new(),
+            pose: None,
         }
     }
 
@@ -694,6 +700,13 @@ impl Node {
             Shape::Text(_) => "text",
         }
     }
+}
+
+pub fn family_paths(doc: &Document, path: &[usize]) -> Vec<Vec<usize>> {
+    let layer = doc.layer_at(path);
+    std::iter::once(path.to_vec())
+        .chain((0..layer.children().len()).flat_map(|i| family_paths(doc, &[path, &[i]].concat())))
+        .collect()
 }
 
 fn walk_layers<'a>(layers: &'a [Layer], out: &mut Vec<&'a Layer>) {

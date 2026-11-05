@@ -313,6 +313,21 @@ impl Bundle {
         Ok(strokes_of(&self.read_marks(layer, cel)?).cloned().collect())
     }
 
+    pub fn weights_path(&self, layer: &str) -> PathBuf {
+        self.root.join("weights").join(format!("{layer}.weights"))
+    }
+
+    pub fn read_weights(&self, layer: &str) -> Result<crate::rig::Weights> {
+        let path = self.weights_path(layer);
+        let canvas = (self.doc.canvas.width, self.doc.canvas.height);
+        match path.is_file() {
+            true => {
+                crate::rig::Weights::decode(&fs::read(&path)?).with_context(|| format!("reading {}", path.display()))
+            }
+            false => Ok(crate::rig::Weights::new(canvas)),
+        }
+    }
+
     pub fn write_marks(&self, layer: &str, cel: &str, marks: &[Mark]) -> Result<u64> {
         self.embed_brushes_of(marks)?;
         let bytes = encode_cel(marks)?;
@@ -346,16 +361,35 @@ impl Bundle {
             })
             .collect::<Result<Vec<_>>>()?;
         name_parts(&mut doc, &applied.marks);
+        let mut weights = applied.weights.clone();
+        applied
+            .renamed_bones
+            .iter()
+            .try_for_each(|(layer, old, new)| -> Result<()> {
+                if !weights.iter().any(|(l, _)| l == layer) {
+                    weights.push((layer.clone(), self.read_weights(layer)?));
+                }
+                if let Some((_, w)) = weights.iter_mut().find(|(l, _)| l == layer)
+                    && let Some(map) = w.maps.remove(old)
+                {
+                    w.maps.insert(new.clone(), map);
+                }
+                Ok(())
+            })?;
         let touched: Vec<PathBuf> = written
             .iter()
             .map(|(layer, cel, _)| self.strokes_path(layer, cel))
             .chain(applied.dropped_cels.iter().map(|(l, c)| self.strokes_path(l, c)))
+            .chain(weights.iter().map(|(l, _)| self.weights_path(l)))
             .collect();
         checkpoint(self, &doc, author, &summarize(ops), &touched)?;
         self.doc = doc;
         written
             .iter()
             .try_for_each(|(layer, cel, marks)| self.write_marks(layer, cel, marks).map(|_| ()))?;
+        weights
+            .iter()
+            .try_for_each(|(layer, w)| write_atomic(&self.weights_path(layer), &w.encode()?))?;
         self.save()?;
         applied.dropped_cels.iter().for_each(|(layer, cel)| {
             let _ = fs::remove_file(self.strokes_path(layer, cel));
@@ -529,6 +563,9 @@ pub fn summarize(ops: &[Op]) -> String {
             Op::Scatter(spec) => format!("scatter on {}", spec.layer),
             Op::Foliage(spec) => format!("foliage on {}", spec.layer),
             Op::PaintOver(spec) => format!("paint over on {}", spec.layer),
+            Op::Bone(spec) => format!("bones on {}", spec.layer),
+            Op::Weights(spec) => format!("weights on {}", spec.layer),
+            Op::Pose(spec) => format!("pose on {} at frame {}", spec.layer, spec.to),
             Op::Grass(spec) => format!("grass on {}", spec.layer),
             Op::Inbetween(spec) if spec.redo => "redo in-betweens".to_string(),
             Op::Inbetween(spec) => format!(

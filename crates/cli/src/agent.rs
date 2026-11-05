@@ -208,6 +208,8 @@ pub struct Kinds {
     pub onion: bool,
     pub parts: bool,
     pub arcs: bool,
+    pub bones: bool,
+    pub weights: Option<String>,
 }
 
 pub fn overlay_flags(kinds: &str) -> Result<Kinds> {
@@ -223,13 +225,21 @@ pub fn overlay_flags(kinds: &str) -> Result<Kinds> {
                 "onion" => Kinds { onion: true, ..acc },
                 "parts" => Kinds { parts: true, ..acc },
                 "arcs" => Kinds { arcs: true, ..acc },
+                "bones" => Kinds { bones: true, ..acc },
+                w if w.starts_with("weights:") => Kinds {
+                    weights: Some(w.trim_start_matches("weights:").to_string()),
+                    bones: true,
+                    ..acc
+                },
                 "all" => Kinds {
                     ids: true,
                     bbox: true,
                     grid: true,
                     ..acc
                 },
-                other => bail!("unknown overlay {other:?}: use ids, bbox, grid, onion, parts, arcs or all"),
+                other => bail!(
+                    "unknown overlay {other:?}: use ids, bbox, grid, onion, parts, arcs, bones, weights:<bone> or all"
+                ),
             })
         })
 }
@@ -383,7 +393,7 @@ pub fn render_look(
     let brushes = BrushSet::for_bundle(bundle)?;
     let loaded = layers::load(bundle, frame, &brushes, use_cache)?;
     let kinds = look.kinds()?;
-    let overlay = (kinds.ids || kinds.bbox || kinds.grid || kinds.parts || kinds.arcs)
+    let overlay = (kinds.ids || kinds.bbox || kinds.grid || kinds.parts || kinds.arcs || kinds.bones)
         .then(|| {
             let mut found = if kinds.ids || kinds.bbox {
                 marks(bundle, frame, look.focus.as_deref(), look.depth)?
@@ -401,6 +411,15 @@ pub fn render_look(
                 arcs: arcs_of(bundle, look, frame, kinds.arcs)?,
                 frame: Some(frame),
                 numbers: true,
+                bones: match kinds.bones {
+                    true => crate::rig::bones_at(bundle, frame)?,
+                    false => Vec::new(),
+                },
+                heat: kinds
+                    .weights
+                    .as_deref()
+                    .map(|b| crate::rig::heat(bundle, b))
+                    .transpose()?,
             })
         })
         .transpose()?;
@@ -570,6 +589,9 @@ pub fn edit(path: &Path, ops: &[Op], out: &Output) -> Result<()> {
         true => println!("{n}"),
         false => eprintln!("{n}"),
     });
+    crate::rig::resolve(&bundle, &mut ops)?
+        .iter()
+        .for_each(|n| println!("{n}"));
     let made = crate::inbetween::resolve(&bundle, &mut ops)?;
     made.iter().for_each(|n| println!("{n}"));
     if let Some(ms) = std::env::var("DRAW_TEST_WRITE_DELAY_MS")

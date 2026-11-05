@@ -18,12 +18,13 @@ mod looks;
 mod marks;
 mod paintover;
 mod paths;
+mod rig;
 mod shapes;
 mod sheet;
 mod sprites;
 
 use agent::{Look, Output};
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use clap::{Args, Parser, Subcommand};
 use klad_brush::BrushSet;
 use klad_core::bundle::{Blank, Bundle};
@@ -32,8 +33,9 @@ use klad_core::fill::{EXPAND, FillSource, TOLERANCE};
 use klad_core::history::Stack;
 use klad_core::markedit::{LassoAction, MarkTransform};
 use klad_core::ops::{
-    ClipEdit, CopySpec, CopyTarget, FillSpec, FoliageSpec, GrassSpec, HatchSpec, InbetweenSpec, InkSpec, LassoSpec,
-    LightSpec, Op, PaintOverSpec, PaintSpec, PaletteEdit, Place, ScatterSpec, StrokeSpec,
+    BoneSpec, ClipEdit, CopySpec, CopyTarget, FillSpec, FoliageSpec, GrassSpec, HatchSpec, InbetweenSpec, InkSpec,
+    LassoSpec, LightSpec, Op, PaintOverSpec, PaintSpec, PaletteEdit, Place, PoseSpec, ScatterSpec, StrokeSpec,
+    WeightsSpec,
 };
 use klad_core::retime::{Retime, RetimeSpec};
 use klad_core::stroke::{fills_of, strokes_of};
@@ -1154,6 +1156,84 @@ enum Command {
         frame: u32,
         #[arg(long, help = "Put the new marks in this part of the drawing (see klad part)")]
         part: Option<String>,
+        #[command(flatten)]
+        flags: EditFlags,
+    },
+    #[command(
+        about = "Add, remove, rename, move or reparent a bone of a layer's or group's skeleton",
+        long_about = "Bones go on a paint layer or a group (a group's skeleton poses every paint layer in it together). A bone has a name, an optional parent, a head and a tail in canvas px; a child usually starts where its parent ends. Removing a bone removes its children.\n\n  klad bone art.draw body --add hip --head 400,500 --tail 400,420\n  klad bone art.draw body --add thigh --parent hip --head 400,500 --tail 410,620\n  klad bone art.draw body --rename thigh --as femur\n  klad bone art.draw body --move femur --tail 420,630\n  klad bone art.draw body --reparent femur --parent pelvis\n  klad bone art.draw body --rm femur\n\nAlso a bone op: {\"op\":\"bone\",\"layer\":\"body\",\"add\":\"thigh\",\"parent\":\"hip\",\"head\":[400,500],\"tail\":[410,620]}."
+    )]
+    Bone {
+        bundle: PathBuf,
+        layer: String,
+        #[arg(long)]
+        add: Option<String>,
+        #[arg(long)]
+        rm: Option<String>,
+        #[arg(long)]
+        rename: Option<String>,
+        #[arg(long = "as")]
+        to_name: Option<String>,
+        #[arg(long = "move")]
+        moved: Option<String>,
+        #[arg(long)]
+        reparent: Option<String>,
+        #[arg(long)]
+        parent: Option<String>,
+        #[arg(long, value_parser = parse_pair, allow_hyphen_values = true)]
+        head: Option<[f32; 2]>,
+        #[arg(long, value_parser = parse_pair, allow_hyphen_values = true)]
+        tail: Option<[f32; 2]>,
+        #[command(flatten)]
+        flags: EditFlags,
+    },
+    #[command(about = "List the skeletons, their bones and weights, and the posed drawings")]
+    Bones {
+        bundle: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(
+        about = "Set how much each bone moves each part of the drawing: automatic, painted dabs, a whole part, smoothed",
+        long_about = "Every bone has a weight map over the rest drawing (a grid at a quarter of the canvas resolution); where weights blend, lines bend smoothly; a part held by one bone at weight 1 moves rigidly. --auto starts from the bones (by distance, blending across the joints). --set paints soft round dabs of a weight onto --bone: 'x,y,radius,weight ...'. --part makes a named part of the drawing (at --frame) fully that bone's (and no other's). --smooth blurs the maps a little. render --overlay weights:<bone> shows a bone's map.\n\n  klad weights art.draw body --auto\n  klad weights art.draw body --bone shin --set '400,600,30,1 410,640,20,0.8'\n  klad weights art.draw body --bone head --part head\n\nAlso a weights op: {\"op\":\"weights\",\"layer\":\"body\",\"bone\":\"shin\",\"set\":[[400,600,30,1]]}."
+    )]
+    Weights {
+        bundle: PathBuf,
+        layer: String,
+        #[arg(long)]
+        auto: bool,
+        #[arg(long)]
+        bone: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        set: Option<String>,
+        #[arg(long)]
+        part: Option<String>,
+        #[arg(long, default_value_t = 1.0)]
+        value: f32,
+        #[arg(long)]
+        smooth: bool,
+        #[arg(long, default_value_t = 0)]
+        frame: u32,
+        #[command(flatten)]
+        flags: EditFlags,
+    },
+    #[command(
+        about = "Pose a drawing with its bones: a new drawing at --to, bent from the rest drawing at --from",
+        long_about = "A pose is a turn per bone (degrees from its rest angle, children follow their parent) and a move of the whole (--root). Every paint layer under the skeleton gets a new drawing at --to: each stroke point and fill moves by its bones' weighted blend, the same way Godot's Skeleton2D bends a Polygon2D. The pose is kept on the drawing; posing that frame again re-poses it from the same rest drawing, and posing from a posed drawing starts from its rest drawing. klad inbetween between two poses of one rest drawing turns the bones instead of matching strokes.\n\n  klad pose art.draw body --from 0 --to 4 --bone thigh=25 --bone shin=-40 --root 0,6\n\nAlso a pose op: {\"op\":\"pose\",\"layer\":\"body\",\"from\":0,\"to\":4,\"bones\":{\"thigh\":25,\"shin\":-40},\"root\":[0,6]}."
+    )]
+    Pose {
+        bundle: PathBuf,
+        layer: String,
+        #[arg(long, default_value_t = 0)]
+        from: u32,
+        #[arg(long)]
+        to: u32,
+        #[arg(long = "bone", help = "name=degrees; repeat for more", allow_hyphen_values = true)]
+        bones: Vec<String>,
+        #[arg(long, value_parser = parse_pair, allow_hyphen_values = true, default_value = "0,0")]
+        root: [f32; 2],
+        #[arg(long)]
+        hold: Option<u32>,
         #[command(flatten)]
         flags: EditFlags,
     },
@@ -2655,6 +2735,106 @@ fn run() -> Result<()> {
                 part,
             };
             agent::edit(&bundle, &[Op::Foliage(spec)], &output(&flags, frame))?;
+        }
+        Command::Bone {
+            bundle,
+            layer,
+            add,
+            rm,
+            rename,
+            to_name,
+            moved,
+            reparent,
+            parent,
+            head,
+            tail,
+            flags,
+        } => {
+            let spec = BoneSpec {
+                layer: layer_id(&bundle, &layer)?,
+                add,
+                rm,
+                rename,
+                to_name,
+                moved,
+                reparent,
+                parent,
+                head,
+                tail,
+            };
+            agent::edit(&bundle, &[Op::Bone(spec)], &output(&flags, 0))?;
+        }
+        Command::Bones { bundle, json } => rig::list(&Bundle::open(&bundle)?, json)?,
+        Command::Weights {
+            bundle,
+            layer,
+            auto,
+            bone,
+            set,
+            part,
+            value,
+            smooth,
+            frame,
+            flags,
+        } => {
+            let set = set
+                .as_deref()
+                .map(|text| {
+                    text.split_whitespace()
+                        .map(|d| -> Result<[f32; 4]> {
+                            parse_numbers(d)?
+                                .try_into()
+                                .map_err(|_| anyhow!("dab {d:?} is not x,y,radius,weight"))
+                        })
+                        .collect::<Result<Vec<_>>>()
+                })
+                .transpose()?
+                .unwrap_or_default();
+            if !auto && set.is_empty() && part.is_none() && !smooth {
+                bail!("say what to do: --auto, --set with --bone, --part with --bone, or --smooth");
+            }
+            let spec = WeightsSpec {
+                layer: layer_id(&bundle, &layer)?,
+                frame,
+                auto,
+                bone,
+                set,
+                part,
+                value,
+                smooth,
+                resolved: None,
+            };
+            agent::edit(&bundle, &[Op::Weights(spec)], &output(&flags, frame))?;
+        }
+        Command::Pose {
+            bundle,
+            layer,
+            from,
+            to,
+            bones,
+            root,
+            hold,
+            flags,
+        } => {
+            let bones = bones
+                .iter()
+                .map(|b| -> Result<(String, f32)> {
+                    let (name, deg) = b
+                        .split_once('=')
+                        .ok_or_else(|| anyhow!("--bone {b:?} is not name=degrees"))?;
+                    Ok((name.trim().to_string(), deg.trim().parse()?))
+                })
+                .collect::<Result<_>>()?;
+            let spec = PoseSpec {
+                layer: layer_id(&bundle, &layer)?,
+                from,
+                to,
+                bones,
+                root,
+                hold,
+                resolved: None,
+            };
+            agent::edit(&bundle, &[Op::Pose(spec)], &output(&flags, to))?;
         }
         Command::Compare {
             drawing,

@@ -321,6 +321,7 @@ fn make(bundle: &Bundle, spec: &InbetweenSpec) -> Result<(Inbetweens, Vec<String
     let mut made = Inbetweens::default();
     let mut notes = Vec::new();
     let mut jobs = Vec::new();
+    let mut rigged: Vec<(usize, crate::rig::Posed, f32)> = Vec::new();
     paint_layers(doc, &spec.layers)?.into_iter().try_for_each(|layer| {
         let owner = doc.layer(&layer).ok_or_else(|| anyhow!("no layer {layer}"))?;
         let name = owner.name.clone();
@@ -389,14 +390,18 @@ fn make(bundle: &Bundle, spec: &InbetweenSpec) -> Result<(Inbetweens, Vec<String
             from,
             (spec.matching, &spec.pairs, spec.unpaired),
         )?;
+        let on_bones = crate::rig::posed_pair(bundle, &layer, &a, &b)?;
         frames.iter().zip(&ts).enumerate().for_each(|(i, (&frame, &t))| {
             let next = frames.get(i + 1).copied().unwrap_or(to);
-            jobs.push(Job {
-                key: keys.len(),
-                index: made.cels.len(),
-                frame,
-                t,
-            });
+            match &on_bones {
+                Some(rig) => rigged.push((made.cels.len(), rig.clone(), t)),
+                None => jobs.push(Job {
+                    key: keys.len(),
+                    index: made.cels.len(),
+                    frame,
+                    t,
+                }),
+            }
             made.cels.push(TweenCel {
                 layer: layer.clone(),
                 cel: staged.alloc_id_in('c', &mut taken),
@@ -406,6 +411,7 @@ fn make(bundle: &Bundle, spec: &InbetweenSpec) -> Result<(Inbetweens, Vec<String
                 marks: Vec::new(),
                 fresh: true,
                 parts: BTreeMap::new(),
+                pose: None,
             });
         });
         keys.push(key);
@@ -421,8 +427,24 @@ fn make(bundle: &Bundle, spec: &InbetweenSpec) -> Result<(Inbetweens, Vec<String
             ..spec.clone()
         })],
     )?;
-    keys.iter().for_each(|k| pairing_notes(k, &mut notes));
-    compute(bundle, &staged, &keys, &jobs, &mut made.cels, &mut notes)?;
+    keys.iter()
+        .filter(|k| !rigged.iter().any(|(i, _, _)| made.cels[*i].layer == k.layer))
+        .for_each(|k| pairing_notes(k, &mut notes));
+    if !jobs.is_empty() {
+        compute(bundle, &staged, &keys, &jobs, &mut made.cels, &mut notes)?;
+    }
+    rigged.iter().for_each(|(i, rig, t)| {
+        let (marks, pose) = rig.at(*t, (doc.canvas.width, doc.canvas.height));
+        made.cels[*i].marks = marks;
+        made.cels[*i].pose = Some(pose);
+    });
+    let mut bent: Vec<&str> = rigged.iter().map(|(i, _, _)| made.cels[*i].layer.as_str()).collect();
+    bent.dedup();
+    bent.iter().for_each(|l| {
+        notes.push(format!(
+            "{l}: in-betweened on bones (both keys are poses of one rest drawing)"
+        ))
+    });
     keep_parts(doc, &mut made.cels);
     made.cels.iter().for_each(|c| {
         notes.push(format!(
@@ -527,6 +549,7 @@ fn redo(bundle: &Bundle, spec: &InbetweenSpec) -> Result<(Inbetweens, Vec<String
                 tween: tween.clone(),
                 marks: Vec::new(),
                 fresh: false,
+                pose: None,
                 parts: BTreeMap::new(),
             });
             Ok(())

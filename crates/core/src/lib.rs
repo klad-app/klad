@@ -15,6 +15,7 @@ pub mod patch;
 pub mod path;
 pub mod pathedit;
 pub mod retime;
+pub mod rig;
 pub mod rng;
 pub mod stroke;
 pub mod synth;

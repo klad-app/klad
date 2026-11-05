@@ -148,6 +148,9 @@ pub enum Op {
     Foliage(FoliageSpec),
     Grass(GrassSpec),
     PaintOver(PaintOverSpec),
+    Bone(BoneSpec),
+    Weights(WeightsSpec),
+    Pose(PoseSpec),
     Clip(ClipEdit),
     Export {
         godot: Option<String>,
@@ -207,6 +210,7 @@ pub struct TweenCel {
     pub marks: Vec<Mark>,
     pub fresh: bool,
     pub parts: BTreeMap<String, Vec<u32>>,
+    pub pose: Option<crate::rig::Pose>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -619,6 +623,80 @@ pub struct GrassSpec {
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct BoneSpec {
+    pub layer: String,
+    #[serde(default)]
+    pub add: Option<String>,
+    #[serde(default)]
+    pub rm: Option<String>,
+    #[serde(default)]
+    pub rename: Option<String>,
+    #[serde(default, rename = "as")]
+    pub to_name: Option<String>,
+    #[serde(default, rename = "move")]
+    pub moved: Option<String>,
+    #[serde(default)]
+    pub reparent: Option<String>,
+    #[serde(default)]
+    pub parent: Option<String>,
+    #[serde(default)]
+    pub head: Option<[f32; 2]>,
+    #[serde(default)]
+    pub tail: Option<[f32; 2]>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WeightsSpec {
+    pub layer: String,
+    #[serde(default)]
+    pub frame: u32,
+    #[serde(default)]
+    pub auto: bool,
+    #[serde(default)]
+    pub bone: Option<String>,
+    #[serde(default)]
+    pub set: Vec<[f32; 4]>,
+    #[serde(default)]
+    pub part: Option<String>,
+    #[serde(default = "full")]
+    pub value: f32,
+    #[serde(default)]
+    pub smooth: bool,
+    #[serde(skip)]
+    pub resolved: Option<crate::rig::Weights>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PoseSpec {
+    pub layer: String,
+    #[serde(default)]
+    pub from: u32,
+    pub to: u32,
+    #[serde(default)]
+    pub bones: BTreeMap<String, f32>,
+    #[serde(default)]
+    pub root: [f32; 2],
+    #[serde(default)]
+    pub hold: Option<u32>,
+    #[serde(skip)]
+    pub resolved: Option<Vec<PosedCel>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PosedCel {
+    pub layer: String,
+    pub cel: String,
+    pub frame: u32,
+    pub hold: Option<u32>,
+    pub pose: crate::rig::Pose,
+    pub marks: Vec<Mark>,
+    pub fresh: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PaintOverSpec {
     pub layer: String,
     #[serde(default)]
@@ -939,6 +1017,8 @@ pub struct Applied {
     pub dropped_cels: Vec<(String, String)>,
     pub marks: Vec<PendingMarks>,
     pub notes: Vec<String>,
+    pub weights: Vec<(String, crate::rig::Weights)>,
+    pub renamed_bones: Vec<(String, String, String)>,
 }
 
 impl Applied {
@@ -1371,6 +1451,9 @@ impl Op {
             "scatter" => Op::Scatter(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "foliage" => Op::Foliage(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "paintover" => Op::PaintOver(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
+            "bone" => Op::Bone(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
+            "weights" => Op::Weights(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
+            "pose" => Op::Pose(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "grass" => Op::Grass(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "clip" => Op::Clip(parse_clip(&mut map)?),
             "export" => Op::Export {
@@ -1494,6 +1577,165 @@ fn parse_inbetween(map: &mut Map<String, Value>) -> Result<InbetweenSpec> {
     Ok(spec)
 }
 
+pub fn rig_owner<'a>(doc: &'a Document, id: &str) -> Result<&'a Layer> {
+    let layer = doc.find_layer(id)?;
+    match layer.kind() {
+        Kind::Paint | Kind::Group => Ok(layer),
+        _ => bail!("bones go on a paint layer or a group; {} is neither", layer.name),
+    }
+}
+
+fn bone(doc: &mut Document, spec: &BoneSpec, out: &mut Applied) -> Result<()> {
+    let id = rig_owner(doc, &spec.layer)?.id.clone();
+    let path = layer_path(doc, &id)?;
+    let mut bones = doc.layer_at(&path).bones.clone();
+    let find = |bones: &[crate::rig::Bone], name: &str| -> Result<usize> {
+        bones.iter().position(|b| b.name == name).ok_or_else(|| {
+            anyhow!(
+                "no bone {name} on {}: {}",
+                spec.layer,
+                bones.iter().map(|b| b.name.as_str()).collect::<Vec<_>>().join(", ")
+            )
+        })
+    };
+    match (&spec.add, &spec.rm, &spec.rename, &spec.moved, &spec.reparent) {
+        (Some(name), None, None, None, None) => {
+            let (Some(head), Some(tail)) = (spec.head, spec.tail) else {
+                bail!("a new bone needs \"head\" and \"tail\": [x, y] each");
+            };
+            if bones.iter().any(|b| &b.name == name) {
+                bail!("there is already a bone {name} on {}", spec.layer);
+            }
+            if let Some(p) = &spec.parent {
+                find(&bones, p)?;
+            }
+            bones.push(crate::rig::Bone {
+                name: name.clone(),
+                parent: spec.parent.clone(),
+                head,
+                tail,
+            });
+            out.notes.push(format!("bone {name} on {}", spec.layer));
+        }
+        (None, Some(name), None, None, None) => {
+            find(&bones, name)?;
+            let mut gone = vec![name.clone()];
+            while let Some(next) = bones
+                .iter()
+                .find(|b| b.parent.as_ref().is_some_and(|p| gone.contains(p)) && !gone.contains(&b.name))
+                .map(|b| b.name.clone())
+            {
+                gone.push(next);
+            }
+            bones.retain(|b| !gone.contains(&b.name));
+            out.notes.push(format!("removed {}", gone.join(", ")));
+        }
+        (None, None, Some(name), None, None) => {
+            let Some(to) = &spec.to_name else {
+                bail!("rename needs \"as\": the new name");
+            };
+            let at = find(&bones, name)?;
+            if bones.iter().any(|b| &b.name == to) {
+                bail!("there is already a bone {to}");
+            }
+            bones[at].name = to.clone();
+            bones
+                .iter_mut()
+                .filter(|b| b.parent.as_ref() == Some(name))
+                .for_each(|b| b.parent = Some(to.clone()));
+            let rigged: Vec<Vec<usize>> = crate::doc::family_paths(doc, &path);
+            rigged.iter().for_each(|p| {
+                if let Some(cels) = doc.layer_at_mut(p).cels_mut() {
+                    cels.iter_mut().filter_map(|c| c.pose.as_mut()).for_each(|pose| {
+                        if let Some(v) = pose.angles.remove(name) {
+                            pose.angles.insert(to.clone(), v);
+                        }
+                    });
+                }
+            });
+            out.renamed_bones.push((id.clone(), name.clone(), to.clone()));
+        }
+        (None, None, None, Some(name), None) => {
+            let at = find(&bones, name)?;
+            if let Some(h) = spec.head {
+                bones[at].head = h;
+            }
+            if let Some(t) = spec.tail {
+                bones[at].tail = t;
+            }
+        }
+        (None, None, None, None, Some(name)) => {
+            let at = find(&bones, name)?;
+            if let Some(p) = &spec.parent {
+                find(&bones, p)?;
+                if p == name {
+                    bail!("a bone cannot be its own parent");
+                }
+            }
+            bones[at].parent = spec.parent.clone();
+            let mut sorted: Vec<crate::rig::Bone> = Vec::new();
+            while sorted.len() < bones.len() {
+                let before = sorted.len();
+                bones.iter().for_each(|b| {
+                    let ready = b.parent.as_ref().is_none_or(|p| sorted.iter().any(|s| &s.name == p));
+                    if ready && !sorted.iter().any(|s| s.name == b.name) {
+                        sorted.push(b.clone());
+                    }
+                });
+                if sorted.len() == before {
+                    bail!("that parent would make a loop");
+                }
+            }
+            bones = sorted;
+        }
+        _ => bail!("a bone op takes one of add, rm, rename, move or reparent"),
+    }
+    crate::rig::check(&bones)?;
+    doc.layer_at_mut(&path).bones = bones;
+    out.changed.push(id);
+    Ok(())
+}
+
+fn posed(doc: &mut Document, made: &[PosedCel], out: &mut Applied) -> Result<()> {
+    made.iter().try_for_each(|cel| {
+        let path = layer_path(doc, &cel.layer)?;
+        let cels = doc
+            .layer_at_mut(&path)
+            .cels_mut()
+            .ok_or_else(|| anyhow!("layer {} has no cels", cel.layer))?;
+        match cel.fresh {
+            true => {
+                if let Some(c) = cels.iter().find(|c| c.frame == cel.frame) {
+                    bail!("layer {} already has {} at frame {}", cel.layer, c.id, cel.frame);
+                }
+                let at = cels.iter().position(|c| c.frame > cel.frame).unwrap_or(cels.len());
+                cels.insert(
+                    at,
+                    Cel {
+                        hold: cel.hold,
+                        pose: Some(cel.pose.clone()),
+                        ..Cel::at(&cel.cel, cel.frame)
+                    },
+                );
+                if let Some(n) = cel.cel.strip_prefix('c').and_then(|n| n.parse::<u64>().ok()) {
+                    doc.next_id = doc.next_id.max(n);
+                }
+                out.added.push(cel.cel.clone());
+            }
+            false => {
+                let existing = cels
+                    .iter_mut()
+                    .find(|c| c.id == cel.cel)
+                    .ok_or_else(|| anyhow!("no cel {} on layer {}", cel.cel, cel.layer))?;
+                existing.pose = Some(cel.pose.clone());
+                out.changed.push(cel.cel.clone());
+            }
+        }
+        out.push(&cel.layer, &cel.cel, MarkChange::Put(cel.marks.clone()));
+        Ok(())
+    })
+}
+
 fn inbetweens(doc: &mut Document, made: &Inbetweens, out: &mut Applied) -> Result<()> {
     made.removed.iter().try_for_each(|id| remove(doc, id, out))?;
     made.holds.iter().try_for_each(|(id, hold)| {
@@ -1523,6 +1765,7 @@ fn inbetweens(doc: &mut Document, made: &Inbetweens, out: &mut Applied) -> Resul
                         hold: cel.hold,
                         tween: Some(cel.tween.clone()),
                         parts: cel.parts.clone(),
+                        pose: cel.pose.clone(),
                         ..Cel::at(&cel.cel, cel.frame)
                     },
                 );
@@ -1538,6 +1781,7 @@ fn inbetweens(doc: &mut Document, made: &Inbetweens, out: &mut Applied) -> Resul
                     .ok_or_else(|| anyhow!("no cel {} on layer {}", cel.cel, cel.layer))?;
                 existing.tween = Some(cel.tween.clone());
                 existing.parts = cel.parts.clone();
+                existing.pose = cel.pose.clone();
                 out.changed.push(cel.cel.clone());
             }
         }
@@ -2669,6 +2913,22 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
             bail!(
                 "ink, light, hatch, paint, scatter, foliage, grass and paintover are turned into strokes and fills by klad ink, klad light, klad hatch, klad paint, klad scatter, klad foliage, klad grass, klad paintover or klad apply first"
             );
+        }
+        Op::Bone(spec) => bone(doc, spec, out)?,
+        Op::Weights(spec) => {
+            let Some(made) = &spec.resolved else {
+                bail!("weights are computed by klad weights (or klad apply) first");
+            };
+            rig_owner(doc, &spec.layer)?;
+            out.weights.retain(|(l, _)| l != &spec.layer);
+            out.weights.push((spec.layer.clone(), made.clone()));
+            out.changed.push(spec.layer.clone());
+        }
+        Op::Pose(spec) => {
+            let Some(made) = &spec.resolved else {
+                bail!("poses are computed by klad pose (or klad apply) first");
+            };
+            posed(doc, made, out)?;
         }
         Op::Inbetween(spec) => {
             let Some(made) = &spec.resolved else {

@@ -119,6 +119,60 @@ pub struct Overlay {
     pub arcs: Vec<Arc>,
     pub frame: Option<u32>,
     pub numbers: bool,
+    pub bones: Vec<Shown>,
+    pub heat: Option<Heat>,
+}
+
+pub type Shown = (String, [f32; 2], [f32; 2]);
+
+#[derive(Clone, Debug, Default)]
+pub struct Heat {
+    pub cell: f32,
+    pub width: u32,
+    pub values: Vec<u8>,
+}
+
+fn draw_heat(canvas: &Canvas, heat: &Heat, to_out: impl Fn([f32; 2]) -> (f32, f32)) {
+    let w = heat.width.max(1) as usize;
+    heat.values
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| **v > 0)
+        .for_each(|(i, v)| {
+            let (gx, gy) = ((i % w) as f32 * heat.cell, (i / w) as f32 * heat.cell);
+            let (x0, y0) = to_out([gx, gy]);
+            let (x1, y1) = to_out([gx + heat.cell, gy + heat.cell]);
+            let t = *v as f32 / 255.0;
+            canvas.draw_rect(
+                Rect::from_ltrb(x0, y0, x1, y1),
+                &color([0.95, 0.25 + 0.6 * t, 0.15], 0.15 + 0.45 * t),
+            );
+        });
+}
+
+fn draw_bones(
+    canvas: &Canvas,
+    bones: &[(String, [f32; 2], [f32; 2])],
+    to_out: impl Fn([f32; 2]) -> (f32, f32),
+    px: f32,
+) {
+    bones.iter().enumerate().for_each(|(i, (name, head, tail))| {
+        let (a, b) = (to_out(*head), to_out(*tail));
+        let hue = HUES[(i + 1) % HUES.len()];
+        let mut back = color([0.0, 0.0, 0.0], 0.6);
+        back.set_style(PaintStyle::Stroke);
+        back.set_stroke_width(5.0 * px);
+        back.set_stroke_cap(skia_safe::paint::Cap::Round);
+        let mut front = color(hue, 1.0);
+        front.set_style(PaintStyle::Stroke);
+        front.set_stroke_width(2.5 * px);
+        front.set_stroke_cap(skia_safe::paint::Cap::Round);
+        canvas.draw_line(a, b, &back);
+        canvas.draw_line(a, b, &front);
+        canvas.draw_circle(a, 4.0 * px, &color([0.0, 0.0, 0.0], 0.7));
+        canvas.draw_circle(a, 2.5 * px, &color(hue, 1.0));
+        draw_label(canvas, name, (a.0 + b.0) / 2.0 + 4.0, (a.1 + b.1) / 2.0, px, hue);
+    });
 }
 
 fn draw_arcs(canvas: &Canvas, overlay: &Overlay, to_out: impl Fn([f32; 2]) -> (f32, f32), px: f32) {
@@ -279,7 +333,16 @@ pub fn apply(image: &skia_safe::Image, overlay: &Overlay, view: &View) -> Result
             canvas.draw_rect(rect, &front);
         });
     }
+    if let Some(heat) = &overlay.heat {
+        draw_heat(canvas, heat, |p| ((p[0] - origin.0) * s, (p[1] - origin.1) * s));
+    }
     draw_arcs(canvas, overlay, |p| ((p[0] - origin.0) * s, (p[1] - origin.1) * s), px);
+    draw_bones(
+        canvas,
+        &overlay.bones,
+        |p| ((p[0] - origin.0) * s, (p[1] - origin.1) * s),
+        px,
+    );
     if overlay.ids {
         let mut placed: Vec<Rect> = Vec::new();
         overlay.marks.iter().enumerate().for_each(|(i, m)| {
