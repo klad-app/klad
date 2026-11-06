@@ -15,7 +15,7 @@ if [ -e "$out" ] && [ "${FORCE:-0}" != 1 ]; then
 fi
 rm -rf "$out"
 "$klad" new "$out" --width 1200 --height 900 --layers 0 >/dev/null
-python3 "$here/generate.py" > "$out.jsonl"
+"${PYTHON:-python3}" "$here/generate.py" > "$out.jsonl"
 "$klad" apply "$out" --file "$out.jsonl" >/dev/null
 rm "$out.jsonl"
 "$klad" render "$out" -o "${out%.klad}.png" | sed -n 1p

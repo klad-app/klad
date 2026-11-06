@@ -17,6 +17,7 @@ The first builds, and klad's licences.
 - `klad arcs` follows the part of a foot on the ground: a heel-to-toe roll is no longer reported as a slide.
 - "Report a problem" copies what an issue needs.
 - Bones: a layer or group gets a skeleton (`klad bone`, the bone tool J), weights from the bones or painted (`klad weights`), and poses that bend the drawing (`klad pose`, pose mode); in-betweens of two poses turn the bones. The bone tool lists the skeleton, picks a bone in every mode, and moves ends, joints and whole bones with their children (`klad bone --move` with `--by`).
+- A first start: the start window welcomes, offers first steps (draw a shape, fill it, hand the drawing to an agent, ticked off as you go; Help > First steps opens them again) and six sample drawings that open as copies (`klad samples` lists and copies them).
 - Menus: a menu bar (the Mac's own, an in-window one on Windows and Linux) holds every command, with its keys, ticks for what is on and greyed items for what cannot run now; File has close (cmd W) and recent drawings.
 - Keys: layers, groups and shapes move, turn, scale and fade between frames with eases (`klad key`, the keys section of the inspector).
 - Godot: `--godot-rig` exports a Skeleton2D with Polygon2D parts and the poses as animations; `--godot-scene` a parallax scene with a Parallax2D per depth plane.

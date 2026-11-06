@@ -11,6 +11,6 @@ klad="${KLAD:-$root/${KLAD_TARGET_DIR:-$built}/release/klad}"
 out="${1:-$here/ink-shapes.klad}"
 rm -rf "$out"
 "$klad" new "$out" --width 960 --height 900 --layers 0 --background '#f4efe6' >/dev/null
-python3 "$here/generate.py" | "$klad" apply "$out" >/dev/null
+"${PYTHON:-python3}" "$here/generate.py" | "$klad" apply "$out" >/dev/null
 "$klad" render "$out" -o "${out%.klad}.png"
 "$klad" hash "$out" --no-cache

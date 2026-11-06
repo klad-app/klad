@@ -21,7 +21,7 @@ layers=shadow,far,colour,shade,rim,lines
 rm -rf "$out"
 "$klad" new "$out" --width 1024 --height 1024 --layers 0 --fps 12 --frames 11 --background '#e9e4d8' >/dev/null
 echo "keys: idle at 0 and 2, walk at 3, 5, 7 and 9 (parts: body, sprout, leaf, second leaf, near leg, far leg)"
-python3 "$here/generate.py" | "$klad" apply "$out" >/dev/null 2>&1
+"${PYTHON:-python3}" "$here/generate.py" | "$klad" apply "$out" >/dev/null 2>&1
 "$klad" clip "$out" --add idle --from 0 --to 2 --loop >/dev/null
 "$klad" clip "$out" --add walk --from 3 --to 10 --loop >/dev/null
 echo "colour every key from the first one:"

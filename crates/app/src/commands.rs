@@ -162,6 +162,7 @@ pub enum Cmd {
     ShowArcs,
     CloseDocument,
     Quit,
+    FirstSteps,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -476,7 +477,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 158] = [
+    pub const ALL: [Cmd; 159] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -620,6 +621,7 @@ impl Cmd {
         Cmd::NewDocument,
         Cmd::CloseDocument,
         Cmd::Quit,
+        Cmd::FirstSteps,
         Cmd::OpenDocument,
         Cmd::OpenRecent,
         Cmd::CopyPath,
@@ -1890,6 +1892,15 @@ impl Cmd {
                 R::No,
                 "name, loop, own fps, first and last frame, delete, export to Godot",
             ),
+            Cmd::FirstSteps => spec(
+                "help.first-steps",
+                "first steps",
+                icon::INFO,
+                G::Panels,
+                T::None,
+                R::No,
+                "three steps for someone new: draw a shape, fill it, hand the drawing to an agent",
+            ),
             Cmd::CloseDocument => spec(
                 "file.close",
                 "close the drawing",
@@ -2320,6 +2331,7 @@ pub const MENUS: [Menu; 7] = [
     Menu {
         title: "Help",
         items: &[
+            Run(Cmd::FirstSteps),
             Run(Cmd::Palette),
             Run(Cmd::Keys),
             Line,

@@ -2530,6 +2530,72 @@ fn text_is_typed_on_the_canvas_and_edited_in_place() {
 }
 
 #[test]
+fn first_steps_tick_as_a_shape_is_drawn_filled_and_handed_to_an_agent() {
+    let path = sample("first-steps");
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    activate(&mut h, "colour");
+    h.state_mut().start_first_steps();
+    h.run_steps(2);
+    assert!(
+        h.query_by_label_contains("Draw a closed shape with the brush")
+            .is_some()
+    );
+    let first = || super::first::FirstSteps {
+        open: true,
+        ..Default::default()
+    };
+    assert_eq!(h.state().first, first());
+    h.key_press(Key::B);
+    h.run_steps(1);
+    let ring = [
+        (150.0, 120.0),
+        (260.0, 110.0),
+        (290.0, 220.0),
+        (170.0, 250.0),
+        (150.0, 120.0),
+    ];
+    h.hover_at(canvas_at(&h, ring[0].0, ring[0].1));
+    h.run_steps(1);
+    h.drag_at(canvas_at(&h, ring[0].0, ring[0].1));
+    h.run_steps(1);
+    ring.iter().skip(1).for_each(|(x, y)| {
+        h.hover_at(canvas_at(&h, *x, *y));
+        h.run_steps(1);
+    });
+    h.drop_at(canvas_at(&h, ring[4].0, ring[4].1));
+    h.run_steps(3);
+    settle(&mut h, |ed| !ed.writing());
+    assert_eq!(h.state().scene.active_marks().len(), 1);
+    assert!(h.state().first.drew, "a stroke ticks the first step");
+    assert!(!h.state().first.filled);
+    h.key_press(Key::G);
+    h.run_steps(1);
+    let inside = canvas_at(&h, 215.0, 175.0);
+    h.hover_at(inside);
+    h.run_steps(1);
+    [true, false].into_iter().for_each(|pressed| {
+        h.event(egui::Event::PointerButton {
+            pos: inside,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+        h.run_steps(1);
+    });
+    settle(&mut h, |ed| !ed.writing());
+    assert!(h.state().first.filled, "a fill ticks the second step");
+    h.get_by_label_contains("copy a request").click();
+    h.run_steps(2);
+    assert!(h.state().first.handed, "copying the request ticks the third");
+    assert!(h.query_by_label_contains("Done. File > Close the drawing").is_some());
+    assert!(super::first::prompt(&path).contains(&format!("klad render \"{}\"", path.display())));
+    h.state_mut().invoke(Cmd::FirstSteps).unwrap();
+    h.run_steps(2);
+    assert!(!h.state().first.open, "Help > First steps closes them again");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn the_menu_bar_reaches_commands_shows_their_state_and_greys_what_cannot_run() {
     let path = sample("menus");
     let mut h = harness(editor(&path), vec2(1440.0, 1000.0));

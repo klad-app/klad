@@ -15,7 +15,7 @@ if [ -e "$out" ] && [ "${FORCE:-0}" != 1 ]; then
 fi
 rm -rf "$out"
 "$klad" new "$out" --width 640 --height 560 --layers 0 --fps 12 --frames 16 >/dev/null
-python3 "$here/generate.py" | "$klad" apply "$out" >/dev/null
+"${PYTHON:-python3}" "$here/generate.py" | "$klad" apply "$out" >/dev/null
 "$klad" clip "$out" --add idle --from 0 --to 7 --loop >/dev/null
 "$klad" clip "$out" --add run --from 8 --to 15 --loop >/dev/null
 "$klad" timeline "$out" --origin 300,500 >/dev/null

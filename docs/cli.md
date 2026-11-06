@@ -75,6 +75,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad licences`](#klad-licences): Print the licence and the third-party notices (every open source part klad is built on)
 - [`klad install`](#klad-install): Put klad on the terminal's path, for you and for agents
 - [`klad skill`](#klad-skill): Print the agent skill: how an agent draws with klad (the same text as docs/skill/SKILL.md)
+- [`klad samples`](#klad-samples): List the sample drawings that come with klad, or copy one to draw on
 - [`klad updates`](#klad-updates): Check now whether a newer klad is out (the editor also checks once a day by itself)
 - [`klad bench`](#klad-bench): Measure stroke storage, brush speed, replay, cache and compositing
 - [`klad open`](#klad-open): Open the editor, on a bundle or on the start window (new, open, recent)
@@ -3296,6 +3297,31 @@ Usage: klad skill
 Options:
   -h, --help
           Print help
+```
+
+## klad samples
+
+```text
+List the sample drawings that come with klad (the editor's start window shows the same ones), or copy one into a folder to open, render and draw on; the copy is yours, the samples stay as they are. Without --into it goes in the current folder, as <name>.klad (or <name> 2.klad when that is taken). KLAD_SAMPLES points at another samples folder (one holding shipped.json).
+
+  klad samples
+  klad samples --copy lantern
+  klad samples --copy rig --into ~/Drawings
+
+Usage: klad samples [OPTIONS]
+
+Options:
+      --copy <COPY>
+          The sample to copy, by name
+
+      --into <INTO>
+          The folder the copy goes in (default: the current folder)
+
+      --json
+
+
+  -h, --help
+          Print help (see a summary with '-h')
 ```
 
 ## klad updates

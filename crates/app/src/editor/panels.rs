@@ -136,6 +136,7 @@ impl Editor {
         egui::CentralPanel::no_frame().show(ui, |ui| self.check(|e| e.canvas(ui)));
         let after = Instant::now();
         self.windows(&ctx);
+        self.first_steps_window(&ctx);
         self.import_window(&ctx);
         self.dropped_pictures(&ctx);
         self.tend_thumbs(&ctx);

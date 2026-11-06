@@ -1703,6 +1703,18 @@ enum Command {
     },
     #[command(about = "Print the agent skill: how an agent draws with klad (the same text as docs/skill/SKILL.md)")]
     Skill,
+    #[command(
+        about = "List the sample drawings that come with klad, or copy one to draw on",
+        long_about = "List the sample drawings that come with klad (the editor's start window shows the same ones), or copy one into a folder to open, render and draw on; the copy is yours, the samples stay as they are. Without --into it goes in the current folder, as <name>.klad (or <name> 2.klad when that is taken). KLAD_SAMPLES points at another samples folder (one holding shipped.json).\n\n  klad samples\n  klad samples --copy lantern\n  klad samples --copy rig --into ~/Drawings"
+    )]
+    Samples {
+        #[arg(long, help = "The sample to copy, by name")]
+        copy: Option<String>,
+        #[arg(long, help = "The folder the copy goes in (default: the current folder)")]
+        into: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(hide = true, about = "Print the command reference, docs/cli.md")]
     Reference,
     #[cfg(feature = "editor")]
@@ -3298,6 +3310,7 @@ fn run() -> Result<()> {
         Command::Licences => print!("{}\n{}", klad_core::notices::LICENSE, klad_core::notices::NOTICES),
         Command::Install { dir } => install::install(dir.as_deref())?,
         Command::Skill => print!("{}", include_str!("../../../docs/skill/SKILL.md")),
+        Command::Samples { copy, into, json } => samples(copy.as_deref(), into, json)?,
         Command::Reference => print!("{}", reference()),
         #[cfg(feature = "editor")]
         Command::Updates => {
@@ -3578,6 +3591,45 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 ## Commands
 
 ";
+
+fn samples(copy: Option<&str>, into: Option<PathBuf>, json: bool) -> Result<()> {
+    use klad_core::samples;
+    let dir = samples::dir().ok_or_else(|| {
+        anyhow!("this klad has no samples next to it (a build from source has them after just samples)")
+    })?;
+    let found = samples::listed(&dir)?;
+    let Some(name) = copy else {
+        match json {
+            true => println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &found
+                        .iter()
+                        .map(|s| serde_json::json!({"name": s.name, "about": s.about, "path": s.path}))
+                        .collect::<Vec<_>>()
+                )?
+            ),
+            false => {
+                found.iter().for_each(|s| println!("{:10} {}", s.name, s.about));
+                println!("copy one to draw on: klad samples --copy <name>");
+            }
+        }
+        return Ok(());
+    };
+    let sample = found.iter().find(|s| s.name == name).ok_or_else(|| {
+        anyhow!(
+            "no sample {name}; there are {}",
+            found.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(", ")
+        )
+    })?;
+    let folder = match into {
+        Some(f) => f,
+        None => std::env::current_dir()?,
+    };
+    let made = samples::copy(sample, &folder)?;
+    println!("copied {name} to {}", made.display());
+    Ok(())
+}
 
 fn reference() -> String {
     use clap::CommandFactory;

@@ -10,6 +10,7 @@ mod compare;
 mod copy;
 mod depth;
 mod export;
+mod first;
 mod history;
 mod keys;
 mod layers;
@@ -618,6 +619,7 @@ pub(crate) struct Editor {
     paintover: paintover::Form,
     compare: Option<compare::Compared>,
     bones: bones::BoneTool,
+    first: first::FirstSteps,
     key_ease: klad_core::keys::Ease,
     bindings: crate::commands::Bindings,
     capturing: Option<Cmd>,
@@ -782,6 +784,7 @@ impl Editor {
             paintover: paintover::Form::default(),
             compare: None,
             bones: bones::BoneTool::default(),
+            first: first::FirstSteps::default(),
             key_ease: klad_core::keys::Ease::Linear,
             bindings: crate::commands::Bindings::default(),
             capturing: None,
@@ -2585,6 +2588,7 @@ impl Editor {
         self.dirty.extend(touched);
         let saving = Instant::now();
         let bytes = self.scene.save_active("stroke")?;
+        self.first.drew |= !erasing;
         if !erasing {
             self.used_colour();
         }
@@ -2671,6 +2675,7 @@ impl Editor {
         let touched = self.scene.commit_fill(fill, &self.brushes)?;
         self.dirty.extend(touched);
         let bytes = self.scene.save_active("fill")?;
+        self.first.filled = true;
         self.used_colour();
         let text = format!(
             "{}: {pixels} px computed in {computed:.0} ms, painted and saved in {:.0} ms\nlayer file {bytes} B",

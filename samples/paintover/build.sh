@@ -22,6 +22,6 @@ KLAD="$klad" FORCE=1 bash "$root/samples/lemons/build.sh" "$still" >/dev/null
 "$klad" render "$still" -o "${still%.klad}.png" | tail -1
 "$klad" hash "$still" --no-cache | sed -n 1p
 KLAD="$klad" FORCE=1 bash "$root/samples/creature/build.sh" "$walk" >/dev/null
-python3 "$here/build.py" "$klad" "$walk"
+"${PYTHON:-python3}" "$here/build.py" "$klad" "$walk"
 "$klad" render "$walk" --sheet walk --drawings -o "${walk%.klad}-sheet.png" | tail -1
 "$klad" hash "$walk" --all --no-cache | sed -n 1,3p

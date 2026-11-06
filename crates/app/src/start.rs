@@ -4,6 +4,7 @@ use crate::theme::{self, icon};
 use anyhow::{Result, anyhow, bail};
 use egui::{RichText, TextureHandle, vec2};
 use klad_core::bundle::{Blank, Bundle};
+use klad_core::samples::{self, Sample};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -53,6 +54,8 @@ pub struct Start {
     pub error: Option<String>,
     pub section: Section,
     pub changed: bool,
+    pub samples: Vec<Sample>,
+    pub tour: bool,
     focused: bool,
     thumbs: BTreeMap<String, Thumb>,
 }
@@ -75,6 +78,8 @@ impl Start {
             error: None,
             section,
             changed: false,
+            samples: samples::shipped(),
+            tour: false,
             focused: false,
             thumbs: BTreeMap::new(),
         }
@@ -124,9 +129,100 @@ impl Start {
         Ok(path)
     }
 
+    pub fn first_steps(&self, settings: &mut Settings) -> Result<PathBuf> {
+        let folder = settings.drawings_folder();
+        std::fs::create_dir_all(&folder)?;
+        let path = samples::free_path(&folder, "first steps");
+        let blank = Blank {
+            width: 1280,
+            height: 800,
+            background: Some("#f4efe6".into()),
+            sketch: false,
+            ..Blank::default()
+        };
+        Bundle::blank(&path, &blank, "editor")?;
+        Ok(path)
+    }
+
+    fn welcome(&mut self, ui: &mut egui::Ui, settings: &mut Settings) -> Option<PathBuf> {
+        let mut chosen = None;
+        ui.group(|ui| {
+            ui.set_width(726.0);
+            ui.label(RichText::new("Welcome to klad").strong().size(16.0));
+            ui.add_space(4.0);
+            ui.label(
+                "New here? First steps take a few minutes: draw a shape with your pen, fill it, and hand the drawing to an agent. \
+                 Or open a sample below and look around: it opens as a copy, yours to change.",
+            );
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui
+                    .add(egui::Button::new("First steps").min_size(vec2(120.0, 28.0)))
+                    .clicked()
+                {
+                    match self.first_steps(settings) {
+                        Ok(path) => {
+                            self.tour = true;
+                            self.changed = true;
+                            chosen = Some(path);
+                        }
+                        Err(e) => self.error = Some(format!("making the first steps drawing: {e:#}")),
+                    }
+                }
+                if ui.add(egui::Button::new("Not now").min_size(vec2(96.0, 28.0))).clicked() {
+                    settings.welcomed = true;
+                    self.changed = true;
+                }
+            });
+        });
+        chosen
+    }
+
+    fn samples_section(&mut self, ui: &mut egui::Ui, settings: &mut Settings) -> Option<PathBuf> {
+        if self.samples.is_empty() {
+            return None;
+        }
+        ui.label(RichText::new(format!("{} Samples", icon::IMAGE)).strong().size(16.0));
+        ui.label(
+            RichText::new("Open one to look around or draw on it: it opens as a copy in your drawings folder.")
+                .color(theme::WEAK),
+        );
+        ui.add_space(6.0);
+        let mut chosen = None;
+        let shown = self.samples.clone();
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(12.0, 12.0);
+            shown.iter().for_each(|sample| {
+                ui.vertical(|ui| {
+                    ui.set_width(THUMB + 8.0);
+                    let key = sample.path.display().to_string();
+                    let picked = self
+                        .picture(ui, &key, &sample.path, sample_thumb(&sample.path), &sample.name, true)
+                        .on_hover_text(&sample.about)
+                        .clicked();
+                    ui.add(egui::Label::new(RichText::new(&sample.about).color(theme::WEAK).size(11.0)).wrap());
+                    if picked {
+                        match samples::copy(sample, &settings.drawings_folder()) {
+                            Ok(path) => {
+                                self.changed = true;
+                                chosen = Some(path);
+                            }
+                            Err(e) => self.error = Some(format!("{e:#}")),
+                        }
+                    }
+                });
+            });
+        });
+        chosen
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui, settings: &mut Settings) -> Option<PathBuf> {
         let mut chosen = None;
         egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
+            if !settings.welcomed {
+                chosen = self.welcome(ui, settings);
+                ui.add_space(10.0);
+            }
             ui.horizontal_top(|ui| {
                 ui.group(|ui| {
                     ui.vertical(|ui| {
@@ -147,6 +243,8 @@ impl Start {
             }
             ui.add_space(10.0);
             chosen = chosen.take().or_else(|| self.recent_section(ui, settings));
+            ui.add_space(14.0);
+            chosen = chosen.take().or_else(|| self.samples_section(ui, settings));
         });
         self.focused = true;
         chosen
@@ -310,14 +408,17 @@ impl Start {
         chosen
     }
 
-    fn card(&mut self, ui: &mut egui::Ui, doc: &str) -> Card {
-        let path = PathBuf::from(doc);
-        let there = path.join("doc.json").is_file();
-        let name = path
-            .file_stem()
-            .map_or_else(|| doc.to_string(), |s| s.to_string_lossy().to_string());
+    fn picture(
+        &mut self,
+        ui: &mut egui::Ui,
+        key: &str,
+        bundle: &Path,
+        png: PathBuf,
+        name: &str,
+        there: bool,
+    ) -> egui::Response {
         let (rect, response) = ui.allocate_exact_size(vec2(THUMB + 8.0, THUMB + 32.0), egui::Sense::click());
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, there, &name));
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, there, name));
         let look = ui.style().interact(&response);
         let fill = match there {
             true => look.weak_bg_fill,
@@ -326,7 +427,7 @@ impl Start {
         ui.painter()
             .rect(rect, 6.0, fill, look.bg_stroke, egui::StrokeKind::Inside);
         let picture = egui::Rect::from_min_size(rect.min + vec2(4.0, 4.0), vec2(THUMB, THUMB));
-        if let Some(texture) = there.then(|| self.thumb(ui.ctx(), doc)).flatten() {
+        if let Some(texture) = there.then(|| self.thumb(ui.ctx(), key, bundle, png)).flatten() {
             egui::Image::new(&texture).paint_at(
                 ui,
                 egui::Rect::from_center_size(picture.center(), fit(texture.size_vec2())),
@@ -336,7 +437,7 @@ impl Start {
             true => look.text_color(),
             false => theme::WEAK,
         };
-        let galley = egui::WidgetText::from(name.as_str()).into_galley(
+        let galley = egui::WidgetText::from(name).into_galley(
             ui,
             Some(egui::TextWrapMode::Truncate),
             THUMB - 8.0,
@@ -344,6 +445,16 @@ impl Start {
         );
         ui.painter()
             .galley(egui::pos2(rect.min.x + 8.0, rect.max.y - 24.0), galley, colour);
+        response
+    }
+
+    fn card(&mut self, ui: &mut egui::Ui, doc: &str) -> Card {
+        let path = PathBuf::from(doc);
+        let there = path.join("doc.json").is_file();
+        let name = path
+            .file_stem()
+            .map_or_else(|| doc.to_string(), |s| s.to_string_lossy().to_string());
+        let response = self.picture(ui, doc, &path, path.join(".cache").join("thumb.png"), &name, there);
         let folder = path
             .parent()
             .and_then(Path::file_name)
@@ -362,13 +473,13 @@ impl Start {
         Card::Idle
     }
 
-    fn thumb(&mut self, ctx: &egui::Context, doc: &str) -> Option<TextureHandle> {
+    fn thumb(&mut self, ctx: &egui::Context, doc: &str, bundle: &Path, png: PathBuf) -> Option<TextureHandle> {
         let state = self.thumbs.entry(doc.to_string()).or_insert_with(|| {
             let (tx, rx) = channel();
-            let path = PathBuf::from(doc);
+            let path = bundle.to_path_buf();
             let repaint = ctx.clone();
             std::thread::spawn(move || {
-                let image = thumbnail(&path);
+                let image = thumbnail(&path, &png);
                 let _ = tx.send(image);
                 repaint.request_repaint();
             });
@@ -447,10 +558,18 @@ fn modified(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
-fn thumbnail(bundle: &Path) -> Option<egui::ColorImage> {
+fn sample_thumb(bundle: &Path) -> PathBuf {
+    let stem = bundle
+        .file_stem()
+        .map_or_else(String::new, |s| s.to_string_lossy().to_string());
+    bundle.with_file_name(format!("{stem}.thumb.png"))
+}
+
+fn thumbnail(bundle: &Path, png: &Path) -> Option<egui::ColorImage> {
     static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
-    let png = bundle.join(".cache").join("thumb.png");
-    let fresh = matches!((modified(&png), modified(&bundle.join("doc.json"))), (Some(t), Some(d)) if t >= d);
+    let png = png.to_path_buf();
+    let kept = !png.starts_with(bundle) && png.is_file();
+    let fresh = kept || matches!((modified(&png), modified(&bundle.join("doc.json"))), (Some(t), Some(d)) if t >= d);
     if !fresh {
         let _turn = ONE_AT_A_TIME.lock().ok()?;
         let doc: serde_json::Value =
@@ -518,7 +637,7 @@ mod tests {
             ..Blank::default()
         };
         Bundle::blank(&dir, &blank, "cli").unwrap();
-        let image = thumbnail(&dir).unwrap();
+        let image = thumbnail(&dir, &dir.join(".cache").join("thumb.png")).unwrap();
         assert_eq!(image.size, [336, 168]);
         let middle = image.pixels[84 * 336 + 168];
         assert!(
@@ -527,11 +646,11 @@ mod tests {
         );
         let png = dir.join(".cache").join("thumb.png");
         let first = modified(&png).unwrap();
-        thumbnail(&dir).unwrap();
+        thumbnail(&dir, &dir.join(".cache").join("thumb.png")).unwrap();
         assert_eq!(modified(&png), Some(first));
         std::thread::sleep(Duration::from_millis(20));
         Bundle::open(&dir).unwrap().save().unwrap();
-        thumbnail(&dir).unwrap();
+        thumbnail(&dir, &dir.join(".cache").join("thumb.png")).unwrap();
         assert!(modified(&png).unwrap() > first);
         assert_eq!(free_name(dir.parent().unwrap()), "untitled");
         std::fs::remove_dir_all(&dir).unwrap();

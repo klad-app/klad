@@ -138,3 +138,44 @@ fn updates_says_what_the_feed_holds() {
     assert!(String::from_utf8_lossy(&missing.stderr).starts_with("error: could not check: reading"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn samples_are_listed_and_copied_to_draw_on() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-samples-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let shipped = dir.join("shipped");
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_klad"))
+            .args(args)
+            .env("KLAD_SAMPLES", &shipped)
+            .current_dir(&dir)
+            .output()
+            .unwrap()
+    };
+    std::fs::create_dir_all(&shipped).unwrap();
+    let rock = shipped.join("rock/rock.klad");
+    let out = run(&["new", rock.to_str().unwrap(), "--width", "64", "--height", "64"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    std::fs::write(
+        shipped.join("shipped.json"),
+        r#"[{"name":"rock","bundle":"rock/rock.klad","about":"a rock on its own"}]"#,
+    )
+    .unwrap();
+    let listed = String::from_utf8_lossy(&run(&["samples"]).stdout).to_string();
+    assert!(listed.starts_with("rock       a rock on its own"), "{listed}");
+    let copied = run(&["samples", "--copy", "rock"]);
+    assert!(copied.status.success(), "{}", String::from_utf8_lossy(&copied.stderr));
+    assert!(
+        dir.join("rock.klad/doc.json").is_file(),
+        "the copy goes in the current folder"
+    );
+    let into = dir.join("mine");
+    let out = run(&["samples", "--copy", "rock", "--into", into.to_str().unwrap()]);
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        format!("copied rock to {}", into.join("rock.klad").display())
+    );
+    let wrong = run(&["samples", "--copy", "stone"]);
+    assert!(String::from_utf8_lossy(&wrong.stderr).contains("no sample stone; there are rock"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

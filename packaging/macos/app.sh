@@ -30,6 +30,7 @@ rsync -a --exclude update.py "$root/fonts/" "$app/Contents/Resources/fonts/"
 cp "$root/LICENSE" "$root/LICENSE-MIT" "$root/THIRD-PARTY-NOTICES.md" "$app/Contents/Resources/"
 mkdir -p "$app/Contents/Resources/skill"
 cp "$root/docs/skill/SKILL.md" "$app/Contents/Resources/skill/"
+bash "$root/packaging/samples.sh" "${KLAD:-$app/Contents/MacOS/klad}" "$app/Contents/Resources/samples" >/dev/null
 codesign --force --deep --sign - "$app" 2>/dev/null || true
 echo "$app"
 if [ "${KLAD_DMG:-1}" = "1" ]; then

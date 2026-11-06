@@ -16,7 +16,7 @@ fi
 rm -rf "$out"
 "$klad" new "$out" --width 800 --height 800 --layers 0 --background '#e9e2d4' >/dev/null
 for step in drawing rig weights poses keys; do
-  python3 "$here/generate.py" "$step" | "$klad" apply "$out" >/dev/null
+  "${PYTHON:-python3}" "$here/generate.py" "$step" | "$klad" apply "$out" >/dev/null
 done
 "$klad" inbetween "$out" --layers colour,lines --from 0 --to 4 | grep 'on bones' || true
 for keys in "4 8" "8 12" "12 16"; do

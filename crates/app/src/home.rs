@@ -335,8 +335,13 @@ impl Home {
         if closing {
             self.close(&ctx);
         }
+        let tour = self.start.as_ref().is_some_and(|s| s.tour);
         if let Some(path) = chosen.or(from_menu).or_else(crate::opened::take)
-            && let Err(e) = self.open(&ctx, &path)
+            && let Err(e) = self.open(&ctx, &path).inspect(|_| {
+                if let Some(editor) = self.editor.as_mut().filter(|_| tour) {
+                    editor.start_first_steps();
+                }
+            })
         {
             let message = format!("opening {}: {e:#}", path.display());
             match (self.start.as_mut(), self.editor.as_mut()) {
@@ -506,6 +511,55 @@ mod tests {
         assert!(h.state().editor.is_none(), "close goes back to the start window");
         assert!(h.state().start.is_some());
         assert_eq!(h.state().settings.documents, [made.display().to_string()]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_first_start_welcomes_offers_first_steps_and_opens_samples_as_copies() {
+        let dir = folder("welcome");
+        let shipped = dir.join("shipped/rock/rock.klad");
+        Bundle::blank(&shipped, &small(), "cli").unwrap();
+        let mut first = home(&dir, &[]);
+        first.begin(&egui::Context::default(), None);
+        first.start.as_mut().unwrap().samples = vec![klad_core::samples::Sample {
+            name: "rock".into(),
+            about: "a rock on its own".into(),
+            path: shipped.clone(),
+        }];
+        let mut h = harness(first);
+        assert!(
+            h.query_by_label("Welcome to klad").is_some(),
+            "a first start says hello"
+        );
+        assert!(
+            h.query_by_label("a rock on its own").is_some(),
+            "the samples show with what they are"
+        );
+        h.get_by_label("rock").click();
+        h.run_steps(3);
+        assert_eq!(
+            opened(&h),
+            dir.join("rock.klad"),
+            "a sample opens as a copy in the drawings folder"
+        );
+        assert!(shipped.join("doc.json").is_file());
+        assert!(h.state().settings.welcomed, "opening anything counts as welcomed");
+        let mut again = home(&dir, &[]);
+        again.begin(&egui::Context::default(), None);
+        let mut h = harness(again);
+        h.get_by_label("First steps").click();
+        h.run_steps(3);
+        assert_eq!(opened(&h), dir.join("first steps.klad"));
+        assert!(
+            h.query_by_label_contains("Draw a closed shape with the brush")
+                .is_some(),
+            "first steps open on the new drawing"
+        );
+        let mut later = home(&dir, &[]);
+        later.settings.welcomed = true;
+        later.begin(&egui::Context::default(), None);
+        let h = harness(later);
+        assert!(h.query_by_label("Welcome to klad").is_none());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

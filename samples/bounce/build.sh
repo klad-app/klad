@@ -15,7 +15,7 @@ if [ -e "$out" ] && [ "${FORCE:-0}" != 1 ]; then
 fi
 rm -rf "$out"
 "$klad" new "$out" --width 1024 --height 768 --layers 0 --fps 12 --frames 20 --background '#f4efe6' >/dev/null
-python3 "$here/generate.py" | "$klad" apply "$out" >/dev/null
+"${PYTHON:-python3}" "$here/generate.py" | "$klad" apply "$out" >/dev/null
 "$klad" render "$out" --frame 7 -o "${out%.klad}.png"
 "$klad" frames "$out"
 "$klad" hash "$out" --all --no-cache

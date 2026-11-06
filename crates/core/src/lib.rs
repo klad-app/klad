@@ -18,6 +18,7 @@ pub mod pathedit;
 pub mod retime;
 pub mod rig;
 pub mod rng;
+pub mod samples;
 pub mod stroke;
 pub mod synth;
 pub mod timing;

@@ -1,0 +1,8 @@
+[
+  { "name": "lantern", "bundle": "lantern/lantern.klad", "about": "a prop: shapes inked, filled, lit and hatched" },
+  { "name": "lemons", "bundle": "lemons/lemons.klad", "about": "a still life painted by form, with lavender shadows" },
+  { "name": "bounce", "bundle": "bounce/bounce.klad", "about": "frame by frame: keys, holds and a clip" },
+  { "name": "creature", "bundle": "creature/creature.klad", "about": "a walk and an idle from keys, in-betweened" },
+  { "name": "rig", "bundle": "rig/rig.klad", "about": "a figure posed with bones, and a lantern on keys" },
+  { "name": "ruin", "bundle": "ruin/ruin.klad", "about": "a game background in depth planes, lit by one lantern" }
+]

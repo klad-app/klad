@@ -83,6 +83,8 @@ pub struct Settings {
     pub check_updates: bool,
     #[serde(default, rename = "updatesChecked")]
     pub updates_checked: u64,
+    #[serde(default)]
+    pub welcomed: bool,
 }
 
 fn yes() -> bool {
@@ -104,6 +106,7 @@ impl Default for Settings {
             drawings: None,
             check_updates: true,
             updates_checked: 0,
+            welcomed: false,
         }
     }
 }
@@ -201,6 +204,7 @@ impl Settings {
         self.documents.retain(|p| *p != text);
         self.documents.insert(0, text);
         self.documents.truncate(DOCUMENTS);
+        self.welcomed = true;
     }
 
     pub fn forget(&mut self, path: &str) {
