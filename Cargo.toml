@@ -9,6 +9,10 @@ license-file = "LICENSE"
 repository = "https://github.com/klad-app/klad"
 publish = false
 
+[profile.dev]
+incremental = false
+debug = "line-tables-only"
+
 [profile.release]
 debug = 1
 
