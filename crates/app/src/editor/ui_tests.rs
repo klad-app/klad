@@ -725,7 +725,7 @@ fn palette_swatches_move_by_dragging_and_go_from_their_corner() {
         )
         .unwrap();
     }
-    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    let mut h = harness(editor(&path), vec2(1440.0, 1060.0));
     let order = |h: &Harness<'static, Editor>| -> Vec<String> {
         h.state()
             .scene
@@ -2527,6 +2527,47 @@ fn text_is_typed_on_the_canvas_and_edited_in_place() {
         ("Cinzel.ttf", "Hello\nworld!")
     );
     assert!(path.join("fonts/Cinzel.ttf").is_file(), "picking a font copies it in");
+}
+
+#[test]
+fn the_menu_bar_reaches_commands_shows_their_state_and_greys_what_cannot_run() {
+    let path = sample("menus");
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    let item = |h: &Harness<'static, Editor>, name: &str| {
+        h.query_all_by_label_contains(name)
+            .find(|n| n.accesskit_node().role() != Role::Window)
+            .unwrap_or_else(|| panic!("no menu item {name}"))
+            .rect()
+    };
+    h.get_by_label("File").click();
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("Close the drawing").is_some());
+    h.get_by_label("Export").click();
+    h.run_steps(3);
+    assert!(h.state().windows.export, "File > Export opens the export window");
+    assert!(h.state().settings.layout.timeline);
+    h.get_by_label("View").click();
+    h.run_steps(2);
+    h.get_by_label("Timeline").click();
+    h.run_steps(3);
+    assert!(!h.state().settings.layout.timeline, "View > Timeline hides it");
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.hover_at(item(&h, "Selection").center());
+    h.run_steps(3);
+    let recolour = h
+        .query_all_by_label_contains("Recolour the selected strokes")
+        .next()
+        .expect("the selection submenu opens");
+    assert!(recolour.accesskit_node().is_disabled(), "nothing selected greys it out");
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    h.get_by_label("File").click();
+    h.run_steps(2);
+    h.get_by_label_contains("Close the drawing").click();
+    h.run_steps(2);
+    assert_eq!(h.state().wants, Some(super::Want::Close));
+    let _ = std::fs::remove_dir_all(&path);
 }
 
 #[test]

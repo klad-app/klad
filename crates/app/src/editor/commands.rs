@@ -68,6 +68,9 @@ impl Editor {
         let editing = self.busy().then(|| "finish the stroke or drag first".to_string());
         match cmd {
             Cmd::Undo | Cmd::Redo => editing,
+            Cmd::CloseDocument => (!self.jobs.is_empty())
+                .then(|| "wait for the running jobs, or cancel them in the status line".to_string())
+                .or(editing),
             Cmd::Delete => match self.tool {
                 Tool::Note => self
                     .note_open
@@ -292,6 +295,18 @@ impl Editor {
 
     fn tweening(&self) -> bool {
         self.jobs.busy(crate::jobs::Tag::Inbetween)
+    }
+
+    pub(crate) fn menu_state(&self) -> crate::menus::Shown {
+        crate::menus::Shown {
+            off: Cmd::ALL.into_iter().filter(|c| self.can_run(*c).is_some()).collect(),
+            on: Cmd::ALL.into_iter().filter(|c| self.is_on(*c) == Some(true)).collect(),
+        }
+    }
+
+    pub(crate) fn run_later(&mut self, cmd: Cmd) {
+        self.queued.push(cmd);
+        self.ctx.request_repaint();
     }
 
     pub(super) fn is_on(&self, cmd: Cmd) -> Option<bool> {
@@ -585,6 +600,8 @@ impl Editor {
             Cmd::PasteCellsLinked => self.paste_cells(true)?,
             Cmd::ClipSettings => self.windows.clip = !self.windows.clip,
             Cmd::NewDocument => self.wants = Some(super::Want::New),
+            Cmd::CloseDocument => self.wants = Some(super::Want::Close),
+            Cmd::Quit => self.ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             Cmd::OpenDocument => self.wants = Some(super::Want::Open),
             Cmd::OpenRecent => self.wants = Some(super::Want::Recent),
             Cmd::About => self.windows.about = !self.windows.about,

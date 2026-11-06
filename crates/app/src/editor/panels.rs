@@ -79,6 +79,11 @@ impl Editor {
         let window = ctx.content_rect().size();
         self.settings.layout.clamp(window);
         let pressing = ui.input(|i| i.pointer.any_down());
+        if !crate::menus::native() && !self.settings.layout.hidden {
+            egui::Panel::top("menus")
+                .resizable(false)
+                .show(ui, |ui| egui::MenuBar::new().ui(ui, |ui| self.menu_bar(ui)));
+        }
         egui::Panel::bottom("status")
             .exact_size(layout::STATUS)
             .resizable(false)
@@ -243,6 +248,65 @@ impl Editor {
             self.panels_menu(ui);
             self.document_menu(ui);
         });
+    }
+
+    fn menu_bar(&mut self, ui: &mut egui::Ui) {
+        commands::MENUS.iter().for_each(|m| {
+            ui.menu_button(m.title, |ui| self.menu_items(ui, m.items))
+                .response
+                .hint(commands::menu_hint(m));
+        });
+    }
+
+    fn menu_items(&mut self, ui: &mut egui::Ui, items: &[commands::Item]) {
+        items.iter().for_each(|item| match *item {
+            commands::Item::Line => {
+                ui.separator();
+            }
+            commands::Item::Run(cmd) => self.menu_entry(ui, cmd),
+            commands::Item::Sub(title, inner) => {
+                ui.menu_button(title, |ui| self.menu_items(ui, inner));
+            }
+            commands::Item::Recent => {
+                ui.menu_button("Open recent", |ui| {
+                    let paths: Vec<std::path::PathBuf> = self
+                        .settings
+                        .documents
+                        .iter()
+                        .take(crate::menus::RECENT)
+                        .map(std::path::PathBuf::from)
+                        .collect();
+                    paths.iter().for_each(|path| {
+                        if ui
+                            .button(crate::menus::recent_label(path))
+                            .hint(path.display().to_string())
+                            .clicked()
+                        {
+                            self.wants = Some(super::Want::Path(path.clone()));
+                            ui.close();
+                        }
+                    });
+                    if !paths.is_empty() {
+                        ui.separator();
+                    }
+                    self.menu_entry(ui, Cmd::OpenRecent);
+                });
+            }
+        });
+    }
+
+    fn menu_entry(&mut self, ui: &mut egui::Ui, cmd: Cmd) {
+        let label = commands::menu_label(cmd);
+        let can = self.can_run(cmd).is_none();
+        let response = match self.is_on(cmd) {
+            Some(mut on) => ui.add_enabled(can, egui::Checkbox::new(&mut on, label)),
+            None => ui.add_enabled(can, egui::Button::new(label).shortcut_text(self.bindings.label(cmd))),
+        }
+        .hint(self.command_hint(cmd));
+        if response.clicked() {
+            self.queued.push(cmd);
+            ui.close();
+        }
     }
 
     fn document_menu(&mut self, ui: &mut egui::Ui) {

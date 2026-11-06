@@ -1,5 +1,7 @@
+use crate::commands::{Bindings, Cmd};
 use crate::editor::{Editor, Want};
 use crate::gpu::CanvasGpu;
+use crate::menus::{self, Picked};
 use crate::messages::Tone;
 use crate::picker;
 use crate::settings::{self, Settings};
@@ -46,6 +48,9 @@ pub(crate) struct Home {
     themed: bool,
     pub(crate) update: Option<crate::updates::Release>,
     checking: Option<std::sync::mpsc::Receiver<updates::Checked>>,
+    native_menus: bool,
+    menus_built: Option<u64>,
+    menus_shown: Option<std::time::Instant>,
 }
 
 impl Home {
@@ -57,6 +62,7 @@ impl Home {
         let settings_path = settings::default_path();
         let settings = settings_path.as_deref().map(Settings::load).unwrap_or_default();
         let mut home = Self::with(settings, settings_path, Some(gpu));
+        home.native_menus = true;
         if updates::due(
             home.settings.check_updates,
             home.settings.updates_checked,
@@ -82,6 +88,9 @@ impl Home {
             themed: false,
             update: None,
             checking: None,
+            native_menus: false,
+            menus_built: None,
+            menus_shown: None,
         }
     }
 
@@ -148,8 +157,83 @@ impl Home {
         }
     }
 
+    fn tend_menus(&mut self, ctx: &egui::Context) {
+        if !self.native_menus {
+            return;
+        }
+        let settings = self.editor.as_ref().map_or(&self.settings, |e| &e.settings);
+        let built = menus::signature(&settings.keys, &settings.documents);
+        if self.menus_built != Some(built) {
+            menus::install(ctx, &Bindings::from_settings(&settings.keys), &settings.documents);
+            self.menus_built = Some(built);
+        }
+        if self
+            .menus_shown
+            .is_none_or(|t| t.elapsed() > std::time::Duration::from_millis(400))
+        {
+            menus::show(
+                self.editor
+                    .as_ref()
+                    .map_or_else(menus::outside_a_drawing, |e| e.menu_state()),
+            );
+            self.menus_shown = Some(std::time::Instant::now());
+        }
+    }
+
+    fn picked(&mut self, ctx: &egui::Context) -> Option<PathBuf> {
+        menus::take()
+            .into_iter()
+            .fold(None, |path, picked| match (picked, self.editor.as_mut()) {
+                (Picked::Open(p), _) => Some(p),
+                (Picked::Run(cmd), Some(editor)) => {
+                    editor.run_later(cmd);
+                    path
+                }
+                (Picked::Run(Cmd::NewDocument), None) => {
+                    self.start = Some(Start::new(&self.settings, Section::New));
+                    path
+                }
+                (Picked::Run(Cmd::OpenRecent), None) => {
+                    self.start = Some(Start::new(&self.settings, Section::Recent));
+                    path
+                }
+                (Picked::Run(Cmd::OpenDocument), None) if picker::NATIVE => {
+                    let folder = self.settings.drawings_folder();
+                    picker::choose_folder(Some(&folder), "Open").or(path)
+                }
+                (Picked::Run(Cmd::OpenDocument), None) => {
+                    self.start = Some(Start::new(&self.settings, Section::Open));
+                    path
+                }
+                (Picked::Run(Cmd::Quit), None) => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    path
+                }
+                (Picked::Run(_), None) => path,
+            })
+    }
+
+    fn close(&mut self, ctx: &egui::Context) {
+        let Some(editor) = self.editor.take() else {
+            return;
+        };
+        self.settings = editor.settings.clone();
+        if let Some(path) = &self.settings_path
+            && let Err(e) = self.settings.save(path)
+        {
+            let mut start = Start::new(&self.settings, Section::Recent);
+            start.error = Some(format!("saving your settings: {e:#}"));
+            self.start = Some(start);
+        } else {
+            self.start = Some(Start::new(&self.settings, Section::Recent));
+        }
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(start::title(None)));
+    }
+
     pub(crate) fn frame(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        self.tend_menus(&ctx);
+        let from_menu = self.picked(&ctx);
         self.checked();
         if self.checking.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
@@ -160,10 +244,13 @@ impl Home {
             editor.update.clone_from(&self.update);
         }
         let mut chosen = None;
+        let mut closing = false;
         match self.editor.as_mut() {
             Some(editor) => {
                 editor.frame(ui);
                 match editor.wants.take() {
+                    Some(Want::Close) => closing = true,
+                    Some(Want::Path(path)) => chosen = Some(path),
                     Some(Want::New) => self.start = Some(Start::new(&editor.settings, Section::New)),
                     Some(Want::Recent) => self.start = Some(Start::new(&editor.settings, Section::Recent)),
                     Some(Want::Open) if picker::NATIVE => {
@@ -245,7 +332,10 @@ impl Home {
                 }
             }
         }
-        if let Some(path) = chosen.or_else(crate::opened::take)
+        if closing {
+            self.close(&ctx);
+        }
+        if let Some(path) = chosen.or(from_menu).or_else(crate::opened::take)
             && let Err(e) = self.open(&ctx, &path)
         {
             let message = format!("opening {}: {e:#}", path.display());
@@ -387,6 +477,35 @@ mod tests {
         h.run_steps(2);
         assert_eq!(opened(&h), made);
         assert!(crate::opened::take().is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn menu_picks_open_a_drawing_run_its_commands_and_close_it() {
+        let dir = folder("menus");
+        let made = dir.join("ledge.klad");
+        Bundle::blank(&made, &small(), "cli").unwrap();
+        let mut first = home(&dir, &[]);
+        first.begin(&egui::Context::default(), None);
+        let mut h = harness(first);
+        menus::push(Picked::Run(Cmd::Undo));
+        menus::push(Picked::Run(Cmd::OpenRecent));
+        h.run_steps(2);
+        assert!(
+            h.state().editor.is_none(),
+            "outside a drawing only the file commands run"
+        );
+        menus::push(Picked::Open(made.clone()));
+        h.run_steps(3);
+        assert_eq!(opened(&h), made);
+        let state = h.state().editor.as_ref().unwrap().menu_state();
+        assert!(state.off.contains(&Cmd::Unlink) && !state.off.contains(&Cmd::Export));
+        assert!(state.on.contains(&Cmd::Brush), "the tool in use is ticked");
+        menus::push(Picked::Run(Cmd::CloseDocument));
+        h.run_steps(3);
+        assert!(h.state().editor.is_none(), "close goes back to the start window");
+        assert!(h.state().start.is_some());
+        assert_eq!(h.state().settings.documents, [made.display().to_string()]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

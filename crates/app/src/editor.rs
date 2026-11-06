@@ -523,11 +523,13 @@ struct PaletteState {
     opened: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Want {
     New,
     Open,
     Recent,
+    Close,
+    Path(std::path::PathBuf),
 }
 
 pub(crate) struct Editor {

@@ -160,6 +160,8 @@ pub enum Cmd {
     ShowGaps,
     ShowParts,
     ShowArcs,
+    CloseDocument,
+    Quit,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -474,7 +476,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 156] = [
+    pub const ALL: [Cmd; 158] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -616,6 +618,8 @@ impl Cmd {
         Cmd::PasteCellsLinked,
         Cmd::ClipSettings,
         Cmd::NewDocument,
+        Cmd::CloseDocument,
+        Cmd::Quit,
         Cmd::OpenDocument,
         Cmd::OpenRecent,
         Cmd::CopyPath,
@@ -1886,6 +1890,24 @@ impl Cmd {
                 R::No,
                 "name, loop, own fps, first and last frame, delete, export to Godot",
             ),
+            Cmd::CloseDocument => spec(
+                "file.close",
+                "close the drawing",
+                icon::CLOSE,
+                G::File,
+                T::Press(const { &[cmd(Key::W)] }),
+                R::No,
+                "back to the start window; everything is saved as you go",
+            ),
+            Cmd::Quit => spec(
+                "file.quit",
+                "quit klad",
+                icon::CLOSE,
+                G::File,
+                T::Press(const { &[cmd(Key::Q)] }),
+                R::No,
+                "close the window and quit; everything is saved as you go",
+            ),
             Cmd::NewDocument => spec(
                 "file.new",
                 "new drawing",
@@ -2047,6 +2069,294 @@ impl Cmd {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Item {
+    Run(Cmd),
+    Line,
+    Sub(&'static str, &'static [Item]),
+    Recent,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Menu {
+    pub title: &'static str,
+    pub items: &'static [Item],
+}
+
+use Item::{Line, Run, Sub};
+
+pub const MENUS: [Menu; 7] = [
+    Menu {
+        title: "File",
+        items: &[
+            Run(Cmd::NewDocument),
+            Run(Cmd::OpenDocument),
+            Item::Recent,
+            Run(Cmd::CloseDocument),
+            Line,
+            Run(Cmd::Export),
+            Run(Cmd::ExportGodot),
+            Line,
+            Run(Cmd::ImportPicture),
+            Run(Cmd::AddFont),
+            Line,
+            Run(Cmd::CopyPath),
+            Run(Cmd::InstallCommand),
+            Line,
+            Run(Cmd::Quit),
+        ],
+    },
+    Menu {
+        title: "Edit",
+        items: &[
+            Run(Cmd::Undo),
+            Run(Cmd::Redo),
+            Line,
+            Run(Cmd::Copy),
+            Run(Cmd::Paste),
+            Run(Cmd::DuplicateInPlace),
+            Run(Cmd::Delete),
+            Line,
+            Run(Cmd::SelectAll),
+            Run(Cmd::Deselect),
+            Run(Cmd::CutLasso),
+            Line,
+            Sub(
+                "Selection",
+                &[
+                    Run(Cmd::Recolour),
+                    Run(Cmd::Thinner),
+                    Run(Cmd::Thicker),
+                    Line,
+                    Run(Cmd::FlipH),
+                    Run(Cmd::FlipV),
+                    Run(Cmd::TurnLeft90),
+                    Run(Cmd::TurnRight90),
+                    Line,
+                    Run(Cmd::NudgeLeft),
+                    Run(Cmd::NudgeRight),
+                    Run(Cmd::NudgeUp),
+                    Run(Cmd::NudgeDown),
+                ],
+            ),
+            Sub(
+                "Points",
+                &[
+                    Run(Cmd::Corner),
+                    Run(Cmd::Smooth),
+                    Run(Cmd::Simplify),
+                    Run(Cmd::MakePath),
+                ],
+            ),
+            Line,
+            Run(Cmd::Settings),
+        ],
+    },
+    Menu {
+        title: "Draw",
+        items: &[
+            Run(Cmd::Brush),
+            Run(Cmd::Eraser),
+            Run(Cmd::Fill),
+            Run(Cmd::Shapes),
+            Run(Cmd::Strokes),
+            Run(Cmd::Points),
+            Run(Cmd::Pen),
+            Run(Cmd::ShapeTool),
+            Run(Cmd::TextTool),
+            Run(Cmd::BoneTool),
+            Run(Cmd::Note),
+            Line,
+            Run(Cmd::Smaller),
+            Run(Cmd::Bigger),
+            Run(Cmd::Symmetry),
+            Run(Cmd::BrushWindow),
+            Line,
+            Run(Cmd::SwapColours),
+            Run(Cmd::AddSwatch),
+            Line,
+            Run(Cmd::Refill),
+            Run(Cmd::FillLike),
+            Run(Cmd::ShowGaps),
+        ],
+    },
+    Menu {
+        title: "View",
+        items: &[
+            Run(Cmd::Fit),
+            Run(Cmd::ActualSize),
+            Run(Cmd::TurnRight),
+            Run(Cmd::TurnLeft),
+            Run(Cmd::ResetRotation),
+            Run(Cmd::FlipView),
+            Line,
+            Run(Cmd::Onion),
+            Run(Cmd::OnionSettings),
+            Run(Cmd::ShowParts),
+            Run(Cmd::ShowArcs),
+            Run(Cmd::CompareReference),
+            Line,
+            Run(Cmd::HideAll),
+            Run(Cmd::HideDock),
+            Run(Cmd::LayersPane),
+            Run(Cmd::ToolPane),
+            Run(Cmd::InspectorPane),
+            Run(Cmd::NotesPane),
+            Run(Cmd::HistoryPane),
+            Run(Cmd::Timeline),
+            Line,
+            Run(Cmd::MessageLog),
+            Sub("Numbers", &[Run(Cmd::Numbers), Run(Cmd::ResetNumbers), Run(Cmd::Spin)]),
+        ],
+    },
+    Menu {
+        title: "Layer",
+        items: &[
+            Run(Cmd::NewPaintLayer),
+            Run(Cmd::NewVectorLayer),
+            Run(Cmd::NewAdjustLayer),
+            Run(Cmd::NewGroupLayer),
+            Line,
+            Run(Cmd::DuplicateLayer),
+            Run(Cmd::RenameLayer),
+            Run(Cmd::GroupLayer),
+            Run(Cmd::DeleteLayer),
+            Line,
+            Run(Cmd::ToggleVisible),
+            Run(Cmd::ToggleLocked),
+            Run(Cmd::ToggleClip),
+            Run(Cmd::ToggleLockAlpha),
+            Run(Cmd::OnionLayer),
+            Line,
+            Sub(
+                "Mask",
+                &[
+                    Run(Cmd::AddMask),
+                    Run(Cmd::AddMaskHiding),
+                    Run(Cmd::PaintMask),
+                    Run(Cmd::BackToLayer),
+                    Run(Cmd::ToggleMask),
+                    Run(Cmd::TintMask),
+                    Run(Cmd::RemoveMask),
+                ],
+            ),
+            Sub(
+                "Shapes",
+                &[
+                    Run(Cmd::MakeRepeat),
+                    Run(Cmd::MakeScatter),
+                    Run(Cmd::MakeMirror),
+                    Run(Cmd::Unwrap),
+                ],
+            ),
+            Run(Cmd::PaintOver),
+        ],
+    },
+    Menu {
+        title: "Frame",
+        items: &[
+            Run(Cmd::NextFrame),
+            Run(Cmd::PrevFrame),
+            Run(Cmd::NextDrawing),
+            Run(Cmd::PrevDrawing),
+            Run(Cmd::FirstFrame),
+            Run(Cmd::LastFrame),
+            Line,
+            Run(Cmd::NewDrawing),
+            Run(Cmd::NewDrawingAfter),
+            Sub(
+                "New drawings on",
+                &[Run(Cmd::ExposeOnes), Run(Cmd::ExposeTwos), Run(Cmd::ExposeThrees)],
+            ),
+            Run(Cmd::Duplicate),
+            Run(Cmd::Link),
+            Run(Cmd::Unlink),
+            Run(Cmd::DeleteDrawing),
+            Line,
+            Run(Cmd::HoldLonger),
+            Run(Cmd::HoldShorter),
+            Run(Cmd::MoveEarlier),
+            Run(Cmd::MoveLater),
+            Run(Cmd::InsertFrame),
+            Run(Cmd::InsertFrameAll),
+            Run(Cmd::RemoveFrame),
+            Run(Cmd::RemoveFrameAll),
+            Line,
+            Run(Cmd::Play),
+            Run(Cmd::LoopRange),
+            Run(Cmd::Prepare),
+            Line,
+            Sub(
+                "Selected frames",
+                &[
+                    Run(Cmd::OnOnes),
+                    Run(Cmd::OnTwos),
+                    Run(Cmd::OnThrees),
+                    Run(Cmd::FitFrames),
+                    Run(Cmd::Reverse),
+                    Run(Cmd::Pingpong),
+                    Run(Cmd::EveryLayer),
+                    Line,
+                    Run(Cmd::Inbetween),
+                    Run(Cmd::RedoInbetweens),
+                    Line,
+                    Run(Cmd::CopyCells),
+                    Run(Cmd::PasteCells),
+                    Run(Cmd::PasteCellsLinked),
+                ],
+            ),
+            Sub(
+                "Clip",
+                &[
+                    Run(Cmd::NewClip),
+                    Run(Cmd::ClipSettings),
+                    Run(Cmd::ClipLoops),
+                    Run(Cmd::ClipOwnFps),
+                    Run(Cmd::DeleteClip),
+                ],
+            ),
+        ],
+    },
+    Menu {
+        title: "Help",
+        items: &[
+            Run(Cmd::Palette),
+            Run(Cmd::Keys),
+            Line,
+            Run(Cmd::ReportProblem),
+            Run(Cmd::About),
+        ],
+    },
+];
+
+#[cfg(any(target_os = "macos", test))]
+pub const IN_APP_MENU: [Cmd; 3] = [Cmd::About, Cmd::Settings, Cmd::Quit];
+
+pub fn menu_label(cmd: Cmd) -> String {
+    let name = cmd.spec().name;
+    let mut chars = name.chars();
+    chars
+        .next()
+        .map_or_else(String::new, |c| c.to_uppercase().chain(chars).collect())
+}
+
+pub fn menu_hint(menu: &Menu) -> String {
+    let names: Vec<&str> = in_menus(menu.items).iter().take(4).map(|c| c.spec().name).collect();
+    format!("{}: {}, ...", menu.title, names.join(", "))
+}
+
+pub fn in_menus(items: &[Item]) -> Vec<Cmd> {
+    items
+        .iter()
+        .flat_map(|i| match i {
+            Item::Run(c) => vec![*c],
+            Item::Sub(_, inner) => in_menus(inner),
+            Item::Recent => vec![Cmd::OpenRecent],
+            Item::Line => Vec::new(),
+        })
+        .collect()
+}
+
 fn squash(text: &str) -> String {
     text.to_lowercase().chars().filter(|c| *c != '-').collect()
 }
@@ -2203,6 +2513,29 @@ mod tests {
         ("spin, the fps test (M0)", "numbers.spin"),
         ("reset numbers (M0)", "numbers.reset"),
     ];
+
+    #[test]
+    fn every_command_is_in_a_menu_once_but_the_holds() {
+        let listed: Vec<Cmd> = MENUS.iter().flat_map(|m| in_menus(m.items)).collect();
+        let twice: Vec<&Cmd> = listed
+            .iter()
+            .enumerate()
+            .filter(|(i, c)| listed[..*i].contains(c))
+            .map(|(_, c)| c)
+            .collect();
+        assert!(twice.is_empty(), "in two places: {twice:?}");
+        let missing: Vec<Cmd> = Cmd::ALL
+            .into_iter()
+            .filter(|c| !listed.contains(c) && !c.spec().is_hold())
+            .collect();
+        assert!(missing.is_empty(), "not in any menu: {missing:?}");
+        assert!(
+            listed.iter().all(|c| !c.spec().is_hold()),
+            "holds are gestures, not menu items"
+        );
+        assert!(IN_APP_MENU.iter().all(|c| listed.contains(c)));
+        assert_eq!(menu_label(Cmd::NewDocument), "New drawing");
+    }
 
     #[test]
     fn every_editor_action_of_m1_to_m3_is_a_named_command() {

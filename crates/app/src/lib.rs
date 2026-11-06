@@ -8,6 +8,7 @@ mod home;
 mod jobs;
 mod layout;
 mod lift;
+mod menus;
 mod messages;
 mod opened;
 mod pen;
