@@ -34,9 +34,9 @@ These come from `CLAUDE.md`, which is also the guide for coding agents working o
 1. Fork, branch from `main`, keep the change to one thing.
 2. `just lint`, `just test` and `just audit` pass.
 3. Describe what changed and how you checked it; for anything visual, attach a render (`klad render`) before and after.
-4. The first time, the CLA assistant asks you in the pull request to sign the contributor licence agreement (`CLA.md`): one click, and it covers every later change. It lets Indicode BV ship your change in klad under its licences; you keep the copyright to your work.
+4. The first time, the CLA assistant asks you in the pull request to sign the contributor licence agreement (`CLA.md`): one click, and it covers every later change. Under it your contribution is licensed to Indicode BV for inclusion in klad and in the builds of klad it sells; you keep the copyright to your work.
 
-klad is source-available, not open source (`LICENSE`): a fork on GitHub to send pull requests is fine, publishing klad or builds of it elsewhere is not. The file format, the command reference, the agent skill and `klad-client` are MIT (`LICENSE-MIT`); `klad-client` depends on nothing in the other crates, so it stays MIT on its own.
+klad is source-available, not open source (`LICENSE`): its licence lets you send changes to Indicode BV to propose them, so a fork on GitHub for pull requests is fine; publishing klad or builds of it elsewhere is not. `docs/format.md`, `docs/cli.md`, `docs/skill/` and `crates/client/` are MIT (`LICENSE-MIT`); `klad-client` depends on nothing in the other crates, so it stays MIT on its own.
 
 ## Releases
 

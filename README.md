@@ -46,7 +46,7 @@ Early, and open for testing. What works today:
 
 ## Try it
 
-- macOS and Windows: signed installers will be sold on itch.io and Steam. Until then, build klad from source as below.
+- macOS and Windows: signed installers will be sold on itch.io and Steam, under the same licence as the source (see [Licence](#licence)). Until then, build klad from source as below.
 - Linux: build it from source, free.
 
 Every build holds the `klad` command line tool, the editor, the fonts, the licences and the agent skill (`klad skill` prints it). In the editor, the document menu's "install the klad command" puts `klad` on your terminal's path for you and for agents (`klad install` does the same). The editor checks klad's releases once a day for a new version and says so; it installs nothing by itself (turn it off in the settings window).
@@ -95,8 +95,9 @@ just samples    # build the sample drawings
 
 klad is source-available, not open source, copyright Indicode BV.
 
-- The app (everything not listed below) is under the [PolyForm Internal Use License 1.0.0](https://polyformproject.org/licenses/internal-use/1.0.0) with two additional permissions (`LICENSE`): you may use it for your own personal purposes as well as inside your company, and the drawings you make with it are yours to share, with the brush settings and pictures klad copies into them. You may build it and change it for those uses; you may not distribute it, from source or as a build.
-- The parts other programs and agents need to work with klad are under the MIT License (`LICENSE-MIT`): the file format (`docs/format.md`), the command reference (`docs/cli.md`), the agent skill (`docs/skill/`) and the `klad-client` crate (`crates/client`).
-- Contributions are welcome under the contributor licence agreement (`CLA.md`); see `CONTRIBUTING.md`.
+- The app, meaning everything not listed in the next point, is under the [PolyForm Internal Use License 1.0.0](https://polyformproject.org/licenses/internal-use/1.0.0) with three additional permissions (`LICENSE`): you may use it for your own personal purposes as well as inside your company; you may send changes to Indicode BV to propose them as contributions; and the drawings you make with it are yours to share, with the brush settings and pictures klad copies into them. You may build it and change it for those uses; you may not distribute it, from source or as a build.
+- Builds you buy, on itch.io, Steam or from Indicode BV, are licensed under these same terms: one licence for the source and the builds, with no separate end-user licence.
+- These files are under the MIT License (`LICENSE-MIT`), so any program or agent can work with klad drawings: `docs/format.md` (the file format), `docs/cli.md` (the command reference), `docs/skill/` (the agent skill) and `crates/client/` (the `klad-client` crate).
+- Contributions are licensed to Indicode BV for inclusion in klad and in its sold builds, under the contributor licence agreement (`CLA.md`); see `CONTRIBUTING.md`.
 
 klad is built on open source libraries, fonts and Skia; their licences are in `THIRD-PARTY-NOTICES.md`, also shown by `klad licences` and in the editor's About window.
