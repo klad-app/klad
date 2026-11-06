@@ -233,27 +233,101 @@ impl Editor {
 
     fn strip(&mut self, ui: &mut egui::Ui) {
         ui.spacing_mut().item_spacing.y = 4.0;
-        ui.vertical_centered(|ui| {
-            ui.add_space(6.0);
-            STRIP_TOOLS.iter().for_each(|cmd| {
-                let r = self.command_sized(ui, *cmd, None, 20.0, vec2(36.0, 36.0));
-                self.key_letter(ui, r.rect, *cmd);
+        let column = ui.max_rect().x_range();
+        let gap = ui.spacing().item_spacing.y;
+        let height = ui.available_height();
+        let fits = |size: usize| self.strip_tools[size] + self.strip_foot[size] + 2.0 * gap <= height;
+        let small = !fits(0);
+        let folded = small && !fits(1);
+        let size = usize::from(small);
+        let (tool, other, icons) = match small {
+            true => (vec2(36.0, 28.0), vec2(36.0, 28.0), (16.0, 15.0)),
+            false => (vec2(36.0, 36.0), vec2(36.0, 32.0), (20.0, 18.0)),
+        };
+        let foot_now = match folded {
+            true => other.y + 6.0 + gap,
+            false => self.strip_foot[size],
+        };
+        egui::ScrollArea::vertical()
+            .id_salt("strip")
+            .max_height((height - foot_now - gap).max(0.0))
+            .auto_shrink([false, true])
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+            .scroll_source(egui::scroll_area::ScrollSource {
+                drag: egui::scroll_area::DragScroll::Never,
+                ..egui::scroll_area::ScrollSource::default()
+            })
+            .show(ui, |ui| {
+                let drawn = ui
+                    .vertical_centered(|ui| {
+                        ui.add_space(6.0);
+                        STRIP_TOOLS.iter().for_each(|cmd| {
+                            let r = self.command_sized(ui, *cmd, None, icons.0, tool);
+                            self.key_letter(ui, r.rect, *cmd);
+                        });
+                        ui.add_space(4.0);
+                        self.colour_pair(ui);
+                        ui.separator();
+                        [Cmd::Undo, Cmd::Redo].iter().for_each(|cmd| {
+                            self.command_sized(ui, *cmd, None, icons.1, other);
+                        });
+                    })
+                    .response
+                    .rect
+                    .height();
+                self.strip_measured(size, Some(drawn), None, ui.ctx());
             });
-            ui.add_space(4.0);
-            self.colour_pair(ui);
-            ui.separator();
-            [Cmd::Undo, Cmd::Redo].iter().for_each(|cmd| {
-                self.command_sized(ui, *cmd, None, 18.0, vec2(36.0, 32.0));
-            });
-        });
-        ui.with_layout(Flow::bottom_up(Align::Center), |ui| {
+        let below = egui::Rect::from_x_y_ranges(column, ui.available_rect_before_wrap().y_range());
+        let foot = UiBuilder::new().max_rect(below).layout(Flow::bottom_up(Align::Center));
+        ui.scope_builder(foot, |ui| {
             ui.add_space(6.0);
+            if folded {
+                self.strip_more(ui, other, icons.1);
+                return;
+            }
             [Cmd::Settings, Cmd::Numbers, Cmd::Palette].iter().for_each(|cmd| {
-                self.command_sized(ui, *cmd, None, 18.0, vec2(36.0, 32.0));
+                self.command_sized(ui, *cmd, None, icons.1, other);
             });
-            self.panels_menu(ui);
-            self.document_menu(ui);
+            self.panels_menu(ui, other, icons.1);
+            self.document_menu(ui, other, icons.1);
+            self.strip_measured(size, None, Some(ui.min_rect().height()), ui.ctx());
         });
+    }
+
+    fn strip_measured(&mut self, size: usize, tools: Option<f32>, foot: Option<f32>, ctx: &egui::Context) {
+        let changed = |was: f32, now: Option<f32>| now.filter(|n| (n - was).abs() > 0.5);
+        if let Some(t) = changed(self.strip_tools[size], tools) {
+            self.strip_tools[size] = t;
+            ctx.request_repaint();
+        }
+        if let Some(f) = changed(self.strip_foot[size], foot) {
+            self.strip_foot[size] = f;
+            ctx.request_repaint();
+        }
+    }
+
+    fn strip_more(&mut self, ui: &mut egui::Ui, size: egui::Vec2, glyph: f32) {
+        let button = egui::Button::new(RichText::new(icon::MORE).size(glyph)).min_size(size);
+        egui::containers::menu::MenuButton::from_button(button)
+            .ui(ui, |ui| {
+                self.document_entries(ui);
+                ui.separator();
+                self.panel_checks(ui);
+                ui.separator();
+                [
+                    (Cmd::Palette, "find a command"),
+                    (Cmd::Numbers, "numbers"),
+                    (Cmd::Settings, "settings"),
+                ]
+                .into_iter()
+                .for_each(|(cmd, label)| {
+                    if self.command_button(ui, cmd, Some(label)).clicked() {
+                        ui.close();
+                    }
+                });
+            })
+            .0
+            .hint("the drawing, the panels, find a command, numbers and settings, in one menu while the window is this short");
     }
 
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
@@ -315,8 +389,8 @@ impl Editor {
         }
     }
 
-    fn document_menu(&mut self, ui: &mut egui::Ui) {
-        let button = egui::Button::new(RichText::new(icon::FILE).size(18.0)).min_size(vec2(36.0, 32.0));
+    fn document_menu(&mut self, ui: &mut egui::Ui, size: egui::Vec2, glyph: f32) {
+        let button = egui::Button::new(RichText::new(icon::FILE).size(glyph)).min_size(size);
         let name = self
             .scene
             .bundle
@@ -324,31 +398,39 @@ impl Editor {
             .file_stem()
             .map_or_else(String::new, |s| s.to_string_lossy().to_string());
         egui::containers::menu::MenuButton::from_button(button)
-            .ui(ui, |ui| {
-                ui.label(RichText::new(&name).strong());
-                ui.separator();
-                [
-                    (Cmd::NewDocument, "new drawing"),
-                    (Cmd::OpenDocument, "open"),
-                    (Cmd::OpenRecent, "recent"),
-                    (Cmd::Export, "export"),
-                    (Cmd::AddFont, "add a font"),
-                    (Cmd::CopyPath, "copy path"),
-                    (Cmd::InstallCommand, "install the klad command"),
-                    (Cmd::ReportProblem, "report a problem"),
-                    (Cmd::About, "about and licences"),
-                ]
-                .into_iter()
-                .for_each(|(cmd, label)| {
-                    if self.command_button(ui, cmd, Some(label)).clicked() {
-                        ui.close();
-                    }
-                });
-            })
+            .ui(ui, |ui| self.document_entries(ui))
             .0
             .hint(format!(
                 "{name}: new, open, recent drawings, export, fonts, copy its path"
             ));
+    }
+
+    fn document_entries(&mut self, ui: &mut egui::Ui) {
+        let name = self
+            .scene
+            .bundle
+            .root
+            .file_stem()
+            .map_or_else(String::new, |s| s.to_string_lossy().to_string());
+        ui.label(RichText::new(&name).strong());
+        ui.separator();
+        [
+            (Cmd::NewDocument, "new drawing"),
+            (Cmd::OpenDocument, "open"),
+            (Cmd::OpenRecent, "recent"),
+            (Cmd::Export, "export"),
+            (Cmd::AddFont, "add a font"),
+            (Cmd::CopyPath, "copy path"),
+            (Cmd::InstallCommand, "install the klad command"),
+            (Cmd::ReportProblem, "report a problem"),
+            (Cmd::About, "about and licences"),
+        ]
+        .into_iter()
+        .for_each(|(cmd, label)| {
+            if self.command_button(ui, cmd, Some(label)).clicked() {
+                ui.close();
+            }
+        });
     }
 
     fn about_panel(&mut self, ui: &mut egui::Ui) {
@@ -403,24 +485,25 @@ impl Editor {
             });
     }
 
-    fn panels_menu(&mut self, ui: &mut egui::Ui) {
-        let button = egui::Button::new(RichText::new(icon::SIDEBAR).size(18.0)).min_size(vec2(36.0, 32.0));
+    fn panel_checks(&mut self, ui: &mut egui::Ui) {
+        [
+            (Cmd::ToolPane, Pane::Tool),
+            (Cmd::LayersPane, Pane::Layers),
+            (Cmd::InspectorPane, Pane::Inspector),
+            (Cmd::NotesPane, Pane::Notes),
+            (Cmd::HistoryPane, Pane::History),
+        ]
+        .into_iter()
+        .for_each(|(cmd, pane)| {
+            self.command_check(ui, cmd, pane.title());
+        });
+        self.command_check(ui, Cmd::Timeline, "timeline");
+    }
+
+    fn panels_menu(&mut self, ui: &mut egui::Ui, size: egui::Vec2, glyph: f32) {
+        let button = egui::Button::new(RichText::new(icon::SIDEBAR).size(glyph)).min_size(size);
         egui::containers::menu::MenuButton::from_button(button)
-            .ui(ui, |ui| {
-                [
-                    (Cmd::ToolPane, Pane::Tool),
-                    (Cmd::LayersPane, Pane::Layers),
-                    (Cmd::InspectorPane, Pane::Inspector),
-                    (Cmd::NotesPane, Pane::Notes),
-                    (Cmd::HistoryPane, Pane::History),
-                ]
-                .into_iter()
-                .for_each(|(cmd, pane)| {
-                    self.command_check(ui, cmd, pane.title());
-                });
-                ui.separator();
-                self.command_check(ui, Cmd::Timeline, "timeline");
-            })
+            .ui(ui, |ui| self.panel_checks(ui))
             .0
             .hint("the panels: tick one to show it, untick to close it");
     }

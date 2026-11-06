@@ -140,6 +140,78 @@ fn audit(h: &Harness<'static, Editor>, what: &str) -> usize {
 }
 
 #[test]
+fn the_strip_shrinks_then_folds_its_foot_when_the_window_is_short() {
+    let path = sample("strip");
+    let in_strip = |h: &Harness<'static, Editor>, glyph: &str| {
+        h.query_all_by_label(glyph)
+            .map(|n| n.rect())
+            .find(|r| r.center().x < layout::STRIP)
+    };
+    let tall = harness(editor(&path), vec2(1280.0, 1400.0));
+    let (brush, redo) = (
+        in_strip(&tall, theme::icon::BRUSH).unwrap(),
+        in_strip(&tall, theme::icon::REDO).unwrap(),
+    );
+    let file = in_strip(&tall, theme::icon::FILE).expect("a tall window shows the document menu");
+    let settings = in_strip(&tall, theme::icon::SETTINGS).unwrap();
+    assert_eq!(brush.height(), 36.0);
+    assert!(
+        file.top() > redo.bottom() + 40.0,
+        "a tall window keeps a gap: {redo:?} {file:?}"
+    );
+    assert!(
+        settings.bottom() > tall.state().canvas_rect.bottom() - 20.0,
+        "the foot sits at the bottom"
+    );
+    assert!(
+        (settings.center().x - brush.center().x).abs() < 1.0,
+        "one column: {brush:?} {settings:?}"
+    );
+    drop(tall);
+    let smaller = harness(editor(&path), vec2(1280.0, 1100.0));
+    let (brush, redo) = (
+        in_strip(&smaller, theme::icon::BRUSH).unwrap(),
+        in_strip(&smaller, theme::icon::REDO).unwrap(),
+    );
+    let file = in_strip(&smaller, theme::icon::FILE).expect("first the buttons get smaller");
+    assert!(brush.height() < 36.0 && brush.height() >= theme::TARGET, "{brush:?}");
+    assert!(file.top() >= redo.bottom(), "nothing overlaps: {redo:?} {file:?}");
+    drop(smaller);
+    let medium = harness(editor(&path), vec2(1280.0, 1000.0));
+    assert!(in_strip(&medium, theme::icon::FILE).is_none(), "then the foot folds");
+    let more = in_strip(&medium, theme::icon::MORE).expect("one menu holds the foot");
+    let (brush, redo) = (
+        in_strip(&medium, theme::icon::BRUSH).unwrap(),
+        in_strip(&medium, theme::icon::REDO).unwrap(),
+    );
+    assert!(
+        more.top() >= redo.bottom(),
+        "nothing overlaps or hides: {redo:?} {more:?}"
+    );
+    assert!(
+        (more.center().x - brush.center().x).abs() < 1.0,
+        "one column: {brush:?} {more:?}"
+    );
+    drop(medium);
+    let mut short = harness(editor(&path), vec2(1280.0, 700.0));
+    let more = in_strip(&short, theme::icon::MORE).unwrap();
+    let brush = in_strip(&short, theme::icon::BRUSH).unwrap();
+    assert!(
+        more.bottom() <= short.state().canvas_rect.bottom() + 1.0 && more.top() > brush.bottom(),
+        "last the tools scroll, and the menu stays in view: {brush:?} {more:?}"
+    );
+    short.get_by_role_and_label(Role::Button, theme::icon::MORE).click();
+    short.run_steps(2);
+    short.get_by_label_contains("settings").click();
+    short.run_steps(2);
+    assert!(
+        short.state().windows.settings,
+        "the folded menu runs the foot's commands"
+    );
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn every_control_is_pen_sized_and_has_a_hover_hint() {
     let path = sample("audit");
     let mut h = harness(editor(&path), vec2(1440.0, 900.0));
@@ -1775,7 +1847,13 @@ fn a_closed_panel_comes_back_from_the_strip() {
     h.state_mut().invoke(Cmd::InspectorPane).unwrap();
     h.run_steps(2);
     assert!(!h.state().settings.layout.is_open(Pane::Inspector));
-    h.get_by_role_and_label(Role::Button, theme::icon::SIDEBAR).click();
+    let folded = h.query_by_label(theme::icon::SIDEBAR).is_none();
+    let menu = if folded {
+        theme::icon::MORE
+    } else {
+        theme::icon::SIDEBAR
+    };
+    h.get_by_role_and_label(Role::Button, menu).click();
     h.run_steps(2);
     h.get_by_role_and_label(Role::CheckBox, Pane::Inspector.title()).click();
     h.run_steps(3);

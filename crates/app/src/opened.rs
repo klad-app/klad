@@ -1,15 +1,17 @@
+use std::cell::RefCell;
 use std::path::PathBuf;
-use std::sync::Mutex;
 
-static QUEUE: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+thread_local! {
+    static QUEUE: RefCell<Vec<PathBuf>> = const { RefCell::new(Vec::new()) };
+}
 
 #[cfg(any(target_os = "macos", test))]
 pub fn push(path: PathBuf) {
-    QUEUE.lock().unwrap_or_else(|e| e.into_inner()).push(path);
+    QUEUE.with(|q| q.borrow_mut().push(path));
 }
 
 pub fn take() -> Option<PathBuf> {
-    std::mem::take(&mut *QUEUE.lock().unwrap_or_else(|e| e.into_inner())).pop()
+    QUEUE.with(|q| std::mem::take(&mut *q.borrow_mut())).pop()
 }
 
 #[cfg(target_os = "macos")]

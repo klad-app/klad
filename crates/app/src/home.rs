@@ -417,6 +417,11 @@ mod tests {
         }
     }
 
+    fn document_menu<'a>(h: &'a Harness<'static, Home>) -> egui_kittest::Node<'a> {
+        h.query_by_label(theme::icon::FILE)
+            .unwrap_or_else(|| h.get_by_label(theme::icon::MORE))
+    }
+
     fn opened(h: &Harness<'static, Home>) -> PathBuf {
         h.state()
             .editor
@@ -653,7 +658,7 @@ mod tests {
             [&b, &dir.join("third.klad"), &a].map(|p| p.display().to_string())
         );
         h.state_mut().editor.as_mut().unwrap().wants = None;
-        h.get_by_label(theme::icon::FILE).click();
+        document_menu(&h).click();
         h.run_steps(2);
         h.get_by_label(&format!("{} copy path", theme::icon::COPY)).click();
         h.run_steps(1);
@@ -725,7 +730,7 @@ mod tests {
         let mut first = home(&dir, &[]);
         first.open(&egui::Context::default(), &path).unwrap();
         let mut h = harness(first);
-        h.get_by_label(theme::icon::FILE).click();
+        document_menu(&h).click();
         h.run_steps(2);
         assert!(
             h.query_by_label(&format!("{} install the klad command", theme::icon::DOWNLOAD))
