@@ -2668,3 +2668,43 @@ fn a_problem_report_holds_the_version_the_system_and_the_last_messages() {
     );
     let _ = std::fs::remove_dir_all(&path);
 }
+
+#[test]
+fn check_now_in_about_says_what_the_releases_feed_holds() {
+    let path = sample("check-now");
+    let mut editor = editor(&path);
+    let feed = path.with_extension("feed.json");
+    std::fs::write(
+        &feed,
+        r#"{"tag_name":"v9.9.9","html_url":"https://github.com/klad-app/klad/releases","body":"- a test"}"#,
+    )
+    .unwrap();
+    editor.update_feed = feed.display().to_string();
+    editor.windows.about = true;
+    let mut h = harness(editor, vec2(1440.0, 1000.0));
+    h.run_steps(2);
+    h.get_by_label("check now").click();
+    let start = std::time::Instant::now();
+    while h.query_by_label("klad 9.9.9 is out: a test").is_none() && start.elapsed().as_secs() < 10 {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(h.query_by_label("klad 9.9.9 is out: a test").is_some());
+    assert!(h.state().settings.updates_checked > 0);
+    std::fs::write(&feed, "not json").unwrap();
+    h.get_by_label("check now").click();
+    let start = std::time::Instant::now();
+    while h
+        .query_by_label("could not check: the releases feed did not make sense")
+        .is_none()
+        && start.elapsed().as_secs() < 10
+    {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(
+        h.query_by_label("could not check: the releases feed did not make sense")
+            .is_some()
+    );
+    let _ = std::fs::remove_file(&feed);
+}

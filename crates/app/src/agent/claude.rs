@@ -294,9 +294,26 @@ fn rand_tag() -> u128 {
         .map_or(0, |d| d.as_nanos())
 }
 
+pub fn refused(key: &str) -> Option<&'static str> {
+    match key {
+        "" => Some("paste a key first"),
+        k if k.starts_with("sk-ant-oat") => Some(
+            "this is a Claude subscription token (from claude setup-token). Anthropic allows a Pro or Max subscription only in Claude Code and on claude.ai, so klad needs an API key from the Claude Console (console.anthropic.com), which starts with sk-ant-api",
+        ),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_subscription_token_is_refused_with_the_reason() {
+        assert!(refused("sk-ant-oat01-abc").unwrap().contains("claude setup-token"));
+        assert_eq!(refused(""), Some("paste a key first"));
+        assert_eq!(refused("sk-ant-api03-abc"), None);
+    }
 
     #[test]
     fn a_streamed_reply_with_thinking_text_and_a_tool_call_comes_back_whole() {

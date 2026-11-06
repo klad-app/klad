@@ -107,3 +107,34 @@ fn the_client_makes_edits_reads_and_renders_a_drawing() {
     assert!(matches!(missing, Error::Failed { .. }), "{missing}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn updates_says_what_the_feed_holds() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-updates-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let feed = dir.join("latest.json");
+    let run = |feed: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_klad"))
+            .arg("updates")
+            .env("KLAD_UPDATE_FEED", feed)
+            .output()
+            .unwrap()
+    };
+    std::fs::write(
+        &feed,
+        r#"{"tag_name":"v9.9.9","html_url":"https://github.com/klad-app/klad/releases","body":"- a test"}"#,
+    )
+    .unwrap();
+    let out = run(&feed);
+    assert!(out.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "klad 9.9.9 is out: a test\nhttps://github.com/klad-app/klad/releases\n"
+    );
+    std::fs::write(&feed, r#"{"tag_name":"v0.0.1","html_url":"https://example.org"}"#).unwrap();
+    assert!(String::from_utf8_lossy(&run(&feed).stdout).contains("is the newest version"));
+    let missing = run(&dir.join("missing.json"));
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).starts_with("error: could not check: reading"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

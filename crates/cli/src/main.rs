@@ -1703,6 +1703,12 @@ enum Command {
     Skill,
     #[command(hide = true, about = "Print the command reference, docs/cli.md")]
     Reference,
+    #[cfg(feature = "editor")]
+    #[command(
+        about = "Check now whether a newer klad is out (the editor also checks once a day by itself)",
+        long_about = "Check now whether a newer klad is out, on klad's releases page (the editor also checks once a day by itself, and its About window has check now). KLAD_UPDATE_FEED points it at another feed, a URL or a JSON file shaped like GitHub's latest release.\n\n  klad updates"
+    )]
+    Updates,
     #[command(about = "Measure stroke storage, brush speed, replay, cache and compositing")]
     Bench {
         #[arg(long, default_value_t = 10_000)]
@@ -3289,6 +3295,16 @@ fn run() -> Result<()> {
         Command::Install { dir } => install::install(dir.as_deref())?,
         Command::Skill => print!("{}", include_str!("../../../docs/skill/SKILL.md")),
         Command::Reference => print!("{}", reference()),
+        #[cfg(feature = "editor")]
+        Command::Updates => {
+            use klad_app::updates;
+            let checked = updates::check(&updates::feed(), env!("CARGO_PKG_VERSION"));
+            match &checked {
+                Ok(Some(release)) => println!("{}\n{}", updates::outcome(&checked), release.url),
+                Ok(None) => println!("{}", updates::outcome(&checked)),
+                Err(_) => bail!(updates::outcome(&checked)),
+            }
+        }
         Command::Bench { strokes, size, seed } => bench::run(strokes, size, seed)?,
         #[cfg(feature = "editor")]
         Command::Open { bundle } => klad_app::run(bundle)?,

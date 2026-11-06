@@ -1,5 +1,4 @@
 use serde::Deserialize;
-use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const FEED: &str = "https://api.github.com/repos/klad-app/klad/releases/latest";
@@ -50,27 +49,44 @@ pub fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
-fn fetch(feed: &str) -> Option<String> {
-    match feed.starts_with("http") {
-        true => std::process::Command::new("curl")
-            .args([
-                "-fsSL",
-                "--max-time",
-                "10",
-                "-H",
-                "Accept: application/vnd.github+json",
-                feed,
-            ])
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).to_string()),
-        false => std::fs::read_to_string(feed).ok(),
+pub type Checked = Result<Option<Release>, String>;
+
+fn answer(code: &str, body: &str) -> Result<String, String> {
+    match code.trim() {
+        "200" => Ok(body.to_string()),
+        "404" => Err("no release of klad is published yet".to_string()),
+        other => Err(format!("the releases feed answered {other}")),
     }
 }
 
-pub fn check(feed: &str, current: &str) -> Option<Release> {
-    parse(&fetch(feed)?).filter(|r| newer(current, &r.version))
+fn fetch(feed: &str) -> Result<String, String> {
+    if !feed.starts_with("http") {
+        return std::fs::read_to_string(feed).map_err(|e| format!("reading {feed}: {e}"));
+    }
+    let out = std::process::Command::new("curl")
+        .args([
+            "-sSL",
+            "--max-time",
+            "10",
+            "-H",
+            "Accept: application/vnd.github+json",
+            "-w",
+            "\n%{http_code}",
+            feed,
+        ])
+        .output()
+        .map_err(|e| format!("could not run curl: {e}"))?;
+    if !out.status.success() {
+        return Err("could not reach the releases feed (no network?)".to_string());
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let (body, code) = text.rsplit_once('\n').unwrap_or(("", &text));
+    answer(code, body)
+}
+
+pub fn check(feed: &str, current: &str) -> Checked {
+    let release = parse(&fetch(feed)?).ok_or_else(|| "the releases feed did not make sense".to_string())?;
+    Ok(Some(release).filter(|r| newer(current, &r.version)))
 }
 
 pub fn summary(release: &Release) -> String {
@@ -85,25 +101,23 @@ pub fn summary(release: &Release) -> String {
     }
 }
 
-type Found = Mutex<Option<Option<Release>>>;
-
-fn found() -> &'static Found {
-    static FOUND: OnceLock<Found> = OnceLock::new();
-    FOUND.get_or_init(|| Mutex::new(None))
+pub fn outcome(checked: &Checked) -> String {
+    match checked {
+        Ok(Some(release)) => summary(release),
+        Ok(None) => format!("klad {} is the newest version", env!("CARGO_PKG_VERSION")),
+        Err(e) => format!("could not check: {e}"),
+    }
 }
 
-pub fn start(feed: String) {
+pub fn spawn(feed: String) -> std::sync::mpsc::Receiver<Checked> {
+    let (send, receive) = std::sync::mpsc::channel();
     std::thread::Builder::new()
         .name("klad update check".into())
         .spawn(move || {
-            let result = check(&feed, env!("CARGO_PKG_VERSION"));
-            *found().lock().unwrap_or_else(|e| e.into_inner()) = Some(result);
+            let _ = send.send(check(&feed, env!("CARGO_PKG_VERSION")));
         })
         .ok();
-}
-
-pub fn take() -> Option<Option<Release>> {
-    found().lock().unwrap_or_else(|e| e.into_inner()).take()
+    receive
 }
 
 pub fn feed() -> String {
@@ -129,15 +143,34 @@ mod tests {
             .unwrap()
         };
         write("v0.2.0");
-        let found = check(feed.to_str().unwrap(), "0.1.0").unwrap();
+        let found = check(feed.to_str().unwrap(), "0.1.0").unwrap().unwrap();
         assert_eq!(found.version, "0.2.0");
         assert_eq!(
             summary(&found),
             "klad 0.2.0 is out: Paint over: brushwork from any picture"
         );
         write("v0.1.0");
-        assert!(check(feed.to_str().unwrap(), "0.1.0").is_none());
-        assert!(check(dir.join("missing.json").to_str().unwrap(), "0.1.0").is_none());
+        assert_eq!(check(feed.to_str().unwrap(), "0.1.0"), Ok(None));
+        assert_eq!(
+            outcome(&Ok(None)),
+            format!("klad {} is the newest version", env!("CARGO_PKG_VERSION"))
+        );
+        let missing = check(dir.join("missing.json").to_str().unwrap(), "0.1.0");
+        assert!(
+            outcome(&missing).starts_with("could not check: reading "),
+            "{missing:?}"
+        );
+        std::fs::write(&feed, "<html>").unwrap();
+        assert_eq!(
+            check(feed.to_str().unwrap(), "0.1.0"),
+            Err("the releases feed did not make sense".to_string())
+        );
+        assert_eq!(
+            answer("404", ""),
+            Err("no release of klad is published yet".to_string())
+        );
+        assert_eq!(answer("503", ""), Err("the releases feed answered 503".to_string()));
+        assert_eq!(answer("200", "{}"), Ok("{}".to_string()));
         assert!(newer("0.9.3", "0.10.0") && !newer("1.2.0", "1.1.9") && newer("0.1.0", "v0.1.1"));
         assert!(due(true, 0, DAY) && !due(true, DAY, DAY + 60) && !due(false, 0, 10 * DAY));
         std::fs::remove_dir_all(&dir).unwrap();
@@ -149,12 +182,9 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let feed = dir.join("latest.json");
         std::fs::write(&feed, r#"{"tag_name":"v99.0.0","html_url":"https://example.org"}"#).unwrap();
-        start(feed.display().to_string());
-        let found = (0..200).find_map(|_| {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            take()
-        });
-        assert_eq!(found.flatten().map(|r| r.version), Some("99.0.0".to_string()));
+        let checking = spawn(feed.display().to_string());
+        let found = checking.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert_eq!(found.unwrap().map(|r| r.version), Some("99.0.0".to_string()));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

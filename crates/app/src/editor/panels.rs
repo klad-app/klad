@@ -281,16 +281,43 @@ impl Editor {
             ));
     }
 
-    fn about_panel(ui: &mut egui::Ui, update: Option<&crate::updates::Release>) {
+    fn about_panel(&mut self, ui: &mut egui::Ui) {
         static LINES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
         let lines = LINES.get_or_init(|| klad_core::notices::NOTICES.lines().collect());
         ui.label(RichText::new(format!("klad {}", crate::VERSION)).strong());
-        if let Some(release) = update {
+        if let Some(checked) = self.update_check.as_ref().and_then(|c| c.try_recv().ok()) {
+            self.update_check = None;
+            self.update_said = Some(crate::updates::outcome(&checked));
+            self.settings.updates_checked = crate::updates::now();
+            self.settings_dirty = true;
+            if let Ok(Some(release)) = checked {
+                self.update = Some(release);
+                self.update_said = None;
+            }
+        }
+        if let Some(release) = &self.update {
             ui.horizontal(|ui| {
                 ui.label(crate::updates::summary(release));
                 ui.hyperlink_to("what changed", &release.url);
             });
         }
+        ui.horizontal(|ui| {
+            let checking = self.update_check.is_some();
+            if ui
+                .add_enabled(!checking, egui::Button::new("check now"))
+                .hint("ask klad's releases whether a newer version is out")
+                .clicked()
+            {
+                self.update_check = Some(crate::updates::spawn(self.update_feed.clone()));
+                self.update_said = None;
+            }
+            if checking {
+                ui.label(RichText::new("checking").color(theme::WEAK));
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+            } else if let Some(said) = &self.update_said {
+                ui.label(RichText::new(said).color(theme::WEAK));
+            }
+        });
         ui.label("Source-available licence, copyright Indicode BV. Built on the open source work listed below; klad licences prints the same.");
         ui.add_space(6.0);
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
@@ -637,7 +664,7 @@ impl Editor {
                 "about",
                 (format!("{} About klad", icon::INFO), settings_at),
                 &mut open,
-                |ui| Self::about_panel(ui, self.update.as_ref()),
+                |ui| self.about_panel(ui),
             );
             self.windows.about &= open;
         }

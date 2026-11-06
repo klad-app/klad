@@ -394,8 +394,12 @@ impl Editor {
             .labelled_by(label.id)
             .hint("a key from the Claude Console; kept in the Keychain on a Mac, never in settings or the drawing");
             if ui.button("save").hint("keep the key and check it").clicked() {
-                let key = std::mem::take(&mut self.agent.key);
-                match agent::secret::store(&key).and_then(|_| agent::claude::models(&key)) {
+                let key = std::mem::take(&mut self.agent.key).trim().to_string();
+                let checked = agent::claude::refused(&key).map_or(Ok(()), |why| Err(anyhow::anyhow!(why)));
+                match checked
+                    .and_then(|_| agent::secret::store(&key))
+                    .and_then(|_| agent::claude::models(&key))
+                {
                     Ok(models) => {
                         self.say(Tone::Done, format!("key saved; {} models", models.len()));
                         self.agent.models = models;

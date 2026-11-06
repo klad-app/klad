@@ -45,7 +45,7 @@ pub(crate) struct Home {
     gpu: Option<egui_wgpu::RenderState>,
     themed: bool,
     pub(crate) update: Option<crate::updates::Release>,
-    checking: bool,
+    checking: Option<std::sync::mpsc::Receiver<updates::Checked>>,
 }
 
 impl Home {
@@ -62,8 +62,7 @@ impl Home {
             home.settings.updates_checked,
             updates::now(),
         ) {
-            updates::start(updates::feed());
-            home.checking = true;
+            home.checking = Some(updates::spawn(updates::feed()));
         }
         home.begin(&cc.egui_ctx, path);
         Ok(home)
@@ -82,7 +81,7 @@ impl Home {
             gpu,
             themed: false,
             update: None,
-            checking: false,
+            checking: None,
         }
     }
 
@@ -124,13 +123,10 @@ impl Home {
     }
 
     fn checked(&mut self) {
-        if !self.checking {
-            return;
-        }
-        let Some(result) = updates::take() else {
+        let Some(result) = self.checking.as_ref().and_then(|c| c.try_recv().ok()) else {
             return;
         };
-        self.checking = false;
+        self.checking = None;
         let now = updates::now();
         self.settings.updates_checked = now;
         match self.editor.as_mut() {
@@ -144,7 +140,7 @@ impl Home {
                 }
             }
         }
-        if let Some(release) = result {
+        if let Ok(Some(release)) = result {
             if let Some(editor) = self.editor.as_mut() {
                 editor.say(Tone::Info, updates::summary(&release));
             }
@@ -155,6 +151,9 @@ impl Home {
     pub(crate) fn frame(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         self.checked();
+        if self.checking.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(200));
+        }
         if let Some(editor) = self.editor.as_mut()
             && editor.update.is_none()
         {

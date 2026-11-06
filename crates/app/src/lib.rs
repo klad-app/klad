@@ -20,7 +20,7 @@ mod start;
 mod stats;
 mod sync;
 mod theme;
-mod updates;
+pub mod updates;
 mod view;
 
 pub use home::run;

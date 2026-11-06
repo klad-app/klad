@@ -75,6 +75,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad licences`](#klad-licences): Print the licence and the third-party notices (every open source part klad is built on)
 - [`klad install`](#klad-install): Put klad on the terminal's path, for you and for agents
 - [`klad skill`](#klad-skill): Print the agent skill: how an agent draws with klad (the same text as docs/skill/SKILL.md)
+- [`klad updates`](#klad-updates): Check now whether a newer klad is out (the editor also checks once a day by itself)
 - [`klad bench`](#klad-bench): Measure stroke storage, brush speed, replay, cache and compositing
 - [`klad open`](#klad-open): Open the editor, on a bundle or on the start window (new, open, recent)
 
@@ -3291,6 +3292,20 @@ Usage: klad skill
 Options:
   -h, --help
           Print help
+```
+
+## klad updates
+
+```text
+Check now whether a newer klad is out, on klad's releases page (the editor also checks once a day by itself, and its About window has check now). KLAD_UPDATE_FEED points it at another feed, a URL or a JSON file shaped like GitHub's latest release.
+
+  klad updates
+
+Usage: klad updates
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
 ```
 
 ## klad bench
