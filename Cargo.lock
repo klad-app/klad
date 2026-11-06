@@ -1749,6 +1749,7 @@ dependencies = [
  "anyhow",
  "block2 0.6.2",
  "bytemuck",
+ "crc32fast",
  "eframe",
  "egui",
  "egui-wgpu",

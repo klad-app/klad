@@ -15,7 +15,8 @@ The first builds, and klad's licences.
 - `klad --version`, About and the start window show the version and the commit a build was made from; `just build` counts the version up for every build.
 - In-betweens blend colours evenly (in OKLab), so light can follow a turning limb when the second key is coloured for it.
 - `klad arcs` follows the part of a foot on the ground: a heel-to-toe roll is no longer reported as a slide.
-- "Report a problem" copies what an issue needs.
+- Help > Report a problem shows the report before it is copied (version, system, the last messages and lines of klad's log, with your home folder hidden) and can zip the drawing to attach; `klad report` prints the same. Errors and crashes are kept in a small log for it.
+- Messages say what happened and what to do next; when klad itself goes wrong it says so, and that your work is saved.
 - Bones: a layer or group gets a skeleton (`klad bone`, the bone tool J), weights from the bones or painted (`klad weights`), and poses that bend the drawing (`klad pose`, pose mode); in-betweens of two poses turn the bones. The bone tool lists the skeleton, picks a bone in every mode, and moves ends, joints and whole bones with their children (`klad bone --move` with `--by`).
 - A first start: the start window welcomes, offers first steps (draw a shape, fill it, hand the drawing to an agent, ticked off as you go; Help > First steps opens them again) and six sample drawings that open as copies (`klad samples` lists and copies them).
 - Menus: a menu bar (the Mac's own, an in-window one on Windows and Linux) holds every command, with its keys, ticks for what is on and greyed items for what cannot run now; File has close (cmd W) and recent drawings.

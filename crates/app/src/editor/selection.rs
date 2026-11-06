@@ -195,7 +195,7 @@ impl Editor {
                         Ok(())
                     }
                     Err(e) => {
-                        self.say(Tone::Refused, format!("duplicate: {e:#}"));
+                        self.say(Tone::Refused, format!("could not duplicate it: {e:#}"));
                         Ok(())
                     }
                 }

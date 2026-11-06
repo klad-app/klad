@@ -89,7 +89,9 @@ pub fn prepare(job: Job, ctx: egui::Context) -> Receiver<Result<Prepared>> {
         let (cw, ch) = job.canvas;
         let (index, nodes, lifted, lower, upper) = match job.source {
             Source::Node { index, nodes } => {
-                let target = nodes.get(index).ok_or_else(|| anyhow!("node index out of range"))?;
+                let target = nodes
+                    .get(index)
+                    .ok_or_else(|| crate::report::bug("a dragged shape is not in its layer"))?;
                 let [x, y, w, h] =
                     vector::node_box(target)?.ok_or_else(|| anyhow!("{} has nothing to draw", job.key))?;
                 let lifted = rasterize_region(

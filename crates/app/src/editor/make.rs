@@ -559,7 +559,7 @@ impl Editor {
         let (src, w, h) = match klad_render::assets::import_image(&self.scene.bundle.root, bytes) {
             Ok(made) => made,
             Err(e) => {
-                self.say(Tone::Refused, format!("{name}: {e:#}"));
+                self.say(Tone::Refused, format!("could not import {name}: {e:#}"));
                 return Ok(());
             }
         };
@@ -607,7 +607,10 @@ impl Editor {
                             self.check(|e| e.import_picture(&bytes, &path));
                             self.windows.import = false;
                         }
-                        Err(e) => self.say(Tone::Refused, format!("reading {path}: {e}")),
+                        Err(e) => self.say(
+                            Tone::Refused,
+                            format!("could not read {path}: {}", crate::report::io_words(&e)),
+                        ),
                     }
                 }
                 ui.small("or drop a PNG or JPEG on the canvas");
@@ -635,7 +638,10 @@ impl Editor {
         });
         files.into_iter().for_each(|path| match std::fs::read(&path) {
             Ok(bytes) => self.check(|e| e.import_picture(&bytes, &path.display().to_string())),
-            Err(e) => self.say(Tone::Refused, format!("reading {}: {e}", path.display())),
+            Err(e) => self.say(
+                Tone::Refused,
+                format!("could not read {}: {}", path.display(), crate::report::io_words(&e)),
+            ),
         });
     }
 }

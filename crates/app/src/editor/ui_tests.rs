@@ -2849,17 +2849,54 @@ fn a_layer_is_keyed_from_the_inspector_and_eases_between_its_keys() {
 }
 
 #[test]
-fn a_problem_report_holds_the_version_the_system_and_the_last_messages() {
+fn a_forced_error_reads_as_a_sentence_and_lands_in_the_report_with_the_drawing() {
     let path = sample("report");
-    let mut h = harness(editor(&path), vec2(1280.0, 900.0));
-    h.state_mut().say(Tone::Error, "the fill leaked out of the lines");
-    let report = h.state().problem_report();
-    assert!(report.starts_with(&format!("klad {}", crate::VERSION)));
-    assert!(report.contains(std::env::consts::OS) && report.contains("the fill leaked out of the lines"));
+    let log = path.with_extension("log");
+    crate::report::log_to(Some(log.clone()));
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    h.state_mut()
+        .check(|_| Err(crate::report::bug("a test forced this").context("the frames could not be prepared")));
+    h.run_steps(2);
+    let said = h.state().messages.log().last().unwrap().text.clone();
+    assert!(
+        said.starts_with("something went wrong inside klad (the frames could not be prepared: a test forced this)")
+            && said.ends_with("Help > Report a problem copies what an issue needs"),
+        "{said}"
+    );
+    assert!(
+        crate::report::last_lines(1)[0].ends_with(&format!("editor: {said}")),
+        "errors go to klad's log"
+    );
+    h.state_mut().invoke(Cmd::ReportProblem).unwrap();
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("klad sends nothing by itself").is_some());
+    h.get_by_label_contains("include the drawing").click();
+    h.run_steps(1);
+    h.get_by_label_contains("copy the report").click();
+    h.run_steps(2);
+    let zip = path.with_file_name(format!(
+        "{} for a report.zip",
+        path.file_stem().unwrap().to_string_lossy()
+    ));
+    assert!(zip.is_file(), "the drawing is zipped next to it");
+    let names = crate::report::unzip_names(&std::fs::read(&zip).unwrap());
+    assert!(names.iter().any(|(n, ok)| n.ends_with("/doc.json") && *ok));
+    let report = h.state().problem_report(Some(&zip));
+    assert!(report.starts_with(&format!("klad {}, from the editor", crate::VERSION)));
+    assert!(report.contains(&crate::report::system()));
+    assert!(report.contains("a test forced this") && report.contains("Last lines of klad's log:"));
+    assert!(report.contains(&format!(
+        "is attached as {}",
+        zip.file_name().unwrap().to_string_lossy()
+    )));
     assert!(
         !report.contains(&path.display().to_string()),
         "the drawing's path stays private"
     );
+    assert!(h.state().messages.log().last().unwrap().text.contains("attach"));
+    crate::report::log_to(None);
+    let _ = std::fs::remove_file(&zip);
+    let _ = std::fs::remove_file(&log);
     let _ = std::fs::remove_dir_all(&path);
 }
 

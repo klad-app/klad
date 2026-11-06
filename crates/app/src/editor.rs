@@ -512,6 +512,7 @@ struct Windows {
     import: bool,
     about: bool,
     export: bool,
+    report: bool,
     font: bool,
     paintover: bool,
     compare: bool,
@@ -620,6 +621,7 @@ pub(crate) struct Editor {
     compare: Option<compare::Compared>,
     bones: bones::BoneTool,
     first: first::FirstSteps,
+    report_drawing: bool,
     key_ease: klad_core::keys::Ease,
     bindings: crate::commands::Bindings,
     capturing: Option<Cmd>,
@@ -674,7 +676,11 @@ impl Editor {
         let scene = Scene::open_lazy(path)?;
         let brushes = BrushSet::for_bundle(&scene.bundle)?;
         let embedded = scene.bundle.brushes()?;
-        let tuning = Tuning::of(brushes.def("ink").ok_or_else(|| anyhow!("no ink brush"))?);
+        let tuning = Tuning::of(
+            brushes
+                .def("ink")
+                .ok_or_else(|| crate::report::bug("the ink brush is missing from the library"))?,
+        );
         let settings_path = settings::default_path();
         let settings = settings_path.as_deref().map(Settings::load).unwrap_or_default();
         let open = format!(
@@ -785,6 +791,7 @@ impl Editor {
             compare: None,
             bones: bones::BoneTool::default(),
             first: first::FirstSteps::default(),
+            report_drawing: false,
             key_ease: klad_core::keys::Ease::Linear,
             bindings: crate::commands::Bindings::default(),
             capturing: None,
@@ -880,12 +887,23 @@ impl Editor {
 
     pub(crate) fn say(&mut self, tone: Tone, text: impl Into<String>) {
         let anchor = self.pointer;
+        let text = text.into();
+        if tone == Tone::Error {
+            crate::report::log(&format!("editor: {text}"));
+        }
         self.messages.say(tone, text, anchor, Instant::now());
         self.ctx.request_repaint();
     }
 
     pub(crate) fn error(&mut self, e: impl std::fmt::Display) {
         self.say(Tone::Error, format!("{e:#}"));
+    }
+
+    pub(crate) fn failed(&mut self, e: anyhow::Error) {
+        match crate::report::is_bug(&e) {
+            true => self.say(Tone::Error, crate::report::bug_message(&e)),
+            false => self.error(e),
+        }
     }
 
     fn measure(&mut self, key: &'static str, text: String) {
@@ -904,7 +922,7 @@ impl Editor {
         if now != self.shared {
             let nodes = now.1.clone();
             if let Err(e) = notes::write_selection(&self.scene.bundle, now.0.clone(), nodes, self.scene.frame) {
-                self.error(e);
+                self.failed(e.context("the selection could not be shared with the agent"));
             }
             self.shared = now;
         }
@@ -1396,7 +1414,7 @@ impl Editor {
                 }
                 Ok(_) => self.lift = None,
                 Err(e) => {
-                    self.error(format!("preparing the selection: {e:#}"));
+                    self.failed(e.context("the selection could not be prepared"));
                     if let Some(l) = self.lift.as_mut() {
                         l.job = None;
                     }
@@ -1411,7 +1429,10 @@ impl Editor {
             let Some(mut state) = self.lift.take() else {
                 return Ok(());
             };
-            let commit = state.commit.take().ok_or_else(|| anyhow!("commit vanished"))?;
+            let commit = state
+                .commit
+                .take()
+                .ok_or_else(|| crate::report::bug("a shape edit lost what it was writing"))?;
             let start = Instant::now();
             match (result, state.ready.as_ref()) {
                 (Ok((hash, raster)), Some((p, _))) => {
@@ -1531,7 +1552,7 @@ impl Editor {
                 let (p, _) = state
                     .ready
                     .as_ref()
-                    .ok_or_else(|| anyhow!("lift without preparation"))?;
+                    .ok_or_else(|| crate::report::bug("a drag started before its picture was ready"))?;
                 let job = lift::finish(p.nodes.clone(), p.index, t, canvas, self.ctx.clone());
                 state.commit = Some(Commit { job, ops, affine });
                 Ok(())
@@ -2214,7 +2235,13 @@ impl Editor {
         };
         let layer = doc.layer_at(&path);
         if layer.locked {
-            self.say(Tone::Refused, format!("layer {} is locked", layer.name));
+            self.say(
+                Tone::Refused,
+                format!(
+                    "{} is locked: unlock it with the lock in the layers panel to change it",
+                    layer.name
+                ),
+            );
             return Ok(());
         }
         let cel = layer.cels()[c].id.clone();
@@ -2258,7 +2285,7 @@ impl Editor {
                 .scene
                 .apply_rendered(&commit.ops, (commit.cel, hash, raster), &self.brushes)?,
             Err(e) => {
-                self.error(format!("drawing the edited path: {e:#}"));
+                self.failed(e.context("the edited path could not be drawn"));
                 self.scene.apply(&commit.ops, &self.brushes)?
             }
         };
@@ -2444,10 +2471,12 @@ impl Editor {
     }
 
     fn shaped(&self) -> Result<(String, BrushDef)> {
-        let base = self
-            .brushes
-            .def(&self.brush)
-            .ok_or_else(|| anyhow!("no brush {}", self.brush))?;
+        let base = self.brushes.def(&self.brush).ok_or_else(|| {
+            anyhow!(
+                "the brush {} is not there any more: pick another one in the colour and brush panel",
+                self.brush
+            )
+        })?;
         let def = match &self.custom {
             Some(def) => def.clone(),
             None => self.tuning.shape(base),
@@ -2470,7 +2499,7 @@ impl Editor {
                 .brushes
                 .def("eraser")
                 .cloned()
-                .ok_or_else(|| anyhow!("no eraser brush"))?;
+                .ok_or_else(|| crate::report::bug("the eraser brush is missing from the library"))?;
             let tuning = Tuning::of(&def);
             ("eraser".to_string(), def, tuning)
         } else {
@@ -2660,7 +2689,10 @@ impl Editor {
         };
         let computed = ms(start);
         if coverage.is_empty() {
-            self.say(Tone::Refused, "nothing to fill there");
+            self.say(
+                Tone::Refused,
+                "nothing to fill there: click inside closed lines, or raise the gap so small openings close",
+            );
             return Ok(());
         }
         if self.external.is_some() {
@@ -3132,7 +3164,7 @@ impl Editor {
         let (mut ops, after) = match &picked.cut {
             Some(_) => self
                 .picked_ops(LassoAction::Transform(MarkTransform::default()))
-                .ok_or_else(|| anyhow!("the cut selection is out of date"))?,
+                .ok_or_else(|| anyhow!("the selection changed underneath: select the strokes again"))?,
             None => (Vec::new(), Some(picked.clone())),
         };
         ops.extend(sets.into_iter().map(|(cel, id, key, value)| Op::Set {
@@ -3842,7 +3874,10 @@ impl Editor {
                     ) {
                         match color::rgba_of(&text) {
                             Some(rgba) => picked = Some(rgba),
-                            None => self.say(Tone::Refused, format!("{text:?} is not #rrggbb or #rrggbbaa")),
+                            None => self.say(
+                                Tone::Refused,
+                                format!("{text} is not a colour: type it as #rrggbb or #rrggbbaa, for example #c8a070"),
+                            ),
                         }
                     }
                 });

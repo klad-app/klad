@@ -439,7 +439,7 @@ impl FrameRequest {
         let dir = self
             .disk
             .clone()
-            .ok_or_else(|| anyhow!("no folder for frame pictures"))?;
+            .ok_or_else(|| crate::report::bug("the frame pictures have no folder"))?;
         let cache = CelCache::new(&self.bundle, &self.brushes, Write::Always);
         let pictured = picture_path(&dir, self.key).exists();
         let planes_key = self.planes.as_ref().map(|p| p.key(&self.bundle, &self.brushes));
@@ -1460,7 +1460,7 @@ impl Scene {
 
     pub fn preview_layer(&mut self, layer: Layer) -> Result<()> {
         let Some(Loc::Layer(path)) = self.bundle.doc.locate(&layer.id) else {
-            return Err(anyhow!("no layer {}", layer.id));
+            return Err(crate::report::bug(format!("layer {} is not in the scene", layer.id)));
         };
         *self.bundle.doc.layer_at_mut(&path) = layer;
         self.rebuild_caches(None)
@@ -1548,7 +1548,7 @@ impl Scene {
         if let Some(cel) = self.active_cel() {
             return Ok(cel);
         }
-        let layer = self.active_id().ok_or_else(|| anyhow!("no active layer"))?;
+        let layer = self.active_id().ok_or_else(|| anyhow!("pick a layer first"))?;
         let op = Op::AddCel {
             cel: serde_json::json!({ "frame": self.frame }),
             layer,
@@ -1562,7 +1562,7 @@ impl Scene {
             .added
             .first()
             .cloned()
-            .ok_or_else(|| anyhow!("no cel was added"))?;
+            .ok_or_else(|| crate::report::bug("a new drawing was not added"))?;
         let (w, h) = self.size();
         self.rasters.insert(cel.clone(), Raster::new(w, h));
         self.cels.insert(
@@ -1589,11 +1589,11 @@ impl Scene {
         let raster = self
             .rasters
             .get_mut(&cel)
-            .ok_or_else(|| anyhow!("cel {cel} has no pixels"))?;
+            .ok_or_else(|| crate::report::bug(format!("drawing {cel} has no pixels")))?;
         let data = self
             .cels
             .get_mut(&cel)
-            .ok_or_else(|| anyhow!("cel {cel} has no strokes"))?;
+            .ok_or_else(|| crate::report::bug(format!("drawing {cel} has no strokes")))?;
         Ok(data.replay.commit_stroke(raster, stroke, buffer, blend))
     }
 
@@ -1602,11 +1602,11 @@ impl Scene {
         let raster = self
             .rasters
             .get_mut(&cel)
-            .ok_or_else(|| anyhow!("cel {cel} has no pixels"))?;
+            .ok_or_else(|| crate::report::bug(format!("drawing {cel} has no pixels")))?;
         let data = self
             .cels
             .get_mut(&cel)
-            .ok_or_else(|| anyhow!("cel {cel} has no strokes"))?;
+            .ok_or_else(|| crate::report::bug(format!("drawing {cel} has no strokes")))?;
         data.replay.paint(raster, Mark::Fill(fill), brushes)
     }
 
@@ -1649,7 +1649,7 @@ impl Scene {
                 .iter()
                 .find(|(i, _)| *i == index)
                 .map(|(_, t)| t)
-                .ok_or_else(|| anyhow!("tile {index} was not composed"))?;
+                .ok_or_else(|| crate::report::bug(format!("tile {index} was not composed")))?;
             Some([tile[at], tile[at + 1], tile[at + 2], tile[at + 3]].map(f16::to_f32))
         } else {
             let items: Vec<TileItem> = self.bundle.doc.layers.iter().map(TileItem::Layer).collect();

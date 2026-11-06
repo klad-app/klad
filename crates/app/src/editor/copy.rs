@@ -157,7 +157,10 @@ impl Editor {
                 if !missing.is_empty() {
                     self.say(
                         Tone::Refused,
-                        format!("{word}: the layers {} are gone or locked", missing.join(", ")),
+                        format!(
+                            "could not {word}: the layers {} are gone or locked; unlock them, or pick another layer",
+                            missing.join(", ")
+                        ),
                     );
                     return Ok(());
                 }
@@ -172,7 +175,7 @@ impl Editor {
         let (dirty, applied) = match self.scene.apply_with(&ops, &self.brushes) {
             Ok(done) => done,
             Err(e) => {
-                self.say(Tone::Refused, format!("{word}: failed, {e:#}"));
+                self.say(Tone::Refused, format!("could not {word} here: {e:#}"));
                 return Ok(());
             }
         };

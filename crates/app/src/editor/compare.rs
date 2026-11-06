@@ -79,7 +79,7 @@ impl Editor {
                 self.compare = Some(Compared { report, heat });
                 self.windows.compare = true;
             }
-            Err(e) => self.say(Tone::Error, format!("the comparison could not be read: {e}")),
+            Err(e) => self.say(Tone::Error, format!("the comparison ran but its result could not be read ({e}); run it again, and if it happens again, Help > Report a problem")),
         }
     }
 

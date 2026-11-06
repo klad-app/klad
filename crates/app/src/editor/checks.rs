@@ -332,7 +332,7 @@ impl Editor {
         let (mut ops, after) = match &picked.cut {
             Some(_) => self
                 .picked_ops(LassoAction::Transform(MarkTransform::default()))
-                .ok_or_else(|| anyhow!("the cut selection is out of date"))?,
+                .ok_or_else(|| anyhow!("the selection changed underneath: select the strokes again"))?,
             None => (Vec::new(), Some(picked.clone())),
         };
         let ids = after.as_ref().map_or(Vec::new(), |p| p.addresses());

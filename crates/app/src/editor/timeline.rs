@@ -402,7 +402,7 @@ impl Editor {
         let mut done = match result {
             Ok(done) => done,
             Err(e) => {
-                self.error(format!("loading frame {}: {e:#}", pending.frame));
+                self.failed(e.context(format!("frame {} could not be loaded", pending.frame)));
                 return Ok(());
             }
         };

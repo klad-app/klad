@@ -1719,6 +1719,15 @@ enum Command {
     Reference,
     #[cfg(feature = "editor")]
     #[command(
+        about = "Print a problem report to paste into an issue: version, system and the last lines of klad's log",
+        long_about = "Print a problem report to paste into a new issue on klad's GitHub page: klad's version, your system and the last lines of klad's log (errors the editor showed, and crashes), with your home folder written as ~. Nothing is sent. --drawing names the drawing's size and zips it next to itself, without its cache, to attach to the issue; the editor's Help > Report a problem does the same, with its last messages. KLAD_LOG points at another log file.\n\n  klad report\n  klad report --drawing art.klad"
+    )]
+    Report {
+        #[arg(long, help = "A drawing to zip next to itself and attach")]
+        drawing: Option<PathBuf>,
+    },
+    #[cfg(feature = "editor")]
+    #[command(
         about = "Check now whether a newer klad is out (the editor also checks once a day by itself)",
         long_about = "Check now whether a newer klad is out, on klad's releases page (the editor also checks once a day by itself, and its About window has check now). KLAD_UPDATE_FEED points it at another feed, a URL or a JSON file shaped like GitHub's latest release.\n\n  klad updates"
     )]
@@ -1851,7 +1860,15 @@ fn main() {
     }
     match traced {
         true => unsafe { std::env::set_var("RUST_BACKTRACE", "1") },
-        false => std::panic::set_hook(Box::new(|info| eprintln!("error: {}", bug(info)))),
+        false => std::panic::set_hook(Box::new(|info| {
+            #[cfg(feature = "editor")]
+            klad_app::report::log(&format!(
+                "klad {}: {}",
+                std::env::args().nth(1).unwrap_or_default(),
+                klad_app::report::panic_text(info)
+            ));
+            eprintln!("error: {}", bug(info))
+        })),
     }
     if let Err(e) = run() {
         match traced {
@@ -3312,6 +3329,38 @@ fn run() -> Result<()> {
         Command::Skill => print!("{}", include_str!("../../../docs/skill/SKILL.md")),
         Command::Samples { copy, into, json } => samples(copy.as_deref(), into, json)?,
         Command::Reference => print!("{}", reference()),
+        #[cfg(feature = "editor")]
+        Command::Report { drawing } => {
+            use klad_app::report;
+            let (summary, attached) = match &drawing {
+                Some(d) => {
+                    let opened = Bundle::open(d)?;
+                    (Some(report::summary(&opened.doc)), Some(report::zip_beside(d)?))
+                }
+                None => (None, None),
+            };
+            print!(
+                "{}",
+                report::Report {
+                    from: "from the command line",
+                    folder: drawing
+                        .as_ref()
+                        .and_then(|d| d.parent())
+                        .map(std::path::Path::to_path_buf),
+                    drawing: summary,
+                    attached: attached
+                        .as_ref()
+                        .and_then(|p| p.file_name())
+                        .map(|n| n.to_string_lossy().to_string()),
+                    messages: Vec::new(),
+                    log: report::last_lines(report::LOG_LINES),
+                }
+                .text()
+            );
+            if let Some(zip) = attached {
+                eprintln!("attach {} to the issue", zip.display());
+            }
+        }
         #[cfg(feature = "editor")]
         Command::Updates => {
             use klad_app::updates;

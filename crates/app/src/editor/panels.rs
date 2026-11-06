@@ -53,7 +53,7 @@ const STRIP_TOOLS: [Cmd; 11] = [
 impl Editor {
     pub(super) fn check(&mut self, f: impl FnOnce(&mut Self) -> Result<()>) {
         if let Err(e) = f(self) {
-            self.error(e);
+            self.failed(e);
         }
     }
 
@@ -163,7 +163,9 @@ impl Editor {
         if let Some(path) = &self.settings_path
             && let Err(e) = self.settings.save(path)
         {
-            self.error(format!("saving your settings: {e:#}"));
+            self.error(format!(
+                "your settings could not be saved ({e:#}); they apply until klad closes"
+            ));
         }
         self.settings_dirty = false;
     }
@@ -172,18 +174,21 @@ impl Editor {
         spec.exe = match crate::start::draw_binary() {
             Some(exe) => exe,
             None => {
-                self.error("cannot find the klad binary next to the editor".to_string());
+                self.error("the klad command line tool is missing next to the editor, so this cannot run: install klad again (it ships both)".to_string());
                 return;
             }
         };
         let name = spec.name.clone();
         match self.jobs.start(spec) {
             Ok(_) => self.say(Tone::Info, format!("{name}...")),
-            Err(e) => self.error(format!("cannot run {name}: {e}")),
+            Err(e) => self.error(format!("could not start {name}: {e}")),
         }
     }
 
     fn say_job(&mut self, tone: Tone, text: String) {
+        if tone == Tone::Error {
+            crate::report::log(&format!("editor: {text}"));
+        }
         self.messages.say(tone, text, None, Instant::now());
     }
 
@@ -219,7 +224,7 @@ impl Editor {
                     if e.tag == Tag::Inbetween {
                         self.between.report = super::between::report(&e.output);
                     }
-                    self.say_job(Tone::Error, format!("{} failed: {text}", e.name))
+                    self.say_job(Tone::Error, crate::report::job_failed(&e.name, &text))
                 }
                 Outcome::Cancelled => self.say_job(Tone::Info, format!("{} cancelled", e.name)),
             }
@@ -629,7 +634,7 @@ impl Editor {
         work
     }
 
-    fn window(
+    pub(super) fn window(
         ctx: &egui::Context,
         id: &str,
         (title, at): (String, egui::Pos2),
@@ -719,6 +724,17 @@ impl Editor {
                 |ui| self.check(|e| e.brush_window_ui(ui)),
             );
             self.windows.brush &= open;
+        }
+        if self.windows.report {
+            let mut open = true;
+            Self::window(
+                ctx,
+                "report",
+                (format!("{} Report a problem", icon::LOG), settings_at),
+                &mut open,
+                |ui| self.report_panel(ui),
+            );
+            self.windows.report &= open;
         }
         if self.windows.about {
             let mut open = true;

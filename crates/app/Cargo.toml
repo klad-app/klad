@@ -18,6 +18,7 @@ egui-wgpu = "0.37.0"
 half = { version = "2.7.1", features = ["bytemuck"] }
 notify = "8"
 png = "0.18.1"
+crc32fast = "1.5.4"
 pollster = "1.0.1"
 rayon = "1.12.0"
 serde = { version = "1.0.229", features = ["derive"] }

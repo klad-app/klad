@@ -2342,7 +2342,7 @@ pub const MENUS: [Menu; 7] = [
 ];
 
 #[cfg(any(target_os = "macos", test))]
-pub const IN_APP_MENU: [Cmd; 3] = [Cmd::About, Cmd::Settings, Cmd::Quit];
+pub const IN_APP_MENU: [Cmd; 2] = [Cmd::Settings, Cmd::Quit];
 
 pub fn menu_label(cmd: Cmd) -> String {
     let name = cmd.spec().name;

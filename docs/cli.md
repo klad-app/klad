@@ -76,6 +76,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad install`](#klad-install): Put klad on the terminal's path, for you and for agents
 - [`klad skill`](#klad-skill): Print the agent skill: how an agent draws with klad (the same text as docs/skill/SKILL.md)
 - [`klad samples`](#klad-samples): List the sample drawings that come with klad, or copy one to draw on
+- [`klad report`](#klad-report): Print a problem report to paste into an issue: version, system and the last lines of klad's log
 - [`klad updates`](#klad-updates): Check now whether a newer klad is out (the editor also checks once a day by itself)
 - [`klad bench`](#klad-bench): Measure stroke storage, brush speed, replay, cache and compositing
 - [`klad open`](#klad-open): Open the editor, on a bundle or on the start window (new, open, recent)
@@ -3319,6 +3320,24 @@ Options:
 
       --json
 
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## klad report
+
+```text
+Print a problem report to paste into a new issue on klad's GitHub page: klad's version, your system and the last lines of klad's log (errors the editor showed, and crashes), with your home folder written as ~. Nothing is sent. --drawing names the drawing's size and zips it next to itself, without its cache, to attach to the issue; the editor's Help > Report a problem does the same, with its last messages. KLAD_LOG points at another log file.
+
+  klad report
+  klad report --drawing art.klad
+
+Usage: klad report [OPTIONS]
+
+Options:
+      --drawing <DRAWING>
+          A drawing to zip next to itself and attach
 
   -h, --help
           Print help (see a summary with '-h')

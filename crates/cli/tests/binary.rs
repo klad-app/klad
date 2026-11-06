@@ -179,3 +179,48 @@ fn samples_are_listed_and_copied_to_draw_on() {
     assert!(String::from_utf8_lossy(&wrong.stderr).contains("no sample stone; there are rock"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_report_holds_the_version_the_log_with_home_hidden_and_zips_the_drawing() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-report-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let home = dir.join("home");
+    let log = dir.join("klad.log");
+    std::fs::write(
+        &log,
+        format!("2026-11-06 17:00:00 editor: could not read {}/x.png\n", home.display()),
+    )
+    .unwrap();
+    let bundle = dir.join("drawings/rock.klad");
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_klad"))
+            .args(args)
+            .env("KLAD_LOG", &log)
+            .env("HOME", &home)
+            .output()
+            .unwrap()
+    };
+    assert!(
+        run(&["new", bundle.to_str().unwrap(), "--width", "64", "--height", "48"])
+            .status
+            .success()
+    );
+    let out = run(&["report", "--drawing", bundle.to_str().unwrap()]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    assert!(
+        text.starts_with("klad ") && text.contains("from the command line"),
+        "{text}"
+    );
+    assert!(
+        text.contains("could not read ~/x.png"),
+        "the home folder reads as ~: {text}"
+    );
+    assert!(
+        text.contains("The drawing (64 by 48 px, 1 layer, 1 frame) is attached as rock for a report.zip."),
+        "{text}"
+    );
+    assert!(dir.join("drawings/rock for a report.zip").is_file());
+    std::fs::remove_dir_all(&dir).unwrap();
+}

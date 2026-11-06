@@ -164,7 +164,7 @@ impl Editor {
                         ms(p.since) / 1000.0
                     ),
                 ),
-                Err(e) => self.error(format!("preparing frames: {e:#}")),
+                Err(e) => self.failed(e.context("the frames could not be prepared")),
             }
         }
         if self.buffering.job.is_some() || !self.cacheable() {

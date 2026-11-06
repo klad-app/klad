@@ -17,6 +17,11 @@ const WIDTH: f32 = 760.0;
 
 pub fn run(path: Option<PathBuf>) -> Result<()> {
     crate::opened::listen();
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        crate::report::log(&format!("the editor stopped: {}", crate::report::panic_text(info)));
+        previous(info);
+    }));
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(start::title(path.as_deref()))

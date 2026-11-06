@@ -107,12 +107,13 @@ impl Editor {
                 Some(_) => editing.or(self
                     .path_commit
                     .as_ref()
-                    .map(|_| "writing the last edit...".to_string())),
+                    .map(|_| "the last edit is being written: try again in a moment".to_string())),
                 None => Some("select strokes (S), a shape (V) or points (A) first".to_string()),
             },
-            Cmd::FlipView | Cmd::ResetRotation => {
-                self.view.is_none().then(|| "the canvas is not shown yet".to_string())
-            }
+            Cmd::FlipView | Cmd::ResetRotation => self
+                .view
+                .is_none()
+                .then(|| "the canvas is not shown yet: wait a moment".to_string()),
             Cmd::Corner | Cmd::Smooth => direct
                 .filter(|d| !d.points.is_empty())
                 .is_none()
@@ -120,14 +121,14 @@ impl Editor {
                 .or(self
                     .path_commit
                     .as_ref()
-                    .map(|_| "writing the last edit...".to_string())),
+                    .map(|_| "the last edit is being written: try again in a moment".to_string())),
             Cmd::Simplify => direct
                 .is_none()
                 .then(|| "pick a shape with A first".to_string())
                 .or(self
                     .path_commit
                     .as_ref()
-                    .map(|_| "writing the last edit...".to_string())),
+                    .map(|_| "the last edit is being written: try again in a moment".to_string())),
             Cmd::MakePath => match direct.and_then(|d| self.scene.bundle.doc.item(&d.node)) {
                 Some(klad_core::doc::Item::Node(_, _, n)) if matches!(n.shape, Shape::Path { .. }) => {
                     Some("it is a path already".into())
@@ -200,7 +201,8 @@ impl Editor {
                 if layer.is_none() {
                     pick_layer()
                 } else {
-                    (self.scene.bundle.doc.timeline.frames == 1).then(|| "the timeline has one frame".to_string())
+                    (self.scene.bundle.doc.timeline.frames == 1)
+                        .then(|| "the timeline has one frame: insert a frame first (I)".to_string())
                 }
             }),
             Cmd::NewPaintLayer | Cmd::NewVectorLayer | Cmd::NewGroupLayer | Cmd::NewAdjustLayer => self.timeline_edit(),
@@ -252,8 +254,14 @@ impl Editor {
                             "select from one drawing to the frame where another starts, on a paint layer".to_string()
                         })
                 })
-                .or_else(|| self.tweening().then(|| "in-betweens are being made".to_string())),
-            Cmd::RedoInbetweens => self.tweening().then(|| "in-betweens are being made".to_string()),
+                .or_else(|| {
+                    self.tweening().then(|| {
+                        "in-betweens are being made: wait for them, or cancel them in the status line".to_string()
+                    })
+                }),
+            Cmd::RedoInbetweens => self
+                .tweening()
+                .then(|| "in-betweens are being made: wait for them, or cancel them in the status line".to_string()),
             Cmd::NewClip => (span.is_none() && self.timeline.range.is_none())
                 .then(|| "select frames or mark a loop range first".to_string()),
             Cmd::DeleteClip | Cmd::ClipLoops | Cmd::ClipOwnFps => need_clip(),
@@ -263,17 +271,17 @@ impl Editor {
             Cmd::Refill => self
                 .jobs
                 .busy(crate::jobs::Tag::Edit)
-                .then(|| "a change is being made".to_string())
+                .then(|| "a change is being made: try again in a moment".to_string())
                 .or(editing),
             Cmd::FillLike => need_span().or_else(|| {
                 self.jobs
                     .busy(crate::jobs::Tag::Edit)
-                    .then(|| "a change is being made".to_string())
+                    .then(|| "a change is being made: try again in a moment".to_string())
             }),
             Cmd::ShowGaps => self
                 .jobs
                 .busy(crate::jobs::Tag::Gaps)
-                .then(|| "the gaps are being looked for".to_string()),
+                .then(|| "the gaps are being looked for: wait a moment".to_string()),
             Cmd::ShowArcs if self.checks.arcs.is_some() => None,
             Cmd::ShowArcs => self.track().err().map(|e| e.to_string()),
             Cmd::CompareReference => super::compare::reference_image(&self.scene.bundle.root, &self.scene.bundle.doc)
@@ -281,7 +289,7 @@ impl Editor {
                 .then(|| "add a reference picture first: a picture layer marked as a reference".to_string()),
             Cmd::ExportGodot => {
                 if self.jobs.busy(crate::jobs::Tag::Export) {
-                    Some("an export is running".into())
+                    Some("an export is running: wait for it, or cancel it in the status line".into())
                 } else {
                     self.godot_folder()
                         .is_empty()
@@ -358,6 +366,7 @@ impl Editor {
             Cmd::Numbers => layout.numbers,
             Cmd::Settings => self.windows.settings,
             Cmd::About => self.windows.about,
+            Cmd::ReportProblem => self.windows.report,
             Cmd::Export => self.windows.export,
             Cmd::AddFont => self.windows.font,
             Cmd::PaintOver => self.windows.paintover,
@@ -617,14 +626,7 @@ impl Editor {
             Cmd::ShowParts => self.checks.parts = !self.checks.parts,
             Cmd::ShowArcs => self.show_arcs()?,
             Cmd::InstallCommand => self.start_job(install_job()),
-            Cmd::ReportProblem => {
-                let text = self.problem_report();
-                self.ctx.copy_text(text);
-                self.say(
-                    Tone::Done,
-                    "copied a problem report: paste it into an issue at github.com/klad-app/klad",
-                );
-            }
+            Cmd::ReportProblem => self.windows.report = !self.windows.report,
             Cmd::CopyPath => {
                 let path = self.scene.bundle.root.display().to_string();
                 self.ctx.copy_text(path.clone());
@@ -962,27 +964,80 @@ pub(crate) fn install_job() -> Spec {
 }
 
 impl Editor {
-    pub(crate) fn problem_report(&self) -> String {
-        let lines: Vec<String> = self
+    pub(crate) fn problem_report(&self, attached: Option<&std::path::Path>) -> String {
+        let messages: Vec<String> = self
             .messages
             .log()
             .rev()
-            .take(40)
+            .take(crate::report::LOG_LINES)
             .map(|m| format!("{:?}: {}", m.tone, m.text))
             .collect::<Vec<_>>()
             .into_iter()
             .rev()
             .collect();
-        format!(
-            "klad {}\n{} {}\ncanvas {}x{}, {} layers, {} frames\n\nlast messages:\n{}\n",
-            crate::VERSION,
-            std::env::consts::OS,
-            std::env::consts::ARCH,
-            self.scene.bundle.doc.canvas.width,
-            self.scene.bundle.doc.canvas.height,
-            self.scene.bundle.doc.all_layers().len(),
-            self.scene.bundle.doc.timeline.frames,
-            lines.join("\n")
+        crate::report::Report {
+            from: "from the editor",
+            folder: self.scene.bundle.root.parent().map(std::path::Path::to_path_buf),
+            drawing: Some(crate::report::summary(&self.scene.bundle.doc)),
+            attached: attached
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().to_string()),
+            messages,
+            log: crate::report::last_lines(crate::report::LOG_LINES),
+        }
+        .text()
+    }
+
+    pub(super) fn report_panel(&mut self, ui: &mut egui::Ui) {
+        ui.add(
+            egui::Label::new(
+                "Paste this into a new issue on klad's GitHub page. It holds klad's version, your system, the last messages and the last lines of klad's log; klad sends nothing by itself.",
+            )
+            .wrap(),
+        );
+        ui.checkbox(
+            &mut self.report_drawing,
+            "include the drawing: a zip next to it, to attach to the issue",
         )
+        .hint("the drawing without its cache, so whoever reads the issue sees what you see");
+        let text = self.problem_report(None);
+        egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+            ui.add(egui::Label::new(RichText::new(&text).monospace().size(11.0)).wrap());
+        });
+        ui.horizontal(|ui| {
+            if ui
+                .button(format!("{} copy the report", crate::theme::icon::COPY))
+                .hint("to the clipboard, ready to paste into the issue")
+                .clicked()
+            {
+                self.copy_report();
+            }
+            ui.hyperlink_to("open klad's issues", crate::report::ISSUES)
+                .hint("a new issue on GitHub, in your browser");
+        });
+    }
+
+    fn copy_report(&mut self) {
+        let attached = match self.report_drawing {
+            true => match crate::report::zip_beside(&self.scene.bundle.root) {
+                Ok(zip) => Some(zip),
+                Err(e) => {
+                    self.failed(e.context("the drawing could not be zipped for the report"));
+                    return;
+                }
+            },
+            false => None,
+        };
+        self.ctx.copy_text(self.problem_report(attached.as_deref()));
+        match attached {
+            Some(zip) => self.say(
+                Tone::Done,
+                format!(
+                    "copied the report: paste it into the issue and attach {}",
+                    zip.display()
+                ),
+            ),
+            None => self.say(Tone::Done, "copied the report: paste it into a new issue"),
+        }
     }
 }

@@ -149,7 +149,7 @@ impl Editor {
                         })
                         .collect();
                 }
-                Err(e) => self.say(Tone::Error, format!("the parallax preview: {e:#}")),
+                Err(e) => self.say(Tone::Error, format!("the parallax preview could not be made: {e:#}")),
             }
         }
         let painter = ui.painter().with_clip_rect(rect);

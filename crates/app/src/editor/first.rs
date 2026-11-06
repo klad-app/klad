@@ -52,14 +52,14 @@ impl Editor {
             return;
         }
         let mut open = true;
-        let corner = self.canvas_rect.right_top() + egui::vec2(-344.0, 12.0);
-        egui::Window::new("First steps")
-            .open(&mut open)
-            .default_pos(corner)
-            .resizable(false)
-            .collapsible(false)
-            .show(ctx, |ui| {
-                ui.set_width(320.0);
+        let corner = self.canvas_rect.right_top() + egui::vec2(-384.0, 12.0);
+        Self::window(
+            ctx,
+            "first steps",
+            (format!("{} First steps", icon::INFO), corner),
+            &mut open,
+            |ui| {
+                ui.set_width(340.0);
                 step(
                     ui,
                     self.first.drew,
@@ -102,7 +102,8 @@ impl Editor {
                         .wrap(),
                     );
                 }
-            });
+            },
+        );
         if !open {
             self.first.open = false;
         }
