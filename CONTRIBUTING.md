@@ -34,11 +34,15 @@ These come from `CLAUDE.md`, which is also the guide for coding agents working o
 1. Fork, branch from `main`, keep the change to one thing.
 2. `just lint`, `just test` and `just audit` pass.
 3. Describe what changed and how you checked it; for anything visual, attach a render (`klad render`) before and after.
+4. The first time, the CLA assistant asks you in the pull request to sign the contributor licence agreement (`CLA.md`): one click, and it covers every later change. It lets Indicode BV ship your change in klad under its licences; you keep the copyright to your work.
 
-By sending a contribution you agree that Indicode BV may publish it under the licence of the project.
+klad is source-available, not open source (`LICENSE`): a fork on GitHub to send pull requests is fine, publishing klad or builds of it elsewhere is not. The file format, the command reference, the agent skill and `klad-client` are MIT (`LICENSE-MIT`); `klad-client` depends on nothing in the other crates, so it stays MIT on its own.
 
 ## Releases
 
-1. Move the changes under "Unreleased" in `CHANGELOG.md` to a section `## x.y.z (date)` and bump `version` in the workspace `Cargo.toml`.
-2. Commit, tag `vx.y.z` and push the tag. The `release` workflow runs the checks, builds the macOS app and disk image (arm64 and x86_64 in one), `klad` archives for macOS, Linux (x86_64, arm64, also as AppImages) and Windows, writes `checksums.txt` and publishes them with that section of the changelog as the notes.
-3. The builds are not signed or notarised yet; the README says how to open them.
+The Mac and Windows builds are sold on itch.io (and later Steam); Linux is built from source. GitHub has the release notes, not downloads.
+
+1. Move the changes under "Unreleased" in `CHANGELOG.md` to a section `## x.y.z (date)` and bump `version` in the workspace `Cargo.toml`. Commit.
+2. On a Mac with [butler](https://itch.io/docs/butler/) logged in: `ITCH_TARGET=<user>/<page> just itch-mac` builds the app (arm64 and x86_64 in one) and pushes it to the page's `mac` channel.
+3. Tag `vx.y.z` and push the tag. The `release` workflow runs the checks, builds the Windows version and pushes it to the `windows` channel (with the `BUTLER_API_KEY` secret and the `ITCH_TARGET` variable set in the repository), then publishes that changelog section as the release notes, which the editor's update check reads.
+4. The builds are not signed yet.

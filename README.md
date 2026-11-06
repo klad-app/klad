@@ -2,7 +2,7 @@
 
 ![The klad editor with a painted lantern prop open](docs/images/editor.png)
 
-A 2D art app you share with an AI agent. You draw and paint in the editor with a pen; the agent works on the same drawing through the `klad` command line, and each of you sees the other's changes within a second. Everything in a drawing stays editable: strokes are kept as data (their path, pressure and brush), vector shapes keep their points, and effects, light and depth are settings on layers.
+A 2D art app you share with an AI agent. You draw and paint in the editor with a pen; the agent works on the same drawing through the `klad` command line, and each of you sees the other's changes within a second. Everything in a drawing stays editable: strokes are kept as data (their path, pressure and brush), vector shapes keep their points, and effects, light and depth are settings on layers. klad is source-available, not open source: you can read the code, build it and change it for yourself or inside your company, and send changes back, but not hand out copies of it (see [Licence](#licence)).
 
 ![Three solids painted stroke by stroke by the agent](docs/images/solids.png)
 
@@ -46,13 +46,10 @@ Early, and open for testing. What works today:
 
 ## Try it
 
-Download klad from the [releases page](https://github.com/klad-app/klad/releases):
+- macOS and Windows: signed installers will be sold on itch.io and Steam. Until then, build klad from source as below.
+- Linux: build it from source, free.
 
-- macOS: `klad-<version>-macos.dmg`. Drag klad to Applications. The app is not signed yet: the first time, right click it and choose Open. In the editor, the document menu's "install the klad command" puts `klad` on your terminal's path for you and for agents.
-- Windows: `klad-<version>-windows-x86_64.zip`. Unzip it anywhere and start `klad-editor.exe`; `klad.exe install` adds the folder to your PATH.
-- Linux: `klad-<version>-<arch>.AppImage` (make it executable and run it), or the `tar.gz` with `klad` and `klad-editor`; `klad install` links `klad` into `~/.local/bin`.
-
-Every download holds the same `klad` command line tool, the editor, the fonts, the licences and the agent skill (`klad skill` prints it). The editor checks the releases page once a day for a new version and says so; it installs nothing by itself (turn it off in the settings window).
+Every build holds the `klad` command line tool, the editor, the fonts, the licences and the agent skill (`klad skill` prints it). In the editor, the document menu's "install the klad command" puts `klad` on your terminal's path for you and for agents (`klad install` does the same). The editor checks klad's releases once a day for a new version and says so; it installs nothing by itself (turn it off in the settings window).
 
 ### From source
 
@@ -79,7 +76,10 @@ The agent looks at the drawing through renders (`klad render`), changes it with 
 
 ## Building on it
 
-- `docs/DESIGN.md`: the document format, the CLI, the brush engine, rendering, the editor, the dependencies.
+- `docs/format.md`: the file format of a drawing, enough to read and write one from any program.
+- `docs/cli.md`: every command with its options (`klad <command> --help` prints the same).
+- `crates/client`: `klad-client`, a small Rust crate that runs klad commands, applies edits as JSON ops and reads drawings back.
+- `docs/DESIGN.md`: how klad is built: the CLI, the brush engine, rendering, the editor, the dependencies.
 - `CONTRIBUTING.md`: building, testing, the code rules and how to send a change.
 - `samples/`: generators that make drawings from scratch, the best place to see the ops in use.
 
@@ -93,4 +93,10 @@ just samples    # build the sample drawings
 
 ## Licence
 
-Source-available, not open source: the PolyForm Internal Use License 1.0.0 with a personal-use permission, copyright Indicode BV (`LICENSE`). klad is built on open source libraries, fonts and Skia; their licences are in `THIRD-PARTY-NOTICES.md`, also shown by `klad licences` and in the editor's About window.
+klad is source-available, not open source, copyright Indicode BV.
+
+- The app (everything not listed below) is under the [PolyForm Internal Use License 1.0.0](https://polyformproject.org/licenses/internal-use/1.0.0) with two additional permissions (`LICENSE`): you may use it for your own personal purposes as well as inside your company, and the drawings you make with it are yours to share, with the brush settings and pictures klad copies into them. You may build it and change it for those uses; you may not distribute it, from source or as a build.
+- The parts other programs and agents need to work with klad are under the MIT License (`LICENSE-MIT`): the file format (`docs/format.md`), the command reference (`docs/cli.md`), the agent skill (`docs/skill/`) and the `klad-client` crate (`crates/client`).
+- Contributions are welcome under the contributor licence agreement (`CLA.md`); see `CONTRIBUTING.md`.
+
+klad is built on open source libraries, fonts and Skia; their licences are in `THIRD-PARTY-NOTICES.md`, also shown by `klad licences` and in the editor's About window.

@@ -1794,6 +1794,7 @@ dependencies = [
  "clap",
  "klad-app",
  "klad-brush",
+ "klad-client",
  "klad-core",
  "klad-render",
  "libc",
@@ -1802,6 +1803,13 @@ dependencies = [
  "rayon",
  "serde_json",
  "zstd",
+]
+
+[[package]]
+name = "klad-client"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

@@ -1,5 +1,6 @@
 ---
 name: klad
+license: MIT (LICENSE-MIT in the klad repository)
 description: Make and edit 2D art with the klad CLI (`klad`) in a `.draw` bundle that the user can open in the editor at the same time. Use for any drawing, illustration, game asset, icon, background or sprite work in klad, for reading what the user drew or asked for (strokes, selection, pinned notes), and for scripting art generators that emit `klad apply` ops.
 ---
 

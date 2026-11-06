@@ -21,7 +21,7 @@ cp "$built/klad$ext" "$stage/"
 [ -f "$built/klad-editor$ext" ] && cp "$built/klad-editor$ext" "$stage/"
 mkdir -p "$stage/fonts"
 (cd "$root/fonts" && tar cf - --exclude update.py .) | (cd "$stage/fonts" && tar xf -)
-cp "$root/LICENSE" "$root/THIRD-PARTY-NOTICES.md" "$root/docs/skill/SKILL.md" "$stage/"
+cp "$root/LICENSE" "$root/LICENSE-MIT" "$root/THIRD-PARTY-NOTICES.md" "$root/docs/skill/SKILL.md" "$stage/"
 cp "$root/packaging/icon/icon.png" "$stage/klad.png"
 case "$platform" in
   windows)

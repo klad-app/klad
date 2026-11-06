@@ -11,82 +11,47 @@ jobs:
   check:
     uses: ./.github/workflows/check.yml
 
-  build:
+  windows:
     needs: check
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-14
-            target: aarch64-apple-darwin
-            app: true
-          - os: macos-14
-            target: x86_64-apple-darwin
-          - os: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-            appimage: x86_64
-          - os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            appimage: aarch64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
+    env:
+      BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+      ITCH_TARGET: ${{ vars.ITCH_TARGET }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: System libraries
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev libfontconfig1-dev libfuse2
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
-      - name: AppImage tool
-        if: matrix.appimage
-        run: |
-          curl -fsSL -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.appimage }}.AppImage"
-          chmod +x appimagetool
-          echo "APPIMAGETOOL=$PWD/appimagetool" >> "$GITHUB_ENV"
-      - name: Archive
+          key: x86_64-pc-windows-msvc
+      - name: Build
         shell: bash
-        run: bash packaging/archive.sh ${{ matrix.target }} dist
-      - name: Mac app and disk image
-        if: matrix.app
-        env:
-          KLAD_MAC_TARGETS: aarch64-apple-darwin x86_64-apple-darwin
+        run: bash packaging/archive.sh x86_64-pc-windows-msvc dist
+      # TODO: sign klad.exe and klad-editor.exe before they are pushed
+      - name: Push to itch.io
+        if: env.BUTLER_API_KEY != '' && env.ITCH_TARGET != ''
+        shell: bash
         run: |
-          rustup target add x86_64-apple-darwin
-          bash packaging/macos/app.sh dist
-      - uses: actions/upload-artifact@v4
-        with:
-          name: klad-${{ matrix.target }}
-          path: |
-            dist/*.tar.gz
-            dist/*.zip
-            dist/*.dmg
-            dist/*.AppImage
+          curl -fsSL -o butler.zip https://broth.itch.zone/butler/windows-amd64/LATEST/archive/default
+          unzip -q butler.zip -d butler
+          ./butler/butler.exe push dist/klad-*-windows-x86_64 "$ITCH_TARGET:windows" --userversion "${GITHUB_REF_NAME#v}"
 
   release:
-    needs: build
+    needs: windows
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          path: artefacts
-          merge-multiple: true
-      - name: Checksums and notes
+      - name: Notes
         run: |
-          cd artefacts && sha256sum * > checksums.txt && cd ..
           version="${GITHUB_REF_NAME#v}"
           awk -v v="$version" '$0 ~ "^## "v"( |$)" {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
           [ -s notes.md ] || echo "klad $version" > notes.md
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" artefacts/* --title "klad ${GITHUB_REF_NAME#v}" --notes-file notes.md
+        run: gh release create "$GITHUB_REF_NAME" --title "klad ${GITHUB_REF_NAME#v}" --notes-file notes.md

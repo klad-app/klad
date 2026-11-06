@@ -69,3 +69,41 @@ fn an_error_is_one_line_and_the_backtrace_waits_for_klad_backtrace() {
     let traced = run(Some("1"));
     assert!(traced.contains("Caused by") && traced.contains("backtrace"), "{traced}");
 }
+
+#[test]
+fn the_client_makes_edits_reads_and_renders_a_drawing() {
+    use klad_client::{Error, Klad, json};
+    let dir = std::env::temp_dir().join(format!("draw-binary-client-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let klad = Klad::at(env!("CARGO_BIN_EXE_klad"));
+    assert!(klad.version().unwrap().starts_with("klad"));
+    let art = klad.drawing(dir.join("art.draw"));
+    art.create(320, 200, Some("#e9e4da")).unwrap();
+    let ids = art
+        .apply([
+            json!({"op": "add", "layer": {"kind": "vector", "name": "sky"}}),
+            json!({"op": "stroke", "layer": "l1", "brush": "ink", "size": 6, "color": "#1b1b1b", "path": "M20 100 L300 100"}),
+        ])
+        .unwrap();
+    assert!(!ids.is_empty());
+    let layer = art.document().unwrap()["layers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|l| l["name"] == "sky")
+        .map(|l| l["id"].as_str().unwrap().to_string())
+        .unwrap();
+    art.apply([json!({"op": "add", "node": {"type": "rect", "x": 10, "y": 10, "w": 50, "h": 30, "fill": "#336699"}, "in": layer, "frame": 0})])
+        .unwrap();
+    assert!(art.ls(0).unwrap().to_string().contains("sky"));
+    let strokes = art.strokes("l1", 0).unwrap();
+    assert!(strokes.to_string().contains("ink"));
+    let png = art.render(&dir.join("art.png"), 0, 0.5).unwrap();
+    assert!(std::fs::metadata(png).unwrap().len() > 0);
+    art.undo().unwrap();
+    assert!(!art.document().unwrap().to_string().contains("#336699"));
+    let missing = art.show("n999").unwrap_err();
+    assert!(matches!(missing, Error::Failed { .. }), "{missing}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -27,7 +27,7 @@ done
 sed -e "s/@VERSION@/$version/" -e "s/@BUILD@/$build/" "$root/packaging/macos/Info.plist" > "$app/Contents/Info.plist"
 cp "$root/packaging/icon/klad.icns" "$app/Contents/Resources/"
 rsync -a --exclude update.py "$root/fonts/" "$app/Contents/Resources/fonts/"
-cp "$root/LICENSE" "$root/THIRD-PARTY-NOTICES.md" "$app/Contents/Resources/"
+cp "$root/LICENSE" "$root/LICENSE-MIT" "$root/THIRD-PARTY-NOTICES.md" "$app/Contents/Resources/"
 mkdir -p "$app/Contents/Resources/skill"
 cp "$root/docs/skill/SKILL.md" "$app/Contents/Resources/skill/"
 codesign --force --deep --sign - "$app" 2>/dev/null || true

@@ -1701,6 +1701,8 @@ enum Command {
     },
     #[command(about = "Print the agent skill: how an agent draws with klad (the same text as docs/skill/SKILL.md)")]
     Skill,
+    #[command(hide = true, about = "Print the command reference, docs/cli.md")]
+    Reference,
     #[command(about = "Measure stroke storage, brush speed, replay, cache and compositing")]
     Bench {
         #[arg(long, default_value_t = 10_000)]
@@ -3286,6 +3288,7 @@ fn run() -> Result<()> {
         Command::Licences => print!("{}\n{}", klad_core::notices::LICENSE, klad_core::notices::NOTICES),
         Command::Install { dir } => install::install(dir.as_deref())?,
         Command::Skill => print!("{}", include_str!("../../../docs/skill/SKILL.md")),
+        Command::Reference => print!("{}", reference()),
         Command::Bench { strokes, size, seed } => bench::run(strokes, size, seed)?,
         #[cfg(feature = "editor")]
         Command::Open { bundle } => klad_app::run(bundle)?,
@@ -3544,10 +3547,66 @@ fn palette(path: &Path, as_json: bool) -> Result<()> {
     Ok(())
 }
 
+const REFERENCE_HEAD: &str = "_Last updated: with the commands it lists. `just reference` writes it from `klad reference`; `cargo test -p klad-cli` fails when it is out of date._
+
+# klad command reference
+
+Every command of the `klad` command line with its options, as `klad <command> --help` prints them. A drawing is a `.draw` folder (`docs/format.md`); `klad apply` takes the same edits as JSON lines, one transaction per call. `docs/skill/SKILL.md` explains how an agent uses them, and the `klad-client` crate (`crates/client`) runs them from Rust.
+
+This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad itself.
+
+## Commands
+
+";
+
+fn reference() -> String {
+    use clap::CommandFactory;
+    let mut cli = Cli::command();
+    cli.build();
+    let sections: Vec<(String, String, String)> = cli
+        .get_subcommands_mut()
+        .filter(|c| !c.is_hide_set() && c.get_name() != "help")
+        .map(|c| {
+            let about = c.get_about().map(ToString::to_string).unwrap_or_default();
+            (c.get_name().to_string(), about, c.render_long_help().to_string())
+        })
+        .collect();
+    let index: String = sections
+        .iter()
+        .map(|(name, about, _)| format!("- [`klad {name}`](#klad-{name}): {about}\n"))
+        .collect();
+    let body: String = sections
+        .iter()
+        .map(|(name, _, help)| format!("\n## klad {name}\n\n```text\n{}\n```\n", trimmed(help)))
+        .collect();
+    format!("{REFERENCE_HEAD}{index}{body}")
+}
+
+fn trimmed(help: &str) -> String {
+    help.trim_end()
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    #[cfg(feature = "editor")]
+    #[test]
+    fn the_command_reference_is_current() {
+        let text = std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(reference)
+            .unwrap()
+            .join()
+            .unwrap();
+        let written = include_str!("../../../docs/cli.md").replace("\r\n", "\n");
+        assert!(text == written, "docs/cli.md is out of date: just reference");
+    }
 
     #[test]
     fn every_command_parses_its_flags() {

@@ -327,7 +327,10 @@ mod tests {
         .unwrap()
         .repaired();
         assert_eq!(old.panes.len(), 6);
-        assert!(!old.is_open(Pane::Agent), "the agent pane comes closed until it is asked for");
+        assert!(
+            !old.is_open(Pane::Agent),
+            "the agent pane comes closed until it is asked for"
+        );
         assert_eq!(old.panes[0].pane, Pane::Layers);
         assert_eq!(old.panes[0].body, Pane::Layers.min_body());
     }

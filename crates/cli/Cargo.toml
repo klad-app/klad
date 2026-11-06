@@ -36,5 +36,8 @@ version = "0.1.0"
 path = "../app"
 optional = true
 
+[dev-dependencies]
+klad-client = { version = "0.1.0", path = "../client" }
+
 [target."cfg(unix)".dependencies]
 libc = "0.2.191"

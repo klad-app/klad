@@ -2,9 +2,11 @@
 
 ## Unreleased
 
-The first downloadable builds.
+The first builds, and klad's licences.
 
-- Downloads for macOS (an app and a disk image, Apple silicon and Intel in one), Windows and Linux (archives and AppImages), each with the `klad` command line, the editor, the fonts, the licences and the agent skill.
+- klad is source-available, not open source: the app is under the PolyForm Internal Use License 1.0.0, with permission for personal use and to share the drawings you make (`LICENSE`). The file format (`docs/format.md`), the command reference (`docs/cli.md`), the agent skill and the new `klad-client` crate are MIT (`LICENSE-MIT`), so any program or agent can read, write and make klad drawings. Contributions come in under a contributor licence agreement (`CLA.md`).
+- `klad-client`: run klad from Rust, apply edits as JSON ops, read drawings back as JSON, render them.
+- Builds for macOS (an app, Apple silicon and Intel in one) and Windows, sold on itch.io; Linux from source. Each has the `klad` command line, the editor, the fonts, the licences and the agent skill.
 - The editor runs on Windows and Linux (`klad open`, or `klad-editor`), with the platform's open dialog; pens that report pressure through the system (Windows) draw with it.
 - On a Mac, `.draw` drawings show in Finder as one item and open in klad with a double click.
 - `klad install` (and "install the klad command" in the editor's document menu) puts `klad` on the terminal's path, for you and for agents. `klad skill` prints the agent skill.

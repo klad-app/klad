@@ -18,6 +18,9 @@ as itch.io or Steam, are licensed under these same terms.
 
 Third-party parts keep their own licences: see THIRD-PARTY-NOTICES.md.
 
+These files are licensed under the MIT License instead (see LICENSE-MIT):
+docs/format.md, docs/cli.md, docs/skill/ and crates/client/.
+
 ---
 
 # PolyForm Internal Use License 1.0.0
