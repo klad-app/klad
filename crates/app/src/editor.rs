@@ -1,4 +1,3 @@
-mod agentpane;
 mod between;
 mod bones;
 mod brushwin;
@@ -618,7 +617,6 @@ pub(crate) struct Editor {
     compare: Option<compare::Compared>,
     bones: bones::BoneTool,
     key_ease: klad_core::keys::Ease,
-    agent: agentpane::AgentPane,
     bindings: crate::commands::Bindings,
     capturing: Option<Cmd>,
     key_filter: String,
@@ -783,7 +781,6 @@ impl Editor {
             compare: None,
             bones: bones::BoneTool::default(),
             key_ease: klad_core::keys::Ease::Linear,
-            agent: agentpane::AgentPane::default(),
             bindings: crate::commands::Bindings::default(),
             capturing: None,
             key_filter: String::new(),

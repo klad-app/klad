@@ -343,7 +343,6 @@ impl Editor {
                     (Cmd::InspectorPane, Pane::Inspector),
                     (Cmd::NotesPane, Pane::Notes),
                     (Cmd::HistoryPane, Pane::History),
-                    (Cmd::AgentPane, Pane::Agent),
                 ]
                 .into_iter()
                 .for_each(|(cmd, pane)| {
@@ -468,7 +467,6 @@ impl Editor {
             },
             Pane::Notes => self.notes_pane(ui),
             Pane::History => self.history_pane(ui),
-            Pane::Agent => self.agent_pane(ui),
         }
     }
 
@@ -879,7 +877,6 @@ impl Editor {
         ui.heading("Layout");
         self.scale_section(ui);
         ui.separator();
-        self.agent_settings(ui);
         ui.horizontal_wrapped(|ui| {
             self.command_check(ui, Cmd::Numbers, "numbers panel");
             self.command_check(ui, Cmd::Timeline, "timeline");

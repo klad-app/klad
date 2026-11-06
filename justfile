@@ -6,7 +6,11 @@ export KLAD_TARGET_DIR := target_dir
 
 default: build
 
-build:
+build part="patch":
+    bash packaging/bump.sh {{part}}
+    just compile
+
+compile:
     cargo build --release -p klad-cli
     {{klad}} --version
 
@@ -18,7 +22,7 @@ lint:
     cargo fmt --all --check
     cargo clippy --workspace --all-targets -- -D warnings
 
-samples: build
+samples: compile
     for s in lantern ink-shapes bounce creature courier solids lemons ruin sign tree meadow paintover rig; do FORCE=1 bash samples/$s/build.sh >/dev/null || { echo "samples/$s failed" >&2; exit 1; }; echo "samples/$s"; done
 
 app:
@@ -33,10 +37,10 @@ itch-mac:
     rm -rf dist/itch-mac && mkdir -p dist/itch-mac && cp -R dist/klad.app dist/itch-mac/
     butler push dist/itch-mac "$ITCH_TARGET:mac" --userversion "$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
 
-icon: build
+icon: compile
     KLAD={{klad}} bash packaging/icon/build.sh
 
-reference: build
+reference: compile
     {{klad}} reference > docs/cli.md
 
 notices:
@@ -53,20 +57,20 @@ audit: notices-check
 fmt:
     cargo fmt --all
 
-bench *args: build
+bench *args: compile
     {{klad}} bench {{args}}
 
-demo bundle="scratch/demo.klad": build
+demo bundle="scratch/demo.klad": compile
     {{klad}} demo {{bundle}} --force
     {{klad}} render {{bundle}}
 
-hash bundle="scratch/demo.klad": build
+hash bundle="scratch/demo.klad": compile
     {{klad}} hash {{bundle}} --no-cache
 
-open bundle="scratch/pen.klad": build
+open bundle="scratch/pen.klad": compile
     {{klad}} open {{bundle}}
 
-stress bundle="scratch/stress.klad": build
+stress bundle="scratch/stress.klad": compile
     {{klad}} stress {{bundle}}
 
 ui-pictures:

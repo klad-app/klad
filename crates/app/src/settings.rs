@@ -83,28 +83,6 @@ pub struct Settings {
     pub check_updates: bool,
     #[serde(default, rename = "updatesChecked")]
     pub updates_checked: u64,
-    #[serde(default)]
-    pub agent: AgentSettings,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct AgentSettings {
-    pub model: String,
-    pub limit: f32,
-    pub notice_seen: bool,
-    pub locked: Vec<String>,
-}
-
-impl Default for AgentSettings {
-    fn default() -> Self {
-        Self {
-            model: crate::agent::DEFAULT_MODEL.to_string(),
-            limit: 2.0,
-            notice_seen: false,
-            locked: Vec::new(),
-        }
-    }
 }
 
 fn yes() -> bool {
@@ -126,14 +104,18 @@ impl Default for Settings {
             drawings: None,
             check_updates: true,
             updates_checked: 0,
-            agent: AgentSettings::default(),
         }
     }
 }
 
 fn migrate(mut value: serde_json::Value) -> serde_json::Value {
+    const PANES: [&str; 5] = ["tool", "layers", "inspector", "notes", "history"];
+    if let Some(panes) = value.pointer_mut("/layout/panes").and_then(|p| p.as_array_mut()) {
+        panes.retain(|p| p["pane"].as_str().is_some_and(|name| PANES.contains(&name)));
+    }
     if let Some(map) = value.as_object_mut() {
         map.insert("version".into(), VERSION.into());
+        map.remove("agent");
     }
     value
 }
@@ -245,6 +227,27 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_with_the_removed_agent_pane_keep_everything_else() {
+        let dir = std::env::temp_dir().join(format!("draw-settings-agent-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        fs::write(
+            &path,
+            r#"{"uiScale":1.25,"recentDocuments":["/w/a.klad"],"agent":{"model":"m","limit":2.0},
+                "layout":{"dockWidth":400,"panes":[{"pane":"agent","open":true,"collapsed":false,"body":300},
+                {"pane":"layers","open":true,"collapsed":false,"body":200}]}}"#,
+        )
+        .unwrap();
+        let settings = Settings::load(&path);
+        assert_eq!(settings.ui_scale, 1.25);
+        assert_eq!(settings.documents, ["/w/a.klad"]);
+        assert_eq!(settings.layout.dock_width, 400.0);
+        assert_eq!(settings.layout.panes.len(), 5);
+        assert_eq!(settings.layout.panes[0].pane, crate::layout::Pane::Layers);
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn curves_are_kept_per_pen_and_survive_a_restart() {

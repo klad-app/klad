@@ -40,7 +40,6 @@ Early, and open for testing. What works today:
 
 - The `klad` CLI on macOS, Linux and Windows: layers, brush strokes, vector shapes, fills, inking, painting from shapes, light, effects, depth and fog, text in about fifty open fonts that come with it (and any other Google Fonts family on request), frames and clips, in-betweens, exports.
 - The editor on macOS, and in a first version on Windows and Linux: a pen with pressure and tilt (pressure only on Windows; on Linux the mouse for now), brushes, layers, masks, a text tool, the timeline, onion skins, notes for the agent, and a start window for new and recent drawings.
-- An agent inside the editor (the Agent pane) that works on the open drawing with your Claude API key, so you never need a terminal. Signing in with a ChatGPT account comes later.
 
 ![The start window](docs/images/start-window.png)
 
@@ -56,7 +55,7 @@ Every build holds the `klad` command line tool, the editor, the fonts, the licen
 Building takes about ten minutes the first time.
 
 1. Install Rust with [rustup](https://rustup.rs) and [`just`](https://github.com/casey/just) (`brew install just`, or `cargo install just`). On Linux also `pkg-config`, `libfreetype-dev`, `libfontconfig1-dev`, `libxkbcommon-dev` and `libwayland-dev`.
-2. `git clone https://github.com/klad-app/klad && cd klad`, then `just build` makes `klad` and `klad-editor` in `target/release/` (on Linux in `target/linux/release/`).
+2. `git clone https://github.com/klad-app/klad && cd klad`, then `just build` makes `klad` and `klad-editor` for the machine you are on, in `target/release/` (on Linux in `target/linux/release/`). It counts the version up first (`just build minor` or `just build major` for a bigger step); `just compile` builds without counting.
 3. `target/release/klad open` starts the editor on its start window: make a drawing and start painting.
 4. `just samples` builds the sample drawings in `samples/` (a lantern, a walking creature, a running courier, an underground ruin, an inn sign, a tree, a meadow, painted solids, a bowl of lemons and the same painted over with brushwork, a bouncing ball, ink examples); open one with `target/release/klad open samples/lantern/lantern.klad`.
 5. `just app` makes `klad.app` and a disk image on a Mac; `just dist` makes the archive for the machine you are on (`just dist x86_64-pc-windows-msvc` for another target).

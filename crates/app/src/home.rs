@@ -220,7 +220,12 @@ impl Home {
                         ui.add_space(margin);
                         ui.vertical(|ui| {
                             ui.set_max_width(WIDTH);
-                            ui.heading(RichText::new("klad").size(26.0));
+                            ui.horizontal(|ui| {
+                                ui.heading(RichText::new("klad").size(26.0));
+                                ui.label(
+                                    RichText::new(format!("version {}", crate::VERSION)).color(crate::theme::WEAK),
+                                );
+                            });
                             if let Some(release) = &self.update {
                                 ui.horizontal(|ui| {
                                     ui.label(updates::summary(release));
@@ -394,6 +399,7 @@ mod tests {
             r#"{"tag_name":"v9.0.0","html_url":"https://github.com/klad-app/klad/releases/tag/v9.0.0","body":"- Paint over"}"#,
         );
         let h = harness(first);
+        assert!(h.query_by_label(&format!("version {}", crate::VERSION)).is_some());
         assert!(h.query_by_label("klad 9.0.0 is out: Paint over").is_some());
         assert!(h.query_by_label("what changed").is_some());
         std::fs::remove_dir_all(&dir).unwrap();

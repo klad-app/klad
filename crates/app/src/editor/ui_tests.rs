@@ -2614,47 +2614,6 @@ fn a_layer_is_keyed_from_the_inspector_and_eases_between_its_keys() {
 }
 
 #[test]
-fn the_agent_panel_runs_a_scripted_turn_streams_it_and_undoes_it_in_one_go() {
-    let path = sample("agent-panel");
-    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
-    [Pane::Tool, Pane::Layers, Pane::Inspector, Pane::Notes, Pane::History]
-        .into_iter()
-        .for_each(|p| h.state_mut().settings.layout.toggle(p));
-    h.state_mut().invoke(Cmd::AgentPane).unwrap();
-    h.run_steps(2);
-    assert!(h.query_by_label("understood").is_some(), "the notice comes first");
-    h.get_by_label("understood").click();
-    h.run_steps(2);
-    let before = h.state().scene.bundle.read_marks("l6", "c6").unwrap().len();
-    h.state_mut().agent.script = Some(vec![
-        vec![
-            serde_json::json!({"type": "text", "text": "Adding a stroke."}),
-            serde_json::json!({"type": "tool_use", "id": "t1", "name": "apply", "input": {"ops": r##"{"op":"stroke","layer":"l6","brush":"ink","size":12,"color":"#802020","path":"M50 300 L 450 320"}"##}}),
-        ],
-        vec![serde_json::json!({"type": "tool_use", "id": "t2", "name": "look", "input": {}})],
-        vec![serde_json::json!({"type": "text", "text": "One red stroke along the bottom."})],
-    ]);
-    h.state_mut().agent.input = "draw a red line at the bottom".into();
-    h.get_by_label("send").click();
-    h.run_steps(1);
-    settle(&mut h, |ed| !ed.agent_running());
-    h.run_steps(3);
-    assert!(h.query_by_label("One red stroke along the bottom.").is_some());
-    assert!(h.query_all(By::new().label_contains("apply 1 ops")).count() > 0);
-    assert!(h.query_all(By::new().label_contains("look")).count() > 0);
-    settle(&mut h, |ed| {
-        ed.scene.bundle.read_marks("l6", "c6").map_or(0, |m| m.len()) == before + 1
-    });
-    assert_eq!(h.state().agent.last_edits, 1);
-    h.get_by_label("undo this turn").click();
-    h.run_steps(2);
-    settle(&mut h, |ed| {
-        ed.scene.bundle.read_marks("l6", "c6").map_or(0, |m| m.len()) == before
-    });
-    let _ = std::fs::remove_dir_all(&path);
-}
-
-#[test]
 fn a_problem_report_holds_the_version_the_system_and_the_last_messages() {
     let path = sample("report");
     let mut h = harness(editor(&path), vec2(1280.0, 900.0));

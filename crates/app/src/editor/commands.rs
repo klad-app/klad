@@ -338,7 +338,6 @@ impl Editor {
             Cmd::InspectorPane => layout.dock && layout.is_open(Pane::Inspector),
             Cmd::NotesPane => layout.dock && layout.is_open(Pane::Notes),
             Cmd::HistoryPane => layout.dock && layout.is_open(Pane::History),
-            Cmd::AgentPane => layout.dock && layout.is_open(Pane::Agent),
             Cmd::Timeline => layout.timeline,
             Cmd::Numbers => layout.numbers,
             Cmd::Settings => self.windows.settings,
@@ -779,7 +778,6 @@ impl Editor {
             Cmd::InspectorPane => self.pane(Pane::Inspector),
             Cmd::NotesPane => self.pane(Pane::Notes),
             Cmd::HistoryPane => self.pane(Pane::History),
-            Cmd::AgentPane => self.pane(Pane::Agent),
             Cmd::Timeline => {
                 self.settings.layout.timeline = !self.settings.layout.timeline;
                 self.settings_dirty = true;

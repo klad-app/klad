@@ -1,4 +1,3 @@
-mod agent;
 mod color;
 mod commands;
 mod composite;

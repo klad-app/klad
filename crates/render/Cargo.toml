@@ -8,8 +8,8 @@ publish.workspace = true
 [dependencies]
 anyhow = "1.0.104"
 bytemuck = "1.25.2"
-klad-brush = { version = "0.1.0", path = "../brush" }
-klad-core = { version = "0.1.0", path = "../core" }
+klad-brush = { path = "../brush" }
+klad-core = { path = "../core" }
 half = { version = "2.7.1", features = ["bytemuck"] }
 libm = "0.2.16"
 rayon = "1.12.0"

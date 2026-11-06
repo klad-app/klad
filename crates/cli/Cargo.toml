@@ -9,9 +9,9 @@ build = "../version.rs"
 [dependencies]
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] }
-klad-brush = { version = "0.1.0", path = "../brush" }
-klad-core = { version = "0.1.0", path = "../core" }
-klad-render = { version = "0.1.0", path = "../render" }
+klad-brush = { path = "../brush" }
+klad-core = { path = "../core" }
+klad-render = { path = "../render" }
 libm = "0.2.16"
 notify = "8"
 rayon = "1.12.0"
@@ -32,12 +32,11 @@ default = ["editor"]
 editor = ["dep:klad-app"]
 
 [dependencies.klad-app]
-version = "0.1.0"
 path = "../app"
 optional = true
 
 [dev-dependencies]
-klad-client = { version = "0.1.0", path = "../client" }
+klad-client = { path = "../client" }
 
 [target."cfg(unix)".dependencies]
 libc = "0.2.191"

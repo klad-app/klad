@@ -9,9 +9,9 @@ build = "../version.rs"
 [dependencies]
 anyhow = "1.0.104"
 bytemuck = "1.25.2"
-klad-brush = { version = "0.1.0", path = "../brush" }
-klad-core = { version = "0.1.0", path = "../core" }
-klad-render = { version = "0.1.0", path = "../render" }
+klad-brush = { path = "../brush" }
+klad-core = { path = "../core" }
+klad-render = { path = "../render" }
 eframe = { version = "0.37.0", default-features = false, features = ["wgpu", "default_fonts", "accesskit", "clipboard", "wayland", "x11"] }
 egui = "0.37.0"
 egui-wgpu = "0.37.0"

@@ -13,7 +13,7 @@ Thank you for looking. klad is young and changes fast; issues with a drawing tha
 - Rust through [rustup](https://rustup.rs); `rust-toolchain.toml` picks the version. [`just`](https://github.com/casey/just) runs the recipes.
 - macOS: the Xcode command line tools. Linux: `pkg-config`, `libfreetype-dev`, `libfontconfig1-dev`, `libxkbcommon-dev` and `libwayland-dev`. Windows: Visual Studio's C++ build tools; the check on every pull request builds it there.
 - The first build downloads a prebuilt Skia for your platform (`skia-bindings` does this), so it needs network once.
-- `just build`, `just test`, `just lint`. They build into `target/` on macOS and `target/linux` on Linux, so one checkout can be built from both. `just audit` needs [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny) and [`cargo-about`](https://github.com/EmbarkStudios/cargo-about) (`cargo install cargo-deny --locked` and `cargo install cargo-about --locked --features cli`).
+- `just build` counts the patch version up and builds `klad` and `klad-editor` for this machine (`just build minor`, `just build major`; `just compile` builds without counting up), `just test`, `just lint`. They build into `target/` on macOS and `target/linux` on Linux, so one checkout can be built from both. `just audit` needs [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny) and [`cargo-about`](https://github.com/EmbarkStudios/cargo-about) (`cargo install cargo-deny --locked` and `cargo install cargo-about --locked --features cli`).
 - The editor is `klad open`, or `klad-editor` on its own (the app on a Mac, the program to start on Windows). `cargo build --no-default-features -p klad-cli` builds `klad` without the editor, for servers. Its panels are tested headless with `egui_kittest`; `cargo test -p klad-app -- --ignored editor_picture` (the editor with a sample drawing on its canvas), `start_pictures` and `just ui-pictures` write pictures of the UI to `scratch/ui/`.
 
 ## The rules the code follows
@@ -42,7 +42,7 @@ klad is source-available, not open source (`LICENSE`): its licence lets you send
 
 The Mac and Windows builds are sold on itch.io (and later Steam); Linux is built from source. GitHub has the release notes, not downloads.
 
-1. Move the changes under "Unreleased" in `CHANGELOG.md` to a section `## x.y.z (date)` and bump `version` in the workspace `Cargo.toml`. Commit.
+1. `just build minor` (or `major`) sets the release's version; move the changes under "Unreleased" in `CHANGELOG.md` to a section `## x.y.z (date)` with that version. Commit.
 2. On a Mac with [butler](https://itch.io/docs/butler/) logged in: `ITCH_TARGET=<user>/<page> just itch-mac` builds the app (arm64 and x86_64 in one) and pushes it to the page's `mac` channel.
 3. Tag `vx.y.z` and push the tag. The `release` workflow runs the checks, builds the Windows version and pushes it to the `windows` channel (with the `BUTLER_API_KEY` secret and the `ITCH_TARGET` variable set in the repository), then publishes that changelog section as the release notes, which the editor's update check reads.
 4. The builds are not signed yet.

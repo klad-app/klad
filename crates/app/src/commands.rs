@@ -114,7 +114,6 @@ pub enum Cmd {
     InspectorPane,
     NotesPane,
     HistoryPane,
-    AgentPane,
     Timeline,
     Numbers,
     Settings,
@@ -475,7 +474,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 157] = [
+    pub const ALL: [Cmd; 156] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -586,7 +585,6 @@ impl Cmd {
         Cmd::InspectorPane,
         Cmd::NotesPane,
         Cmd::HistoryPane,
-        Cmd::AgentPane,
         Cmd::Timeline,
         Cmd::Numbers,
         Cmd::Settings,
@@ -1626,15 +1624,6 @@ impl Cmd {
                 T::None,
                 R::No,
                 "show or hide it in the dock",
-            ),
-            Cmd::AgentPane => spec(
-                "panel.agent",
-                "agent panel",
-                icon::SPARKLE,
-                G::Panels,
-                T::None,
-                R::No,
-                "ask the agent for a change in plain words and watch it work on this drawing",
             ),
             Cmd::HistoryPane => spec(
                 "panel.history",
