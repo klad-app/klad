@@ -8,7 +8,7 @@ description: Make and edit 2D art with the klad CLI (`klad`) in a `.klad` bundle
 
 A `.klad` bundle is a folder: `doc.json` (layers, cels, vector nodes, palette), `strokes/<layer>/<cel>.strokes` (paint strokes and fills as data), `brushes/<id>.json` (every brush its strokes use) and `.cache/` (renders, history, notes, tiles). The `klad` CLI edits it; the user edits the same bundle in the editor (`klad open`, or the klad app). Both see each other's changes within a second. The user starts and opens drawings from the editor's start window (cmd N, cmd O, recent) and can copy a drawing's path from the document menu at the bottom of the tool strip to hand it to you. To start one yourself: `klad new art.klad --width 1600 --height 1200 --background '#e9e4da' --sketch` (one paint layer, `l1`, and a vector layer named sketch on top, `l3`). If `klad` is not on the path, the user can run "install the klad command" from that menu (or `klad install` from the folder they unpacked); `klad skill` prints these instructions, matching the version installed.
 
-Working on klad itself: the repository's `CLAUDE.md`, `CONTRIBUTING.md` and `docs/DESIGN.md` are the source of truth. Build the CLI with `just build`; the binary is `target/release/klad` on macOS and `target/linux/release/klad` on Linux.
+Working on klad itself: the repository's `CLAUDE.md`, `CONTRIBUTING.md` and `docs/DESIGN.md` are the source of truth. Build the CLI with `just compile` (`just build` also counts the version up, for the person making a build); the binary is `target/release/klad` on macOS and `target/linux/release/klad` on Linux.
 
 ## The loop
 
