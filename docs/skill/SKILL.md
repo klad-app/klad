@@ -232,6 +232,7 @@ klad export art.klad --godot-rig game/art --godot-scene game/art
 ```
 
 - Angles are degrees from the rest pose, positive turning clockwise on screen; a child follows its parent. Pose from the rest drawing (`--from` its frame); posing a frame again re-poses it.
+- Fix a skeleton in place: `--move upper --tail 570,350` moves an end (children that start at that tail come along), `--move upper --by 10,0` moves a bone with all its children, `--reparent hand --parent fore` changes a parent. The user does the same in the bone tool: the skeleton list picks a bone, its ends and middle drag, alt drag from an end draws a child.
 - Automatic weights bend joints over a short stretch; hold rigid things (head, hands, props) with `--part`, or a stiff limb with dabs at 1. Look at `--overlay weights:<bone>` before posing.
 - Keys move whole layers, groups and shapes (`x`, `y`, `rotate`, `sx`, `sy`, `scale`, `opacity`) between frames with an ease (`linear`, `in`, `out`, `in-out`, `step`, or a curve `x1,y1,x2,y2`); a segment follows its first key's ease. A lantern that floats, a glow that pulses, a far plane that drifts: no drawing per frame.
 - Godot: `--godot` exports frames (always works), `--godot-rig` a Skeleton2D with Polygon2D parts and an AnimationPlayer per clip (only frames that are poses of the rest drawing; the others are listed), `--godot-scene` one Parallax2D per top-level layer scrolling by its depth. `samples/rig` builds all of it.

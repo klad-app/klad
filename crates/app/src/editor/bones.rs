@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use egui::{Color32, Pos2, RichText, Vec2};
 use klad_core::doc::Kind;
 use klad_core::ops::{BoneSpec, Op, WeightsSpec};
-use klad_core::rig::{Bone, CELL, Pose, Weights, tips, weights_for};
+use klad_core::rig::{Bone, CELL, Pose, Weights, moved, subtree, tips, weights_for};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -17,10 +17,30 @@ pub(super) enum Mode {
     Pose,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Grip {
+    Head,
+    Tail,
+    Whole,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum Dragging {
+    New(Option<String>),
+    Bone(String, Grip),
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct Drag {
+    pub from: Vec2,
+    pub to: Vec2,
+    pub what: Dragging,
+}
+
 pub(super) struct BoneTool {
     pub mode: Mode,
     pub selected: Option<String>,
-    pub drag: Option<(Vec2, Vec2, Option<String>)>,
+    pub drag: Option<Drag>,
     pub dabs: Vec<[f32; 4]>,
     pub radius: f32,
     pub strength: f32,
@@ -48,6 +68,8 @@ impl Default for BoneTool {
 }
 
 const NEAR: f32 = 10.0;
+const CLICK: f32 = 5.0;
+const JOINED: f32 = 0.5;
 
 type Later = Box<dyn FnOnce(&mut Editor) -> Result<()>>;
 
@@ -102,15 +124,87 @@ impl Editor {
     }
 
     fn shown_pose(&self) -> Pose {
-        Pose {
-            angles: self.bones.pose.clone(),
-            ..Pose::default()
+        match self.bones.mode {
+            Mode::Draw => Pose::default(),
+            _ => Pose {
+                angles: self.bones.pose.clone(),
+                ..Pose::default()
+            },
         }
+    }
+
+    fn zoom(&self) -> f32 {
+        self.view.map_or(1.0, |v| v.zoom)
+    }
+
+    pub(super) fn pick_bone(&mut self, name: Option<String>) {
+        self.bones.name = name.clone().unwrap_or_default();
+        self.bones.selected = name;
+        self.bones.heat = None;
+    }
+
+    fn grip_at(&self, c: Vec2) -> Option<(String, String, Grip)> {
+        let bones = self.rig_bones();
+        let reach = NEAR / self.zoom();
+        let at = |p: [f32; 2]| (Vec2::new(p[0], p[1]) - c).length();
+        let picked = self.bones.selected.as_deref();
+        let joint = |b: &Bone| {
+            b.parent
+                .as_ref()
+                .and_then(|p| bones.iter().find(|o| &o.name == p))
+                .filter(|p| (p.tail[0] - b.head[0]).hypot(p.tail[1] - b.head[1]) <= JOINED)
+                .map(|p| p.name.clone())
+        };
+        bones
+            .iter()
+            .flat_map(|b| {
+                [
+                    (Grip::Tail, at(b.tail)),
+                    (Grip::Head, at(b.head)),
+                    (Grip::Whole, near_segment(c, b.head, b.tail)),
+                ]
+                .into_iter()
+                .filter(move |(_, d)| *d <= reach)
+                .map(move |(g, d)| ((g == Grip::Whole, picked != Some(b.name.as_str()), d), b, g))
+            })
+            .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(_, b, g)| match (g, joint(b)) {
+                (Grip::Head, Some(parent)) => (b.name.clone(), parent, Grip::Tail),
+                _ => (b.name.clone(), b.name.clone(), g),
+            })
+    }
+
+    fn drag_spec(&self, drag: &Drag) -> Option<BoneSpec> {
+        let Dragging::Bone(name, grip) = &drag.what else {
+            return None;
+        };
+        let bone = self.rig_bones().into_iter().find(|b| &b.name == name)?;
+        let d = drag.to - drag.from;
+        let by = |p: [f32; 2]| [p[0] + d.x, p[1] + d.y];
+        Some(BoneSpec {
+            layer: self.rig_owner()?,
+            moved: Some(name.clone()),
+            head: (*grip == Grip::Head).then(|| by(bone.head)),
+            tail: (*grip == Grip::Tail).then(|| by(bone.tail)),
+            by: (*grip == Grip::Whole).then_some([d.x, d.y]),
+            ..BoneSpec::default()
+        })
+    }
+
+    fn drawn_bones(&self) -> Vec<Bone> {
+        let bones = self.rig_bones();
+        self.bones
+            .drag
+            .as_ref()
+            .filter(|d| (d.to - d.from).length() * self.zoom() >= CLICK)
+            .and_then(|d| self.drag_spec(d))
+            .and_then(|s| moved(&bones, s.moved.as_deref()?, s.head, s.tail, s.by).ok())
+            .unwrap_or(bones)
     }
 
     fn bone_at(&self, c: Vec2) -> Option<String> {
         let bones = self.rig_bones();
-        let zoom = self.view.map_or(1.0, |v| v.zoom);
+        let zoom = self.zoom();
         let shown = tips(&bones, &self.shown_pose());
         bones
             .iter()
@@ -123,16 +217,40 @@ impl Editor {
 
     pub(super) fn bone_down(&mut self, c: Vec2) {
         match self.bones.mode {
-            Mode::Draw => {
+            Mode::Draw if self.modifiers.alt => {
                 let bones = self.rig_bones();
-                let zoom = self.view.map_or(1.0, |v| v.zoom);
-                let parent = bones
+                let reach = NEAR / self.zoom();
+                let from_tail = bones
                     .iter()
-                    .filter(|b| (Vec2::new(b.tail[0], b.tail[1]) - c).length() <= NEAR / zoom)
-                    .map(|b| (b.name.clone(), Vec2::new(b.tail[0], b.tail[1])))
-                    .next();
-                let start = parent.as_ref().map_or(c, |p| p.1);
-                self.bones.drag = Some((start, c, parent.map(|p| p.0)));
+                    .find(|b| (Vec2::new(b.tail[0], b.tail[1]) - c).length() <= reach)
+                    .map(|b| (b.name.clone(), Vec2::new(b.tail[0], b.tail[1])));
+                let (parent, from) = match from_tail {
+                    Some((name, tail)) => (Some(name), tail),
+                    None => (self.bone_at(c), c),
+                };
+                self.bones.drag = Some(Drag {
+                    from,
+                    to: c,
+                    what: Dragging::New(parent),
+                });
+            }
+            Mode::Draw => {
+                let what = match self.grip_at(c) {
+                    Some((picked, moving, grip)) => {
+                        if self.bones.selected.as_ref() != Some(&picked) {
+                            self.pick_bone(Some(picked));
+                        }
+                        Dragging::Bone(moving, grip)
+                    }
+                    None => Dragging::New(None),
+                };
+                self.bones.drag = Some(Drag { from: c, to: c, what });
+            }
+            Mode::Weights if self.modifiers.command => {
+                let found = self.bone_at(c);
+                if found.is_some() {
+                    self.pick_bone(found);
+                }
             }
             Mode::Weights => {
                 self.bones.dabs.clear();
@@ -140,8 +258,8 @@ impl Editor {
             }
             Mode::Pose => {
                 self.bones.turning = self.bone_at(c);
-                if let Some(b) = &self.bones.turning {
-                    self.bones.selected = Some(b.clone());
+                if let Some(b) = self.bones.turning.clone() {
+                    self.pick_bone(Some(b));
                 }
             }
         }
@@ -163,7 +281,7 @@ impl Editor {
         match self.bones.mode {
             Mode::Draw => {
                 if let Some(drag) = self.bones.drag.as_mut() {
-                    drag.1 = c;
+                    drag.to = c;
                 }
             }
             Mode::Weights => {
@@ -193,14 +311,23 @@ impl Editor {
     pub(super) fn bone_up(&mut self) -> Result<()> {
         match self.bones.mode {
             Mode::Draw => {
-                let Some((a, b, parent)) = self.bones.drag.take() else {
+                let Some(drag) = self.bones.drag.take() else {
                     return Ok(());
                 };
-                if (b - a).length() < 6.0 {
-                    self.bones.selected = self.bone_at(b);
-                    self.bones.name = self.bones.selected.clone().unwrap_or_default();
-                    return Ok(());
-                }
+                let short = (drag.to - drag.from).length() * self.zoom() < CLICK;
+                let parent = match (&drag.what, short) {
+                    (Dragging::Bone(..), true) => return Ok(()),
+                    (Dragging::Bone(..), false) => {
+                        let spec = self.drag_spec(&drag).context("that bone is gone")?;
+                        return self.apply(vec![Op::Bone(spec)]);
+                    }
+                    (Dragging::New(_), true) => {
+                        self.pick_bone(self.bone_at(drag.to));
+                        return Ok(());
+                    }
+                    (Dragging::New(parent), false) => parent.clone(),
+                };
+                let (a, b) = (drag.from, drag.to);
                 let owner = self
                     .rig_owner()
                     .context("pick the layer or group the bones go on first")?;
@@ -212,17 +339,12 @@ impl Editor {
                 self.apply(vec![Op::Bone(BoneSpec {
                     layer: owner,
                     add: Some(name.clone()),
-                    rm: None,
-                    rename: None,
-                    to_name: None,
-                    moved: None,
-                    reparent: None,
                     parent,
                     head: Some([a.x, a.y]),
                     tail: Some([b.x, b.y]),
+                    ..BoneSpec::default()
                 })])?;
-                self.bones.name = name.clone();
-                self.bones.selected = Some(name);
+                self.pick_bone(Some(name));
             }
             Mode::Weights => {
                 let dabs = std::mem::take(&mut self.bones.dabs);
@@ -233,7 +355,7 @@ impl Editor {
                     .bones
                     .selected
                     .clone()
-                    .context("pick a bone to paint its weights: click it in draw mode")?;
+                    .context("pick a bone to paint its weights: cmd click it, or pick it in the skeleton list")?;
                 self.paint_weights(WeightsSpec {
                     layer: self.rig_owner().context("no skeleton here")?,
                     frame: self.scene.frame,
@@ -263,15 +385,7 @@ impl Editor {
     pub(super) fn bone_edit(&mut self, edit: impl FnOnce(&mut BoneSpec)) -> Result<()> {
         let mut spec = BoneSpec {
             layer: self.rig_owner().context("no skeleton here")?,
-            add: None,
-            rm: None,
-            rename: None,
-            to_name: None,
-            moved: None,
-            reparent: None,
-            parent: None,
-            head: None,
-            tail: None,
+            ..BoneSpec::default()
         };
         edit(&mut spec);
         self.apply(vec![Op::Bone(spec)])
@@ -308,12 +422,12 @@ impl Editor {
             (
                 Mode::Draw,
                 "draw",
-                "drag to draw a bone; start on a bone's end to make it its child; click a bone to pick it",
+                "drag on empty canvas to draw a bone; drag a bone's end or middle to move it; alt drag from a bone's end for a child",
             ),
             (
                 Mode::Weights,
                 "weights",
-                "paint the picked bone's weight; alt removes it",
+                "paint the picked bone's weight; alt removes it; cmd click a bone to pick it",
             ),
             (Mode::Pose, "pose", "drag a bone's end to turn it, its children follow"),
         ]
@@ -340,6 +454,10 @@ impl Editor {
             }
         });
         ui.separator();
+        if let Some(later) = self.skeleton_list(ui) {
+            run = Some(later);
+        }
+        ui.separator();
         match self.bones.mode {
             Mode::Draw => {
                 if let Some(picked) = self.bones.selected.clone() {
@@ -355,18 +473,21 @@ impl Editor {
                                 s.rename = Some(picked);
                                 s.to_name = Some(to.clone());
                             })?;
-                            e.bones.selected = Some(to);
+                            e.pick_bone(Some(to));
                             Ok(())
                         }));
+                    } else if let Some(later) = self.parent_menu(ui, &picked) {
+                        run = Some(later);
                     } else if ui.button("remove").hint("the picked bone and its children").clicked() {
                         run = Some(Box::new(move |e| {
                             e.bone_edit(|s| s.rm = Some(picked))?;
-                            e.bones.selected = None;
+                            e.pick_bone(None);
                             Ok(())
                         }));
                     }
+                    ui.label(RichText::new("drag its ends or middle; alt drag: a child").color(theme::WEAK));
                 } else {
-                    ui.label(RichText::new("drag on the canvas to draw a bone").color(theme::WEAK));
+                    ui.label(RichText::new("drag to draw a bone; click one to pick it").color(theme::WEAK));
                 }
             }
             Mode::Weights => {
@@ -417,7 +538,7 @@ impl Editor {
                         self.bones
                             .selected
                             .as_deref()
-                            .map_or("click a bone in draw mode first".to_string(), |b| {
+                            .map_or("pick a bone: cmd click it, or pick it in the list".to_string(), |b| {
                                 format!("painting {b}")
                             }),
                     )
@@ -441,6 +562,135 @@ impl Editor {
             f(self)?;
         }
         Ok(())
+    }
+
+    fn skeleton_list(&mut self, ui: &mut egui::Ui) -> Option<Later> {
+        let bones = self.rig_bones();
+        let doc = &self.scene.bundle.doc;
+        if bones.is_empty() {
+            let owners: Vec<(String, String)> = doc
+                .all_layers()
+                .into_iter()
+                .filter(|l| !l.bones.is_empty())
+                .map(|l| (l.id.clone(), l.name.clone()))
+                .collect();
+            if owners.is_empty() {
+                ui.label(RichText::new("no skeleton yet").color(theme::WEAK));
+                return None;
+            }
+            let here = self
+                .scene
+                .active_layer()
+                .map_or("this layer".to_string(), |l| l.name.clone());
+            ui.label(RichText::new(format!("{here} has no bones; skeletons are on")).color(theme::WEAK));
+            return owners.into_iter().fold(None, |run, (id, name)| {
+                let clicked = ui
+                    .button(format!("{} {name}", theme::icon::TURN))
+                    .hint(format!("make {name} the active layer to see and edit its bones"))
+                    .clicked();
+                run.or_else(|| {
+                    clicked.then(|| -> Later {
+                        Box::new(move |e| {
+                            let Some(klad_core::doc::Loc::Layer(path)) = e.scene.bundle.doc.locate(&id) else {
+                                bail!("that layer is gone");
+                            };
+                            e.pick_bone(None);
+                            e.activate(path)
+                        })
+                    })
+                })
+            });
+        }
+        let owner = self
+            .rig_owner()
+            .and_then(|o| doc.layer(&o).map(|l| l.name.clone()))
+            .unwrap_or_default();
+        let picked = self
+            .bones
+            .selected
+            .clone()
+            .filter(|p| bones.iter().any(|b| &b.name == p));
+        let depth = |b: &Bone| {
+            std::iter::successors(b.parent.clone(), |p| {
+                bones.iter().find(|o| &o.name == p).and_then(|o| o.parent.clone())
+            })
+            .count()
+        };
+        let mut chosen = None;
+        ui.menu_button(
+            format!("{} {}", theme::icon::TURN, picked.as_deref().unwrap_or("pick a bone")),
+            |ui| {
+                ui.label(
+                    RichText::new(format!("the bones of {owner}"))
+                        .color(theme::WEAK)
+                        .small(),
+                );
+                bones.iter().for_each(|b| {
+                    ui.horizontal(|ui| {
+                        ui.add_space(14.0 * depth(b) as f32);
+                        if ui
+                            .selectable_label(picked.as_ref() == Some(&b.name), &b.name)
+                            .hint(match &b.parent {
+                                Some(p) => format!("pick {}, a child of {p}", b.name),
+                                None => format!("pick {}, a root bone", b.name),
+                            })
+                            .clicked()
+                        {
+                            chosen = Some(b.name.clone());
+                            ui.close();
+                        }
+                    });
+                });
+            },
+        )
+        .response
+        .hint(format!("the skeleton of {owner}, each bone under its parent: pick one"));
+        chosen.map(|name| -> Later {
+            Box::new(move |e| {
+                e.pick_bone(Some(name));
+                Ok(())
+            })
+        })
+    }
+
+    fn parent_menu(&mut self, ui: &mut egui::Ui, picked: &str) -> Option<Later> {
+        let bones = self.rig_bones();
+        let current = bones.iter().find(|b| b.name == picked)?.parent.clone();
+        let below = subtree(&bones, picked);
+        let mut chosen: Option<Option<String>> = None;
+        let label = ui.label("parent");
+        egui::ComboBox::from_id_salt("bones.parent")
+            .selected_text(current.as_deref().unwrap_or("none"))
+            .show_ui(ui, |ui| {
+                std::iter::once(None)
+                    .chain(
+                        bones
+                            .iter()
+                            .filter(|b| !below.contains(&b.name))
+                            .map(|b| Some(b.name.clone())),
+                    )
+                    .for_each(|p| {
+                        if ui
+                            .selectable_label(p == current, p.as_deref().unwrap_or("none"))
+                            .clicked()
+                            && p != current
+                        {
+                            chosen = Some(p);
+                        }
+                    });
+            })
+            .response
+            .labelled_by(label.id)
+            .hint("the bone this one hangs from; none makes it a root");
+        let name = picked.to_string();
+        chosen.map(|parent| -> Later {
+            Box::new(move |e| {
+                e.bone_edit(|s| {
+                    s.reparent = Some(name);
+                    s.parent = parent;
+                })
+            })
+        })
     }
 
     fn heat_texture(&mut self, bone: &str) -> Option<egui::TextureHandle> {
@@ -494,8 +744,9 @@ impl Editor {
                 Color32::WHITE,
             );
         }
-        let bones = self.rig_bones();
+        let bones = self.drawn_bones();
         let shown = tips(&bones, &self.shown_pose());
+        let editing = self.bones.mode == Mode::Draw;
         bones.iter().zip(shown).for_each(|(b, (h, t))| {
             let (a, z) = (place(Vec2::new(h[0], h[1])), place(Vec2::new(t[0], t[1])));
             let picked = self.bones.selected.as_ref() == Some(&b.name);
@@ -508,6 +759,12 @@ impl Editor {
             painter.line_segment([a, z], egui::Stroke::new(3.0, colour));
             painter.circle_filled(a, 4.5, colour);
             painter.circle_stroke(z, 4.0, egui::Stroke::new(1.5, colour));
+            if picked && editing {
+                [a, z].into_iter().for_each(|p| {
+                    painter.circle_filled(p, 6.5, Color32::WHITE);
+                    painter.circle_stroke(p, 6.5, egui::Stroke::new(2.0, theme::ACCENT));
+                });
+            }
             painter.text(
                 a + (z - a) * 0.5 + egui::vec2(6.0, -6.0),
                 egui::Align2::LEFT_BOTTOM,
@@ -516,8 +773,27 @@ impl Editor {
                 colour,
             );
         });
-        if let Some((a, b, _)) = self.bones.drag {
-            painter.line_segment([place(a), place(b)], egui::Stroke::new(2.0, theme::ACCENT));
+        if let Some(Drag {
+            from,
+            to,
+            what: Dragging::New(_),
+        }) = &self.bones.drag
+        {
+            painter.line_segment([place(*from), place(*to)], egui::Stroke::new(2.0, theme::ACCENT));
+        }
+        if editing
+            && self.bones.drag.is_none()
+            && let Some(p) = hover
+        {
+            let cursor = match (self.modifiers.alt, self.grip_at(p)) {
+                (true, _) => None,
+                (false, Some((_, _, Grip::Whole))) => Some(egui::CursorIcon::Move),
+                (false, Some(_)) => Some(egui::CursorIcon::Grab),
+                (false, None) => None,
+            };
+            if let Some(c) = cursor {
+                self.ctx.set_cursor_icon(c);
+            }
         }
         if self.bones.mode == Mode::Weights
             && let Some(p) = hover

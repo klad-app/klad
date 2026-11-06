@@ -93,6 +93,58 @@ pub fn check(bones: &[Bone]) -> Result<()> {
     })
 }
 
+pub fn subtree(bones: &[Bone], name: &str) -> Vec<String> {
+    let mut found = vec![name.to_string()];
+    bones.iter().for_each(|b| {
+        if b.parent.as_ref().is_some_and(|p| found.contains(p)) && !found.contains(&b.name) {
+            found.push(b.name.clone());
+        }
+    });
+    found
+}
+
+const JOINED: f32 = 0.5;
+
+pub fn moved(
+    bones: &[Bone],
+    name: &str,
+    head: Option<[f32; 2]>,
+    tail: Option<[f32; 2]>,
+    by: Option<[f32; 2]>,
+) -> Result<Vec<Bone>> {
+    let at = bones
+        .iter()
+        .position(|b| b.name == name)
+        .ok_or_else(|| anyhow!("no bone {name}"))?;
+    let mut out = bones.to_vec();
+    match (head, tail, by) {
+        (None, None, Some([dx, dy])) => {
+            let moving = subtree(bones, name);
+            out.iter_mut().filter(|b| moving.contains(&b.name)).for_each(|b| {
+                b.head = [b.head[0] + dx, b.head[1] + dy];
+                b.tail = [b.tail[0] + dx, b.tail[1] + dy];
+            });
+        }
+        (None, None, None) => bail!("say where: head, tail or by"),
+        (_, _, Some(_)) => bail!("by moves the whole bone; give it without head or tail"),
+        (head, tail, None) => {
+            let old = bones[at].tail;
+            if let Some(h) = head {
+                out[at].head = h;
+            }
+            if let Some(t) = tail {
+                out[at].tail = t;
+                out.iter_mut()
+                    .filter(|b| {
+                        b.parent.as_deref() == Some(name) && (b.head[0] - old[0]).hypot(b.head[1] - old[1]) <= JOINED
+                    })
+                    .for_each(|b| b.head = t);
+            }
+        }
+    }
+    Ok(out)
+}
+
 type Mat = [f32; 6];
 
 fn mul(a: Mat, b: Mat) -> Mat {
@@ -586,6 +638,31 @@ mod tests {
                 tail: [100.0, 300.0],
             },
         ]
+    }
+
+    #[test]
+    fn a_moved_tail_takes_the_joined_children_along_and_by_moves_the_family() {
+        let mut bones = leg();
+        bones.push(Bone {
+            name: "spur".into(),
+            parent: Some("thigh".into()),
+            head: [120.0, 150.0],
+            tail: [140.0, 150.0],
+        });
+        let bent = moved(&bones, "thigh", None, Some([130.0, 190.0]), None).unwrap();
+        assert_eq!(bent[0].tail, [130.0, 190.0]);
+        assert_eq!(bent[1].head, [130.0, 190.0], "the shin starts where the thigh ends");
+        assert_eq!(bent[1].tail, [100.0, 300.0]);
+        assert_eq!(bent[2].head, [120.0, 150.0], "a child that starts elsewhere stays");
+        let shifted = moved(&bones, "thigh", None, None, Some([5.0, -10.0])).unwrap();
+        assert!(shifted.iter().all(|b| {
+            let was = bones.iter().find(|o| o.name == b.name).unwrap();
+            b.head == [was.head[0] + 5.0, was.head[1] - 10.0] && b.tail == [was.tail[0] + 5.0, was.tail[1] - 10.0]
+        }));
+        let shin = moved(&bones, "shin", None, None, Some([5.0, 0.0])).unwrap();
+        assert_eq!(shin[0], bones[0], "moving a child leaves its parent");
+        assert!(moved(&bones, "shin", Some([0.0, 0.0]), None, Some([1.0, 1.0])).is_err());
+        assert_eq!(subtree(&bones, "thigh"), ["thigh", "shin", "spur"]);
     }
 
     #[test]

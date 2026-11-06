@@ -2107,12 +2107,13 @@ Options:
 ## klad bone
 
 ```text
-Bones go on a paint layer or a group (a group's skeleton poses every paint layer in it together). A bone has a name, an optional parent, a head and a tail in canvas px; a child usually starts where its parent ends. Removing a bone removes its children.
+Bones go on a paint layer or a group (a group's skeleton poses every paint layer in it together). A bone has a name, an optional parent, a head and a tail in canvas px; a child usually starts where its parent ends. Removing a bone removes its children. Moving a tail takes the heads of the children that start there along; --by moves a bone with all its children.
 
   klad bone art.klad body --add hip --head 400,500 --tail 400,420
   klad bone art.klad body --add thigh --parent hip --head 400,500 --tail 410,620
   klad bone art.klad body --rename thigh --as femur
   klad bone art.klad body --move femur --tail 420,630
+  klad bone art.klad body --move femur --by 12,-4
   klad bone art.klad body --reparent femur --parent pelvis
   klad bone art.klad body --rm femur
 
@@ -2154,6 +2155,9 @@ Options:
 
       --tail <TAIL>
 
+
+      --by <BY>
+          dx,dy in px: with --move, the bone and its children
 
       --render
           Render a preview after the edit and print its path

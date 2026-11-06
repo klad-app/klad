@@ -2542,9 +2542,17 @@ fn bones_are_drawn_weighted_and_posed_on_the_canvas() {
         canvas_at(&h, 170.0, 120.0),
         canvas_at(&h, 300.0, 200.0),
     );
+    let canvas = h.state().canvas_rect;
     drag(&mut h, a, b);
     h.run_steps(2);
+    assert_eq!(
+        h.state().canvas_rect,
+        canvas,
+        "picking a bone keeps the canvas where it is"
+    );
+    h.event(egui::Event::ModifiersChanged(Modifiers::ALT));
     drag(&mut h, b, c);
+    h.event(egui::Event::ModifiersChanged(Modifiers::NONE));
     h.run_steps(2);
     let bones = |h: &Harness<'static, Editor>| h.state().scene.bundle.doc.layer("l6").unwrap().bones.clone();
     let made = bones(&h);
@@ -2552,9 +2560,12 @@ fn bones_are_drawn_weighted_and_posed_on_the_canvas() {
     assert_eq!(
         made[1].parent.as_deref(),
         Some("bone 1"),
-        "a bone started on a tail is its child"
+        "a bone alt dragged from a tail is its child"
     );
-    assert!((made[1].tail[0] - 300.0).abs() < 2.0 && (made[1].tail[1] - 200.0).abs() < 2.0);
+    assert!(
+        (made[1].tail[0] - 300.0).abs() < 2.0 && (made[1].tail[1] - 200.0).abs() < 2.0,
+        "{made:?}"
+    );
     h.state_mut().bones.name = "shin".into();
     h.state_mut()
         .bone_edit(|s| {
@@ -2579,6 +2590,123 @@ fn bones_are_drawn_weighted_and_posed_on_the_canvas() {
     h.run_steps(2);
     let turned = h.state().bones.pose.get("shin").copied().unwrap_or(0.0);
     assert!(turned > 20.0, "dragging the shin's end turns it: {turned}");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn bones_are_picked_from_the_list_and_the_canvas_and_edited_in_place() {
+    let path = sample("bone-edit");
+    Bundle::open(&path)
+        .unwrap()
+        .apply(
+            &parse_lines(
+                r#"{"op":"bone","layer":"l6","add":"thigh","head":[100,60],"tail":[100,160]}
+{"op":"bone","layer":"l6","add":"shin","parent":"thigh","head":[100,160],"tail":[100,260]}
+{"op":"bone","layer":"l6","add":"tail","head":[300,100],"tail":[400,100]}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    let bones = |h: &Harness<'static, Editor>| h.state().scene.bundle.doc.layer("l6").unwrap().bones.clone();
+    let bone = |h: &Harness<'static, Editor>, name: &str| bones(h).into_iter().find(|b| b.name == name).unwrap();
+    activate(&mut h, "colour");
+    h.key_press(Key::J);
+    h.run_steps(2);
+    assert!(
+        h.query_by_label_contains("colour has no bones").is_some(),
+        "a layer without bones says where the skeletons are"
+    );
+    h.get_by_label(&format!("{} lines", theme::icon::TURN)).click();
+    h.run_steps(3);
+    assert_eq!(h.state().scene.active_layer().unwrap().name, "lines");
+    h.get_by_label_contains("pick a bone").click();
+    h.run_steps(2);
+    h.get_by_label("shin").click();
+    h.run_steps(2);
+    assert_eq!(
+        h.state().bones.selected.as_deref(),
+        Some("shin"),
+        "picked from the list"
+    );
+    h.get_by_label("weights").click();
+    h.run_steps(2);
+    let tail = canvas_at(&h, 350.0, 100.0);
+    h.event(egui::Event::ModifiersChanged(Modifiers::COMMAND));
+    h.hover_at(tail);
+    h.run_steps(1);
+    [true, false].into_iter().for_each(|pressed| {
+        h.event(egui::Event::PointerButton {
+            pos: tail,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::COMMAND,
+        });
+        h.run_steps(1);
+    });
+    h.event(egui::Event::ModifiersChanged(Modifiers::NONE));
+    h.run_steps(2);
+    assert_eq!(
+        h.state().bones.selected.as_deref(),
+        Some("tail"),
+        "cmd click picks in weights mode"
+    );
+    assert!(
+        h.state()
+            .scene
+            .bundle
+            .read_weights("l6")
+            .map_or(true, |w| !w.maps.contains_key("tail")),
+        "a cmd click paints no weight"
+    );
+    h.get_by_label("draw").click();
+    h.run_steps(2);
+    let (knee, there) = (canvas_at(&h, 100.0, 160.0), canvas_at(&h, 140.0, 170.0));
+    drag(&mut h, knee, there);
+    h.run_steps(2);
+    let (thigh, shin) = (bone(&h, "thigh"), bone(&h, "shin"));
+    assert!(
+        (thigh.tail[0] - 140.0).abs() < 1.5 && (thigh.tail[1] - 170.0).abs() < 1.5,
+        "{thigh:?}"
+    );
+    assert_eq!(shin.head, thigh.tail, "the knee moves the shin's head along");
+    assert_eq!(shin.tail, [100.0, 260.0]);
+    assert_eq!(
+        h.state().bones.selected.as_deref(),
+        Some("thigh"),
+        "pressing a bone picks it"
+    );
+    let (middle, along) = (canvas_at(&h, 350.0, 100.0), canvas_at(&h, 350.0, 140.0));
+    drag(&mut h, middle, along);
+    h.run_steps(2);
+    let moved = bone(&h, "tail");
+    assert!(
+        (moved.head[1] - 140.0).abs() < 1.5 && (moved.tail[1] - 140.0).abs() < 1.5,
+        "{moved:?}"
+    );
+    h.event(egui::Event::ModifiersChanged(Modifiers::ALT));
+    let (foot, toe) = (canvas_at(&h, 100.0, 260.0), canvas_at(&h, 160.0, 280.0));
+    drag(&mut h, foot, toe);
+    h.event(egui::Event::ModifiersChanged(Modifiers::NONE));
+    h.run_steps(2);
+    let foot = bones(&h).last().unwrap().clone();
+    assert_eq!(
+        foot.parent.as_deref(),
+        Some("shin"),
+        "alt drag from a tail makes a child"
+    );
+    assert_eq!(foot.head, [100.0, 260.0]);
+    h.state_mut().pick_bone(Some("tail".into()));
+    h.run_steps(2);
+    h.get_by_label("parent").click();
+    h.run_steps(2);
+    h.get_by_label("thigh").click();
+    h.run_steps(2);
+    assert_eq!(
+        bone(&h, "tail").parent.as_deref(),
+        Some("thigh"),
+        "the parent menu reparents"
+    );
     let _ = std::fs::remove_dir_all(&path);
 }
 

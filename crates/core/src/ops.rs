@@ -622,7 +622,7 @@ pub struct GrassSpec {
     pub part: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BoneSpec {
     pub layer: String,
@@ -644,6 +644,8 @@ pub struct BoneSpec {
     pub head: Option<[f32; 2]>,
     #[serde(default)]
     pub tail: Option<[f32; 2]>,
+    #[serde(default)]
+    pub by: Option<[f32; 2]>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -1705,13 +1707,8 @@ fn bone(doc: &mut Document, spec: &BoneSpec, out: &mut Applied) -> Result<()> {
             out.renamed_bones.push((id.clone(), name.clone(), to.clone()));
         }
         (None, None, None, Some(name), None) => {
-            let at = find(&bones, name)?;
-            if let Some(h) = spec.head {
-                bones[at].head = h;
-            }
-            if let Some(t) = spec.tail {
-                bones[at].tail = t;
-            }
+            find(&bones, name)?;
+            bones = crate::rig::moved(&bones, name, spec.head, spec.tail, spec.by)?;
         }
         (None, None, None, None, Some(name)) => {
             let at = find(&bones, name)?;

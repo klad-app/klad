@@ -1163,7 +1163,7 @@ enum Command {
     },
     #[command(
         about = "Add, remove, rename, move or reparent a bone of a layer's or group's skeleton",
-        long_about = "Bones go on a paint layer or a group (a group's skeleton poses every paint layer in it together). A bone has a name, an optional parent, a head and a tail in canvas px; a child usually starts where its parent ends. Removing a bone removes its children.\n\n  klad bone art.klad body --add hip --head 400,500 --tail 400,420\n  klad bone art.klad body --add thigh --parent hip --head 400,500 --tail 410,620\n  klad bone art.klad body --rename thigh --as femur\n  klad bone art.klad body --move femur --tail 420,630\n  klad bone art.klad body --reparent femur --parent pelvis\n  klad bone art.klad body --rm femur\n\nAlso a bone op: {\"op\":\"bone\",\"layer\":\"body\",\"add\":\"thigh\",\"parent\":\"hip\",\"head\":[400,500],\"tail\":[410,620]}."
+        long_about = "Bones go on a paint layer or a group (a group's skeleton poses every paint layer in it together). A bone has a name, an optional parent, a head and a tail in canvas px; a child usually starts where its parent ends. Removing a bone removes its children. Moving a tail takes the heads of the children that start there along; --by moves a bone with all its children.\n\n  klad bone art.klad body --add hip --head 400,500 --tail 400,420\n  klad bone art.klad body --add thigh --parent hip --head 400,500 --tail 410,620\n  klad bone art.klad body --rename thigh --as femur\n  klad bone art.klad body --move femur --tail 420,630\n  klad bone art.klad body --move femur --by 12,-4\n  klad bone art.klad body --reparent femur --parent pelvis\n  klad bone art.klad body --rm femur\n\nAlso a bone op: {\"op\":\"bone\",\"layer\":\"body\",\"add\":\"thigh\",\"parent\":\"hip\",\"head\":[400,500],\"tail\":[410,620]}."
     )]
     Bone {
         bundle: PathBuf,
@@ -1186,6 +1186,8 @@ enum Command {
         head: Option<[f32; 2]>,
         #[arg(long, value_parser = parse_pair, allow_hyphen_values = true)]
         tail: Option<[f32; 2]>,
+        #[arg(long, value_parser = parse_pair, allow_hyphen_values = true, help = "dx,dy in px: with --move, the bone and its children")]
+        by: Option<[f32; 2]>,
         #[command(flatten)]
         flags: EditFlags,
     },
@@ -2797,6 +2799,7 @@ fn run() -> Result<()> {
             parent,
             head,
             tail,
+            by,
             flags,
         } => {
             let spec = BoneSpec {
@@ -2810,6 +2813,7 @@ fn run() -> Result<()> {
                 parent,
                 head,
                 tail,
+                by,
             };
             agent::edit(&bundle, &[Op::Bone(spec)], &output(&flags, 0))?;
         }

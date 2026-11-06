@@ -398,6 +398,22 @@ mod tests {
             bundle.read_weights("l1").unwrap().maps.contains_key("fore"),
             "undo restores the weights file"
         );
+        edit(&dir, r#"{"op":"bone","layer":"l1","move":"fore","tail":[470,230]}"#).unwrap();
+        let bones = Bundle::open(&dir).unwrap().doc.layer("l1").unwrap().bones.clone();
+        assert_eq!(
+            bones[2].head,
+            [470.0, 230.0],
+            "the hand starts where the forearm now ends"
+        );
+        edit(&dir, r#"{"op":"bone","layer":"l1","move":"upper","by":[0,-20]}"#).unwrap();
+        let lifted = Bundle::open(&dir).unwrap().doc.layer("l1").unwrap().bones.clone();
+        assert!(
+            lifted
+                .iter()
+                .zip(&bones)
+                .all(|(a, b)| a.head == [b.head[0], b.head[1] - 20.0] && a.tail == [b.tail[0], b.tail[1] - 20.0]),
+            "by moves a bone with its children: {lifted:?}"
+        );
         edit(&dir, r#"{"op":"bone","layer":"l1","rm":"upper"}"#).unwrap();
         assert!(
             Bundle::open(&dir).unwrap().doc.layer("l1").unwrap().bones.is_empty(),
