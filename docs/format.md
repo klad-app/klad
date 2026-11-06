@@ -1,8 +1,8 @@
-_Last updated: 2026-11-06 (format `draw-anything/9`, stroke files version 6, brushes `draw-anything-brush/1`)_
+_Last updated: 2026-11-06 (format `klad/1`, stroke files `KLST` version 1, brushes `klad-brush/1`)_
 
 # The klad drawing format
 
-A klad drawing is a folder whose name ends in `.draw`, called a bundle. This document describes everything in it, so that any program can read, write and make klad drawings. It is licensed under the MIT License (`LICENSE-MIT`), unlike klad itself.
+A klad drawing is a folder whose name ends in `.klad`, called a bundle. This document describes everything in it, so that any program can read, write and make klad drawings. It is licensed under the MIT License (`LICENSE-MIT`), unlike klad itself.
 
 klad is the reference: when this text and klad's renders disagree, klad is right and this text is wrong. The data is exact (every key, every byte); how pixels come out of it is described as far as a reader needs to draw a faithful approximation, not to match klad's renders bit for bit.
 
@@ -30,13 +30,13 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
 - **Colours** are `"#rrggbb"` or `"#rrggbbaa"`: sRGB, straight (not premultiplied) alpha.
 - **Ids** are unique across the whole document and use letters, digits, `-` and `_`. klad makes new ones from a prefix (`l` layer, `c` cel, `n` node) and `nextId`. Ids are case sensitive.
 - **JSON** is UTF-8, written pretty with a stable key order. Keys at their default value are left out; readers must take the defaults listed below for missing keys. Most objects reject keys they do not know, so writers must not add their own.
-- **Versions.** `format` names the version of `doc.json` and everything it implies. klad opens every older version and migrates it in memory (written back on the next change). A reader that meets a newer version than it knows should refuse to write the bundle.
+- **Versions.** `format` names the version of `doc.json` and everything it implies; this is `klad/1`, the first. Later versions will open older `klad/` drawings and migrate them in memory (written back on the next change). A reader that meets a newer version than it knows should refuse to write the bundle. Drawings from before `klad/1` (`.draw` folders, formats `draw-anything/0` to `/9`) do not open.
 
 ## doc.json
 
 ```json
 {
-  "format": "draw-anything/9",
+  "format": "klad/1",
   "rev": 42,
   "canvas": { "width": 2048, "height": 2048, "background": "#f4efe6" },
   "timeline": { "fps": 12, "frames": 24, "origin": [1024, 1800],
@@ -60,7 +60,7 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `format` | string | | `"draw-anything/9"` |
+| `format` | string | | `"klad/1"` |
 | `rev` | integer | | grows by one on every write |
 | `canvas` | object | | `width`, `height` (px), `background` (a colour; none is transparent) |
 | `timeline` | object | 12 fps, 1 frame | see below |
@@ -219,10 +219,10 @@ The file is one zstd frame (any level; klad uses 3). Inside:
 
 | Bytes | What |
 |---|---|
-| 4 | `DAST` |
-| 1 | the version, 6 now (klad reads 1 to 6) |
+| 4 | `KLST` |
+| 1 | the version: 1 |
 | varint | the number of marks |
-| ... | each mark: a kind byte (0 stroke, 1 fill; from version 4, before that every mark is a stroke), then its record |
+| ... | each mark: a kind byte (0 stroke, 1 fill), then its record |
 
 There must be nothing after the last mark.
 
@@ -240,10 +240,10 @@ Numbers: a **varint** is an unsigned LEB128 integer (7 bits per byte, low bits f
 | flow | f32 | 0 to 1 |
 | seed | u32 | the seed of the brush's randomness, so a stroke replays the same |
 | channels | u8 | bits: 1 tilt, 2 time, 4 taper, 8 lock alpha, 16 cuts, 32 second colour |
-| author | u8 | 0 a person, 1 an agent (from version 2) |
-| taper | 2 f32 | if bit 4: px over which the start and end thin to a point, whatever the pressure (from version 3) |
-| cuts | cuts | if bit 16 (from version 5) |
-| second colour | colour | if bit 32: for brushes whose colour moves between two (from version 6) |
+| author | u8 | 0 a person, 1 an agent |
+| taper | 2 f32 | if bit 4: px over which the start and end thin to a point, whatever the pressure |
+| cuts | cuts | if bit 16 |
+| second colour | colour | if bit 32: for brushes whose colour moves between two |
 | samples | varint | n, the number of samples |
 | x, y | 2 columns | position in 1/16 px |
 | pressure | column | 0 to 4095 |
@@ -260,7 +260,7 @@ A **column** is n signed varints, each the difference from the previous value (t
 | colour | colour | |
 | opacity | f32 | |
 | author | u8 | 0 a person, 1 an agent |
-| source | u8 | low bits: 0 a flood fill, 1 a polygon; bit `0x80` lock alpha, bit `0x40` cuts (from version 5) |
+| source | u8 | low bits: 0 a flood fill, 1 a polygon; bit `0x80` lock alpha, bit `0x40` cuts |
 | flood fill | f32 x, f32 y, u8 reference, 3 f32 | the seed point; what it filled from: 0 this layer, 1 everything visible, 2 a layer (then a string, its id); `tolerance`, `gap`, `expand` |
 | polygon | varint n, n pairs of f32 | the polygon's points |
 | coverage | see below | the pixels the fill covered when it was made |
@@ -278,7 +278,7 @@ When a lasso cuts across a mark, the mark is not split into new geometry: each p
 
 | Key | Meaning |
 |---|---|
-| `format` | `"draw-anything-brush/1"` |
+| `format` | `"klad-brush/1"` |
 | `name` | |
 | `tip` | `{"round": {"hardness": h}}`, `{"chalk": {"seed": n}}` or `{"image": {"image": name, "more": [names]}}` (several pictures take turns) |
 | `spacing` | distance between dabs, as a share of the size |
@@ -319,14 +319,4 @@ Drawing a stroke: walk the samples, interpolate between them, stamp the tip ever
 
 | Format | Change |
 |---|---|
-| 0, 1 | the first versions: brushes were not embedded (klad embeds the brushes of that time when it opens one) |
-| 2 | every brush a stroke uses is embedded in `brushes/` |
-| 3 | `palette`; paint drawings may hold fills (stroke files version 4) |
-| 4 | `mask`, `clip`, `lockAlpha`; stroke files version 5 (lock and cuts) |
-| 5 | a clip's `fps`, `timeline.origin`, `export.godot` |
-| 6 | a cel's `tween` |
-| 7 | a cel's `parts`, a tween's `unpaired` |
-| 8 | `effects`; adjustment layers, `depth`, `atmosphere`, `reference` and the `image`, `text`, `rays`, `scatter`, `repeat` and `mirror` nodes came while the format was 8 |
-| 9 | `bones` on layers, `pose` on cels, `keys`, weights files |
-
-klad migrates any older bundle on open.
+| `klad/1` | the first `.klad` format (2026-11). Drawings from before it, `.draw` folders in formats `draw-anything/0` to `/9` with stroke files marked `DAST`, do not open. |

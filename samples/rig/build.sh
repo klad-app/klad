@@ -8,7 +8,7 @@ case "$(uname -s)" in
   *) built=target/windows ;;
 esac
 klad="${KLAD:-$root/${KLAD_TARGET_DIR:-$built}/release/klad}"
-out="${1:-$here/rig.draw}"
+out="${1:-$here/rig.klad}"
 if [ -e "$out" ] && [ "${FORCE:-0}" != 1 ]; then
   echo "$out exists and may hold edits made in the editor; give another path, or FORCE=1 to rebuild it" >&2
   exit 1
@@ -24,7 +24,7 @@ for keys in "4 8" "8 12" "12 16"; do
   "$klad" inbetween "$out" --layers colour,lines --from "$1" --to "$2" >/dev/null
 done
 "$klad" bones "$out"
-"$klad" render "$out" --frame 8 --overlay bones -o "${out%.draw}-bones.png" | tail -1
-"$klad" render "$out" --sheet wave --drawings -o "${out%.draw}-sheet.png" | tail -1
-"$klad" export "$out" --godot-rig "${out%.draw}-godot" --godot-scene "${out%.draw}-godot" 2>&1 | tail -2
+"$klad" render "$out" --frame 8 --overlay bones -o "${out%.klad}-bones.png" | tail -1
+"$klad" render "$out" --sheet wave --drawings -o "${out%.klad}-sheet.png" | tail -1
+"$klad" export "$out" --godot-rig "${out%.klad}-godot" --godot-scene "${out%.klad}-godot" 2>&1 | tail -2
 "$klad" hash "$out" --all --no-cache | sed -n '1p;9p;13p'

@@ -425,7 +425,7 @@ fn copy_dir(from: &Path, to: &Path) {
 #[test]
 #[ignore]
 fn ui_time_per_frame() {
-    let creature = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/creature/creature.draw");
+    let creature = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/creature/creature.klad");
     let copy = std::env::temp_dir().join(format!("draw-ui-creature-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&copy);
     if creature.exists() {
@@ -480,7 +480,7 @@ fn ui_time_per_frame() {
 fn panel_pictures() {
     let out = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scratch/ui");
     std::fs::create_dir_all(&out).unwrap();
-    let creature = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/creature/creature.draw");
+    let creature = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/creature/creature.klad");
     let path = std::env::temp_dir().join(format!("draw-ui-pictures-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
     copy_dir(&creature, &path);
@@ -2191,7 +2191,7 @@ fn the_cli_only_features_run_from_the_editor_and_give_what_the_cli_gives() {
     let base = std::env::temp_dir().join(format!("draw-ui-cli-forms-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     std::fs::create_dir_all(&base).unwrap();
-    let (ours, theirs) = (base.join("ours.draw"), base.join("theirs.draw"));
+    let (ours, theirs) = (base.join("ours.klad"), base.join("theirs.klad"));
     let (o, t) = (ours.to_str().unwrap(), theirs.to_str().unwrap());
     run(&[
         "new", o, "--width", "256", "--height", "160", "--layers", "0", "--frames", "4",

@@ -52,7 +52,7 @@ def picture(name):
 
 
 def tuft_brush():
-    return {"format": "draw-anything-brush/1", "name": "Tuft", "tip": {"image": {"image": "tuft", "more": ["tuft-b"]}},
+    return {"format": "klad-brush/1", "name": "Tuft", "tip": {"image": {"image": "tuft", "more": ["tuft-b"]}},
             "spacing": 1.0, "angle": "follow", "jitter": {"size": 0.2, "angle": 0.15},
             "color": {"value": 0.05, "saturation": 0.04, "pressure": {"min": 0.0}}}
 

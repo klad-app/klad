@@ -332,12 +332,12 @@ mod tests {
         new.defaults.surround = [20, 20, 24];
         new.save(&path).unwrap();
         assert_eq!(Settings::load(&path), new);
-        let (a, b) = (dir.join("a.draw"), dir.join("b.draw"));
+        let (a, b) = (dir.join("a.klad"), dir.join("b.klad"));
         new.opened(&a);
         new.opened(&b);
         new.opened(&a);
         assert_eq!(new.documents, [a.display().to_string(), b.display().to_string()]);
-        (0..20).for_each(|i| new.opened(&dir.join(format!("{i}.draw"))));
+        (0..20).for_each(|i| new.opened(&dir.join(format!("{i}.klad"))));
         assert_eq!(new.documents.len(), DOCUMENTS);
         new.forget(&new.documents[0].clone());
         assert_eq!(new.documents.len(), DOCUMENTS - 1);

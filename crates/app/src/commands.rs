@@ -1904,7 +1904,7 @@ impl Cmd {
                 G::File,
                 T::Press(const { &[cmd(Key::N)] }),
                 R::No,
-                "a new .draw bundle: name, folder, size, background; this one stays saved",
+                "a new .klad bundle: name, folder, size, background; this one stays saved",
             ),
             Cmd::OpenDocument => spec(
                 "file.open",
@@ -1913,7 +1913,7 @@ impl Cmd {
                 G::File,
                 T::Press(const { &[cmd(Key::O)] }),
                 R::No,
-                "pick a .draw folder and switch to it; this one stays saved",
+                "pick a .klad folder and switch to it; this one stays saved",
             ),
             Cmd::OpenRecent => spec(
                 "file.recent",
@@ -2039,7 +2039,7 @@ impl Cmd {
                 G::File,
                 T::None,
                 R::No,
-                "puts the .draw folder's path on the clipboard, to hand to the agent",
+                "puts the .klad folder's path on the clipboard, to hand to the agent",
             ),
             Cmd::NudgeDown => spec(
                 "edit.nudge-down",

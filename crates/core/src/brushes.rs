@@ -4,7 +4,7 @@ use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub const BRUSH_FORMAT: &str = "draw-anything-brush/1";
+pub const BRUSH_FORMAT: &str = "klad-brush/1";
 pub const SPEED_FULL: f32 = 5.0;
 
 const LIBRARY: &[(&str, &str)] = &[

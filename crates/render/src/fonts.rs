@@ -496,7 +496,7 @@ mod tests {
     #[ignore = "downloads a family from GitHub"]
     fn a_family_downloads_into_the_user_folder_and_comes_into_a_drawing() {
         let dir = std::env::temp_dir().join(format!("klad-user-fonts-{}", std::process::id()));
-        let root = dir.join("art.draw");
+        let root = dir.join("art.klad");
         let _ = std::fs::remove_dir_all(&dir);
         unsafe { std::env::set_var("KLAD_USER_FONTS", dir.join("fonts")) };
         forget();

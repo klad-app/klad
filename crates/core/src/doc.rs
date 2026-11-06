@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const FORMAT: &str = "draw-anything/9";
+pub const FORMAT: &str = "klad/1";
 pub const MAX_SIZE: u32 = 16384;
 pub const MASK: usize = usize::MAX;
 

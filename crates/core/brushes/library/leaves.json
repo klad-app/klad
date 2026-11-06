@@ -1,5 +1,5 @@
 {
-  "format": "draw-anything-brush/1",
+  "format": "klad-brush/1",
   "name": "Leaves",
   "tip": { "image": { "image": "leaf", "more": ["leaf-oval", "leaf-oval", "leaf-lance", "leaf-twig"] } },
   "spacing": 0.6,

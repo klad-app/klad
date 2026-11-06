@@ -170,7 +170,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("klad-cli-picture-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let bundle = dir.join("art.draw");
+        let bundle = dir.join("art.klad");
         Bundle::create(&bundle, klad_core::doc::Document::new(200, 100)).unwrap();
         let rgba = klad_render::assets::Rgba {
             width: 400,

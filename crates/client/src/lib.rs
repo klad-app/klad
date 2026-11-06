@@ -273,12 +273,12 @@ mod tests {
     #[test]
     fn a_missing_program_is_an_io_error_naming_the_command() {
         let klad = Klad::at("/no/such/klad");
-        let error = klad.drawing("a.draw").ls(0).unwrap_err();
+        let error = klad.drawing("a.klad").ls(0).unwrap_err();
         assert!(matches!(error, Error::Io { .. }));
         assert!(
             error
                 .to_string()
-                .starts_with("/no/such/klad ls a.draw --json --frame 0")
+                .starts_with("/no/such/klad ls a.klad --json --frame 0")
         );
     }
 

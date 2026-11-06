@@ -14,7 +14,7 @@ fn the_binary_runs() {
 fn a_drawing_moves_and_a_layer_duplicates_from_the_command_line() {
     let dir = std::env::temp_dir().join(format!("draw-binary-move-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let bundle = dir.join("a.draw");
+    let bundle = dir.join("a.klad");
     let draw = |args: &[&str]| {
         let out = Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
@@ -45,7 +45,7 @@ fn a_drawing_moves_and_a_layer_duplicates_from_the_command_line() {
 
 #[test]
 fn an_error_is_one_line_and_the_backtrace_waits_for_klad_backtrace() {
-    let missing = std::env::temp_dir().join(format!("draw-binary-missing-{}.draw", std::process::id()));
+    let missing = std::env::temp_dir().join(format!("draw-binary-missing-{}.klad", std::process::id()));
     let run = |backtrace: Option<&str>| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_klad"));
         command
@@ -78,7 +78,7 @@ fn the_client_makes_edits_reads_and_renders_a_drawing() {
     std::fs::create_dir_all(&dir).unwrap();
     let klad = Klad::at(env!("CARGO_BIN_EXE_klad"));
     assert!(klad.version().unwrap().starts_with("klad"));
-    let art = klad.drawing(dir.join("art.draw"));
+    let art = klad.drawing(dir.join("art.klad"));
     art.create(320, 200, Some("#e9e4da")).unwrap();
     let ids = art
         .apply([

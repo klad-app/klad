@@ -56,17 +56,17 @@ fmt:
 bench *args: build
     {{klad}} bench {{args}}
 
-demo bundle="scratch/demo.draw": build
+demo bundle="scratch/demo.klad": build
     {{klad}} demo {{bundle}} --force
     {{klad}} render {{bundle}}
 
-hash bundle="scratch/demo.draw": build
+hash bundle="scratch/demo.klad": build
     {{klad}} hash {{bundle}} --no-cache
 
-open bundle="scratch/pen.draw": build
+open bundle="scratch/pen.klad": build
     {{klad}} open {{bundle}}
 
-stress bundle="scratch/stress.draw": build
+stress bundle="scratch/stress.klad": build
     {{klad}} stress {{bundle}}
 
 ui-pictures:

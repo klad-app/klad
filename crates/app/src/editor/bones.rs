@@ -536,8 +536,8 @@ mod tests {
     fn a_pose_from_the_editor_is_the_cli_pose() {
         let pose = BTreeMap::from([("fore".to_string(), -45.0), ("upper".to_string(), 0.0)]);
         assert_eq!(
-            pose_args(std::path::Path::new("/w/a.draw"), "l1", 4, &pose).join(" "),
-            "pose /w/a.draw l1 --from 4 --to 4 --bone fore=-45.00"
+            pose_args(std::path::Path::new("/w/a.klad"), "l1", 4, &pose).join(" "),
+            "pose /w/a.klad l1 --from 4 --to 4 --bone fore=-45.00"
         );
     }
 }

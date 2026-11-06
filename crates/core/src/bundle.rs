@@ -134,28 +134,10 @@ impl Bundle {
         let text = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         let raw: serde_json::Value =
             serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-        let migrated = migrate(raw).with_context(|| format!("upgrading {}", path.display()))?;
-        let doc: Document =
-            serde_json::from_value(migrated.value.clone()).with_context(|| format!("reading {}", path.display()))?;
+        let value = migrate(raw).with_context(|| format!("opening {}", root.display()))?;
+        let doc: Document = serde_json::from_value(value).with_context(|| format!("reading {}", path.display()))?;
         doc.validate().with_context(|| format!("checking {}", path.display()))?;
-        let mut bundle = Self { root, doc };
-        if migrated.changed() {
-            migrated.moves.iter().try_for_each(|m| {
-                let from = bundle.root.join(&m.from);
-                if from.exists() {
-                    write_atomic(&bundle.root.join(&m.to), &fs::read(&from)?)?;
-                }
-                Ok::<_, anyhow::Error>(())
-            })?;
-            if migrated.embed_m1_brushes {
-                bundle.embed_m1_brushes()?;
-            }
-            bundle.save()?;
-            migrated.moves.iter().for_each(|m| {
-                let _ = fs::remove_file(bundle.root.join(&m.from));
-            });
-            eprintln!("upgraded {} to {}", bundle.root.display(), bundle.doc.format);
-        }
+        let bundle = Self { root, doc };
         Ok(bundle)
     }
 
@@ -212,28 +194,6 @@ impl Bundle {
                 .map(String::from),
         );
         Ok(ids)
-    }
-
-    fn used_brushes(&self) -> Result<BTreeSet<String>> {
-        self.doc
-            .paint_cels()
-            .iter()
-            .try_fold(BTreeSet::new(), |mut used, (layer, cel)| {
-                used.extend(self.read_strokes(&layer.id, &cel.id)?.into_iter().map(|s| s.brush));
-                Ok(used)
-            })
-    }
-
-    fn embed_m1_brushes(&self) -> Result<()> {
-        self.used_brushes()?.iter().try_for_each(|id| {
-            match brushes::legacy_m1(id).or_else(|| brushes::library(id)) {
-                Some(def) => {
-                    self.embed_brush(id, &def)?;
-                }
-                None => eprintln!("{}: strokes use unknown brush {id:?}", self.root.display()),
-            }
-            Ok(())
-        })
     }
 
     pub fn embed_brushes_of(&self, marks: &[Mark]) -> Result<()> {
@@ -975,55 +935,14 @@ mod tests {
     }
 
     #[test]
-    fn v0_bundles_upgrade_on_open_and_keep_their_strokes() {
-        let dir = scratch("upgrade");
-        fs::create_dir_all(dir.join("strokes/ink")).unwrap();
-        let v0 = r##"{"format":"draw-anything/0","rev":3,"canvas":{"width":128,"height":128},
-            "layers":[{"id":"bg","name":"bg","kind":"vector","shapes":[{"type":"rect","x":0,"y":0,"w":128,"h":128,"fill":"#102030"}]},
-                      {"id":"ink","name":"ink","kind":"paint"}]}"##;
-        fs::write(dir.join("doc.json"), v0).unwrap();
-        let strokes = Synth::canvas(128.0, 128.0).strokes(4, 1);
-        fs::write(
-            dir.join("strokes/ink/c0.strokes"),
-            encode_cel(&crate::stroke::marks(strokes.clone())).unwrap(),
-        )
-        .unwrap();
-        let bundle = Bundle::open(&dir).unwrap();
-        assert_eq!(bundle.doc.format, crate::doc::FORMAT);
-        assert_eq!(bundle.doc.rev, 4);
-        let cel = bundle.doc.layer("ink").unwrap().cels()[0].id.clone();
-        assert_eq!(bundle.read_strokes("ink", &cel).unwrap(), strokes);
-        assert!(!dir.join("strokes/ink/c0.strokes").exists());
-        let again = Bundle::open(&dir).unwrap();
-        assert_eq!(again.doc.rev, 4);
-        fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn m1_bundles_embed_the_m1_brushes_they_use() {
-        let dir = scratch("m1");
-        let mut doc = Document::new(64, 64);
-        doc.format = "draw-anything/1".into();
-        doc.layers.push(Layer::paint("l1", "ink", "c1"));
-        let text = serde_json::to_string(&doc).unwrap();
+    fn a_drawing_in_the_old_format_is_refused_and_left_alone() {
+        let dir = scratch("old-format");
         fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("doc.json"), text).unwrap();
-        let mut synth = Synth::canvas(64.0, 64.0);
-        synth.brushes = vec!["ink".into(), "chalk".into()];
-        fs::create_dir_all(dir.join("strokes/l1")).unwrap();
-        fs::write(
-            dir.join("strokes/l1/c1.strokes"),
-            encode_cel(&crate::stroke::marks(synth.strokes(6, 3))).unwrap(),
-        )
-        .unwrap();
-        let bundle = Bundle::open(&dir).unwrap();
-        assert_eq!(bundle.doc.format, crate::doc::FORMAT);
-        let embedded = bundle.brushes().unwrap();
-        assert_eq!(embedded.keys().collect::<Vec<_>>(), ["chalk", "ink"]);
-        assert_eq!(embedded["ink"], brushes::legacy_m1("ink").unwrap());
-        assert_ne!(embedded["ink"], brushes::library("ink").unwrap());
-        assert_eq!(bundle.brush("marker").unwrap(), brushes::library("marker"));
-        assert_eq!(Bundle::open(&dir).unwrap().doc.rev, bundle.doc.rev);
+        let old = r##"{"format":"draw-anything/9","rev":3,"canvas":{"width":128,"height":128},"layers":[]}"##;
+        fs::write(dir.join("doc.json"), old).unwrap();
+        let error = format!("{:#}", Bundle::open(&dir).err().unwrap());
+        assert!(error.contains("old .draw format"), "{error}");
+        assert_eq!(fs::read_to_string(dir.join("doc.json")).unwrap(), old);
         fs::remove_dir_all(&dir).unwrap();
     }
 

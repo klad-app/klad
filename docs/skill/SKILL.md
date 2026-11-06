@@ -1,18 +1,18 @@
 ---
 name: klad
 license: MIT (LICENSE-MIT in the klad repository)
-description: Make and edit 2D art with the klad CLI (`klad`) in a `.draw` bundle that the user can open in the editor at the same time. Use for any drawing, illustration, game asset, icon, background or sprite work in klad, for reading what the user drew or asked for (strokes, selection, pinned notes), and for scripting art generators that emit `klad apply` ops.
+description: Make and edit 2D art with the klad CLI (`klad`) in a `.klad` bundle that the user can open in the editor at the same time. Use for any drawing, illustration, game asset, icon, background or sprite work in klad, for reading what the user drew or asked for (strokes, selection, pinned notes), and for scripting art generators that emit `klad apply` ops.
 ---
 
 # klad
 
-A `.draw` bundle is a folder: `doc.json` (layers, cels, vector nodes, palette), `strokes/<layer>/<cel>.strokes` (paint strokes and fills as data), `brushes/<id>.json` (every brush its strokes use) and `.cache/` (renders, history, notes, tiles). The `klad` CLI edits it; the user edits the same bundle in the editor (`klad open`, or the klad app). Both see each other's changes within a second. The user starts and opens drawings from the editor's start window (cmd N, cmd O, recent) and can copy a drawing's path from the document menu at the bottom of the tool strip to hand it to you. To start one yourself: `klad new art.draw --width 1600 --height 1200 --background '#e9e4da' --sketch` (one paint layer, `l1`, and a vector layer named sketch on top, `l3`). If `klad` is not on the path, the user can run "install the klad command" from that menu (or `klad install` from the folder they unpacked); `klad skill` prints these instructions, matching the version installed.
+A `.klad` bundle is a folder: `doc.json` (layers, cels, vector nodes, palette), `strokes/<layer>/<cel>.strokes` (paint strokes and fills as data), `brushes/<id>.json` (every brush its strokes use) and `.cache/` (renders, history, notes, tiles). The `klad` CLI edits it; the user edits the same bundle in the editor (`klad open`, or the klad app). Both see each other's changes within a second. The user starts and opens drawings from the editor's start window (cmd N, cmd O, recent) and can copy a drawing's path from the document menu at the bottom of the tool strip to hand it to you. To start one yourself: `klad new art.klad --width 1600 --height 1200 --background '#e9e4da' --sketch` (one paint layer, `l1`, and a vector layer named sketch on top, `l3`). If `klad` is not on the path, the user can run "install the klad command" from that menu (or `klad install` from the folder they unpacked); `klad skill` prints these instructions, matching the version installed.
 
 Working on klad itself: the repository's `CLAUDE.md`, `CONTRIBUTING.md` and `docs/DESIGN.md` are the source of truth. Build the CLI with `just build`; the binary is `target/release/klad` on macOS and `target/linux/release/klad` on Linux.
 
 ## The loop
 
-1. Look: `klad ls art.draw` (tree, top layer first, ids and bounds) and `klad render art.draw --scale 0.5 --overlay ids,bbox`. Read the PNG it prints.
+1. Look: `klad ls art.klad` (tree, top layer first, ids and bounds) and `klad render art.klad --scale 0.5 --overlay ids,bbox`. Read the PNG it prints.
 2. Change: `klad add`, `klad set`, `klad rm`, `klad mv`, `klad stroke`, `klad fill`, `klad transform`, `klad lasso`, `klad path`, `klad palette`, or many at once with `klad apply` (JSON lines, one transaction).
 3. Check: add `--render` (preview, longest side 1024) and `--overlay ids,bbox` to the edit, or `klad diff` (before and after, side by side), or `klad render --focus <id>` for a close-up.
 4. Undo freely: `klad undo`, `klad redo`, `klad log`. History is shared with the editor.
@@ -21,18 +21,18 @@ Keep renders small unless detail matters: `--scale 0.5` or `--focus <id>` costs 
 
 ## What the user wants
 
-- `klad notes art.draw`: notes the user pinned on the canvas, each with a `--region` render command. Do the work, then `klad notes art.draw --done <id>`; the editor shows the pin as done at once and lists it under done in the Notes pane, so mark a note done only when it is.
-- `klad selection art.draw`: the layer, shapes, path and strokes the user selected in the editor (strokes as `<cel>:s<id>`), with bounds and a `--focus` command.
-- `klad strokes art.draw <layer> --json`: the user's strokes with points and pressure, to trace their shapes (a ridge line and tree positions from a pen sketch, for example).
+- `klad notes art.klad`: notes the user pinned on the canvas, each with a `--region` render command. Do the work, then `klad notes art.klad --done <id>`; the editor shows the pin as done at once and lists it under done in the Notes pane, so mark a note done only when it is.
+- `klad selection art.klad`: the layer, shapes, path and strokes the user selected in the editor (strokes as `<cel>:s<id>`), with bounds and a `--focus` command.
+- `klad strokes art.klad <layer> --json`: the user's strokes with points and pressure, to trace their shapes (a ridge line and tree positions from a pen sketch, for example).
 
 ## Vector nodes
 
 Layers: `paint` (strokes), `vector` (nodes), `group` (children). Add a vector layer, then nodes into it:
 
 ```
-klad add art.draw layer vector name=sky
-klad add art.draw rect --in l1 x=0 y=0 w=2048 h=900 'fill={"linear":{"from":[0,0],"to":[0,900],"stops":[[0,"#20304f"],[1,"#d98b5f"]]}}'
-klad set art.draw n3 transform.rotate=-8 opacity=0.8 blur=4
+klad add art.klad layer vector name=sky
+klad add art.klad rect --in l1 x=0 y=0 w=2048 h=900 'fill={"linear":{"from":[0,0],"to":[0,900],"stops":[[0,"#20304f"],[1,"#d98b5f"]]}}'
+klad set art.klad n3 transform.rotate=-8 opacity=0.8 blur=4
 ```
 
 - Types: `rect` (x, y, w, h, radius), `ellipse` (cx, cy, rx, ry), `path` (SVG `d`), `group` (children).
@@ -45,13 +45,13 @@ klad set art.draw n3 transform.rotate=-8 opacity=0.8 blur=4
 ## Painting
 
 ```
-klad stroke art.draw l4 --brush ink --size 14 --color '#1b1b1b' --path 'M100 400 C 300 200 500 600 700 400' --pressure 0.1,1,0.05
-klad stroke art.draw l4 --brush ink --size 5 --taper 8,20 --path 'M100 100 L140 220'
+klad stroke art.klad l4 --brush ink --size 14 --color '#1b1b1b' --path 'M100 400 C 300 200 500 600 700 400' --pressure 0.1,1,0.05
+klad stroke art.klad l4 --brush ink --size 5 --taper 8,20 --path 'M100 100 L140 220'
 ```
 
-- `klad brushes art.draw` lists the brushes: the ones the bundle embeds and the library (`ink` inking pen, `pencil`, `marker`, `airbrush`, `soft`, `chalk`, `eraser`, and for painting `flat-bristle`, `round-bristle`, `sponge`, `fog`, `leaves`, `grass`, `splatter`, `wet`, `smudge`, `blender`, `dry-brush`, `two-tone`); the tip column says `+dual`, `+texture`, `+colour`, `+wet`, `+smudge`, `+blend` or `+body`. `--show <id>` prints one as JSON. A bundle keeps every brush it uses, so `ink` in an older bundle can be the older ink; `--brush` takes any id from that list.
+- `klad brushes art.klad` lists the brushes: the ones the bundle embeds and the library (`ink` inking pen, `pencil`, `marker`, `airbrush`, `soft`, `chalk`, `eraser`, and for painting `flat-bristle`, `round-bristle`, `sponge`, `fog`, `leaves`, `grass`, `splatter`, `wet`, `smudge`, `blender`, `dry-brush`, `two-tone`); the tip column says `+dual`, `+texture`, `+colour`, `+wet`, `+smudge`, `+blend` or `+body`. `--show <id>` prints one as JSON. A bundle keeps every brush it uses, so `ink` in an older bundle can be the older ink; `--brush` takes any id from that list.
 - Painting brushes: `wet` picks up the colour under it and mixes it in, `smudge` pulls paint along, `blender` softens what it crosses; all three read only the layer they paint on (paint the colours to mix on one layer). `leaves`, `grass` and `splatter` scatter their picture tips with jittered colour (`leaves` picks one of several leaf shapes per dab: `leaf`, `leaf-oval`, `leaf-lance`, `leaf-twig`; a tip takes more pictures as `{"image":{"image":"leaf","more":["leaf-oval","leaf-lobed"]}}`); `two-tone` paints `--second` at a light press and `--color` at a full one. `--second '#e0a040'` (`"second"` in `apply`) is the second colour for brushes with colour dynamics.
-- New brushes: write the JSON (copy one from `--show`; keys `tip` (`round`, `chalk` or `{"image":{"image":"name"}}`), `dual`, `grain` (`paper` or `image`, `strength`, `scale`, `contrast`, `pressure`), `color` (`hue`, `saturation`, `value`, `strokeHue`, ..., `pressure`, `along`), `paint` (`wet`, `smudge`, `blend`)) and `klad brushes art.draw --set my-oil brush.json` (`-` reads stdin). Pictures for tips and textures: `klad brushes art.draw --picture bark bark.png` (dark is paint, or the alpha). Ids and pictures are fixed once in the bundle, since strokes keep their brush.
+- New brushes: write the JSON (copy one from `--show`; keys `tip` (`round`, `chalk` or `{"image":{"image":"name"}}`), `dual`, `grain` (`paper` or `image`, `strength`, `scale`, `contrast`, `pressure`), `color` (`hue`, `saturation`, `value`, `strokeHue`, ..., `pressure`, `along`), `paint` (`wet`, `smudge`, `blend`)) and `klad brushes art.klad --set my-oil brush.json` (`-` reads stdin). Pictures for tips and textures: `klad brushes art.klad --picture bark bark.png` (dark is paint, or the alpha). Ids and pictures are fixed once in the bundle, since strokes keep their brush.
 - `--taper in,out` thins the first and last px of the line to a point whatever the pressure; without it the brush's taper applies (`ink` is `10,24`), `--taper 0,0` gives round ends. Short hatching wants about `8,20`, long contours `30,80`.
 - `--pressure` spreads values evenly along the stroke; several subpaths in `--path` make several strokes. `--points 'x,y,p x,y,p'` gives explicit samples.
 - In `apply`: `{"op":"stroke","layer":"l4","brush":"ink","size":14,"color":"#1b1b1b","path":"M...","pressure":[0.1,1,0.05],"taper":[12,30]}`.
@@ -59,19 +59,19 @@ klad stroke art.draw l4 --brush ink --size 5 --taper 8,20 --path 'M100 100 L140 
 
 ## Editing strokes and fills
 
-Every stroke and fill has an address `<cel>:s<id>` (fills share the id counter with strokes). `klad strokes art.draw <layer>` lists them with the cel id on top.
+Every stroke and fill has an address `<cel>:s<id>` (fills share the id counter with strokes). `klad strokes art.klad <layer>` lists them with the cel id on top.
 
 ```
-klad set art.draw c4:s12 color=#c84a3a size=6 brush=pencil
-klad set art.draw c4:s7 color=skin opacity=0.8
-klad rm art.draw c4:s12 c4:s13
-klad transform art.draw c4:s3 c4:s5 --move 40,-10 --rotate 15 --scale 1.2
-klad show art.draw c4:s12
-klad render art.draw --focus c4:s12
+klad set art.klad c4:s12 color=#c84a3a size=6 brush=pencil
+klad set art.klad c4:s7 color=skin opacity=0.8
+klad rm art.klad c4:s12 c4:s13
+klad transform art.klad c4:s3 c4:s5 --move 40,-10 --rotate 15 --scale 1.2
+klad show art.klad c4:s12
+klad render art.klad --focus c4:s12
 ```
 
 - Strokes take `color`, `size`, `opacity`, `flow`, `brush`, `taper` (`[in,out]` or `null`) and `path`; fills take `color` and `opacity`. The stroke keeps its path, pressure and seed, so a recoloured stroke is the same mark in a new colour.
-- Bending a stroke: `klad strokes --json` gives each stroke a fitted `path` (a few points); edit it and `klad reshape art.draw c4:s12 --path 'M...'` (or `set` with `path`). Every sample keeps its pressure, tilt and timing at the same fraction of the length, so the line keeps its weight and taper. The user does the same with A in the editor.
+- Bending a stroke: `klad strokes --json` gives each stroke a fitted `path` (a few points); edit it and `klad reshape art.klad c4:s12 --path 'M...'` (or `set` with `path`). Every sample keeps its pressure, tilt and timing at the same fraction of the length, so the line keeps its weight and taper. The user does the same with A in the editor.
 - `transform` moves, rotates (degrees, clockwise) and scales about `--pivot` (default: the middle of the marks' bounds). Stroke sizes and tapers scale with them; fills move by whole pixels and are resampled when turned or scaled. Ids in several cels need a `--pivot`.
 - In `apply`: `{"op":"set","id":"c4:s12","color":"#c84a3a"}`, `{"op":"rm","ids":["c4:s12"]}`, `{"op":"transform","ids":["c4:s3","c4:s5"],"x":40,"y":-10,"rotate":15,"sx":1.2,"sy":1.2}`.
 - Edits redraw only the tiles the marks touch, from the nearest checkpoint, so they are cheap on large cels.
@@ -79,11 +79,11 @@ klad render art.draw --focus c4:s12
 ## Lasso
 
 ```
-klad lasso art.draw l4 --polygon '600,600 1400,560 1450,1300 640,1380'
-klad lasso art.draw l4 --polygon '600,600 1400,560 1450,1300 640,1380' --cut --move 40,-25
-klad lasso art.draw l4 --polygon '...' --cut --rotate 12 --scale 1.1
-klad lasso art.draw l4 --polygon '...' --flip h
-klad lasso art.draw l4 --polygon '...' --cut --rm
+klad lasso art.klad l4 --polygon '600,600 1400,560 1450,1300 640,1380'
+klad lasso art.klad l4 --polygon '600,600 1400,560 1450,1300 640,1380' --cut --move 40,-25
+klad lasso art.klad l4 --polygon '...' --cut --rotate 12 --scale 1.1
+klad lasso art.klad l4 --polygon '...' --flip h
+klad lasso art.klad l4 --polygon '...' --cut --rm
 ```
 
 - Without a move, turn, scale, flip or `--rm` it lists the strokes and fills inside the polygon and those crossing its edge.
@@ -94,28 +94,28 @@ klad lasso art.draw l4 --polygon '...' --cut --rm
 ## Masks, clipping and lock alpha
 
 ```
-klad set art.draw l5 clip=true blend=multiply
-klad set art.draw l3 lockAlpha=true
-klad add art.draw mask --in l5
-klad stroke art.draw l9 --brush airbrush --size 180 --path 'M600 600 L 640 700'
-klad set art.draw l9 visible=false
-klad rm art.draw l9
+klad set art.klad l5 clip=true blend=multiply
+klad set art.klad l3 lockAlpha=true
+klad add art.klad mask --in l5
+klad stroke art.klad l9 --brush airbrush --size 180 --path 'M600 600 L 640 700'
+klad set art.klad l9 visible=false
+klad rm art.klad l9
 ```
 
 - `clip=true` shows a layer only where the nearest unclipped layer below it (its base) has paint. Clipped layers blend onto the base with their own blend; the group takes the base's opacity and blend. This is how shading stays inside flat colour: flats on one layer, a multiply shade layer and a rim light layer above it, both clipped.
-- `klad add art.draw mask --in <layer>` gives a layer a mask and prints its id. The mask is a paint layer of its own (`klad ls` shows it under its layer): strokes and fills on it hide the layer, the eraser brings it back, an empty mask hides nothing. `hide=true` starts it hiding everything. `visible=false` on the mask turns it off; `klad rm` on its id removes it.
+- `klad add art.klad mask --in <layer>` gives a layer a mask and prints its id. The mask is a paint layer of its own (`klad ls` shows it under its layer): strokes and fills on it hide the layer, the eraser brings it back, an empty mask hides nothing. `hide=true` starts it hiding everything. `visible=false` on the mask turns it off; `klad rm` on its id removes it.
 - `lockAlpha=true` on a paint layer: new strokes and fills only land where the layer already has paint, which recolours line art (a big soft stroke over lines tints only the lines). It is recorded per stroke, so set it back to false when done, or the user's next pen strokes on that layer only land on existing paint. The eraser does nothing on a lock-alpha layer.
 - In `apply`: `{"op":"add","mask":{"name":"light"},"in":"l5"}`, `{"op":"set","id":"l5","clip":true}`.
 
 ## Light, effects and adjustments
 
 ```
-klad effect art.draw l3 glow radius=24 color=#ffd080
-klad effect art.draw l3 outline width=4 color=#101418
-klad effect art.draw l3              # lists them; --rm 1 removes the second, --clear all
-klad add art.draw layer adjust curves 'points=[[0,0],[0.5,0.3],[1,0.85]]' 'blue=[[0,0.12],[1,1]]' name=dusk
-klad add art.draw rays --in l7 x=430 y=0 angle=95 spread=40 count=9 length=600 start=120 fill=#fff0c0c0 blur=6
-klad set art.draw l5 blend=soft-light
+klad effect art.klad l3 glow radius=24 color=#ffd080
+klad effect art.klad l3 outline width=4 color=#101418
+klad effect art.klad l3              # lists them; --rm 1 removes the second, --clear all
+klad add art.klad layer adjust curves 'points=[[0,0],[0.5,0.3],[1,0.85]]' 'blue=[[0,0.12],[1,1]]' name=dusk
+klad add art.klad rays --in l7 x=430 y=0 angle=95 spread=40 count=9 length=600 start=120 fill=#fff0c0c0 blur=6
+klad set art.klad l5 blend=soft-light
 ```
 
 - Effects are settings on a layer (or group), applied in order when it composes and always editable: `blur` (radius), `glow` (radius, strength, threshold: 0 glows from every pixel, about 0.7 only from the bright ones, as bloom; color tints it; blend: screen by default, add for hard light, normal lays it like paint), `outline` (width, color, inside=true), `shadow` (x, y, radius, color with alpha), `noise` (amount, size, seed, mono=false for coloured grain), `displace` (amount, size, seed; by=<layer> pushes with that layer's red across and green down, grey stays put; a hidden layer works as the map), `relief` (strength, light=x,y as in `paint --light`, highlight, shade, softness: lights the paint's thickness, so ridges and stroke edges facing the light catch it and the others darken; only strokes from brushes with `body` have thickness). In `apply` or `set`: `effects=[{"glow":{"radius":24}},{"outline":{"width":3}}]`.
@@ -128,20 +128,20 @@ klad set art.draw l5 blend=soft-light
 ## Depth, pictures, generators and text
 
 ```
-klad set art.draw g2 depth=2.5                       a plane (a layer at the top of the stack): 0 is near
-klad atmosphere art.draw color=#8fa3b8 top=#d3dde7 density=0.55 blur=1.2 desaturate=0.25
-klad add art.draw layer image src=photo.jpg reference=true
-klad add art.draw repeat --in l4 count=8 'step=[60,0]' 'children=[{"type":"rect","x":0,"y":400,"w":12,"h":80,"fill":"#3a2a1a"}]'
-klad add art.draw scatter --in l4 x=0 y=700 w=1600 h=150 count=40 seed=7 'size=[0.6,1.6]' 'turn=[-30,30]' 'children=[{"type":"ellipse","cx":0,"cy":0,"rx":20,"ry":11,"fill":"#3a4450"}]'
-klad add art.draw mirror --in l4 x=800 angle=90 'children=[{"type":"path","d":"M560 900 L560 560 L760 410 Z","fill":"#0d1117"}]'
+klad set art.klad g2 depth=2.5                       a plane (a layer at the top of the stack): 0 is near
+klad atmosphere art.klad color=#8fa3b8 top=#d3dde7 density=0.55 blur=1.2 desaturate=0.25
+klad add art.klad layer image src=photo.jpg reference=true
+klad add art.klad repeat --in l4 count=8 'step=[60,0]' 'children=[{"type":"rect","x":0,"y":400,"w":12,"h":80,"fill":"#3a2a1a"}]'
+klad add art.klad scatter --in l4 x=0 y=700 w=1600 h=150 count=40 seed=7 'size=[0.6,1.6]' 'turn=[-30,30]' 'children=[{"type":"ellipse","cx":0,"cy":0,"rx":20,"ry":11,"fill":"#3a4450"}]'
+klad add art.klad mirror --in l4 x=800 angle=90 'children=[{"type":"path","d":"M560 900 L560 560 L760 410 Z","fill":"#0d1117"}]'
 klad fonts                                           the fonts that come with klad, by group, with their styles
 klad fonts --search slab                             every open font on Google Fonts that matches; --get <family> downloads one
-klad add art.draw text --in l4 'text=THE CROOKED INN' 'font=Cinzel Bold' size=46 x=340 y=96 align=center tracking=4 fill=#f3d9a4
-klad set art.draw t3 'font=Pirata One'
-klad font art.draw ~/fonts/Signage.ttf               a font file of your own
+klad add art.klad text --in l4 'text=THE CROOKED INN' 'font=Cinzel Bold' size=46 x=340 y=96 align=center tracking=4 fill=#f3d9a4
+klad set art.klad t3 'font=Pirata One'
+klad font art.klad ~/fonts/Signage.ttf               a font file of your own
 ```
 
-- Depth: give each top-level group (plane) a `depth`; with an atmosphere every plane fades towards the fog (and the `top` colour higher up), blurs and loses colour, more the deeper it is. Near planes keep depth 0. The user previews the parallax by holding D. `haze` is also an effect of its own (`klad effect art.draw l3 haze amount=0.4 color=#9aa8b8`).
+- Depth: give each top-level group (plane) a `depth`; with an atmosphere every plane fades towards the fog (and the `top` colour higher up), blurs and loses colour, more the deeper it is. Near planes keep depth 0. The user previews the parallax by holding D. `haze` is also an effect of its own (`klad effect art.klad l3 haze amount=0.4 color=#9aa8b8`).
 - References: `reference=true` on any layer keeps it visible in the editor but out of `klad render`, `klad hash` and `klad export` (add `--references` to see it). Pictures to trace over go there.
 - Pictures: `layer image src=<PNG or JPEG>` copies the file into the bundle (`images/<hash>.png`) and places it on a new vector layer, fitted inside the canvas; `x=`, `y=`, `w=`, `h=` place it. The node is `{"type":"image",...}`, moved and scaled like any shape.
 - Generators keep their settings: `repeat` (count, step, turn and pivot for an arc, scale, columns and row for a grid), `scatter` (region x, y, w, h, count, seed, size and turn ranges, `avoid`: SVG paths no copy lands in), `mirror` (x, y, angle of the axis). Children are drawn once per copy; for scatter draw the child around 0,0. `klad add <bundle> <shape> --in <generator id>` adds more children.
@@ -151,13 +151,13 @@ klad font art.draw ~/fonts/Signage.ttf               a font file of your own
 ## Path points
 
 ```
-klad path art.draw n7
-klad path art.draw n7 --move 3 412,230
-klad path art.draw n7 --nudge 3,4,5 0,-20
-klad path art.draw n7 --handle 3 out 430,210
-klad path art.draw n7 --add 418,236
-klad path art.draw n7 --rm 4,5 --corner 2 --smooth 6
-klad path art.draw n7 --simplify 1.5
+klad path art.klad n7
+klad path art.klad n7 --move 3 412,230
+klad path art.klad n7 --nudge 3,4,5 0,-20
+klad path art.klad n7 --handle 3 out 430,210
+klad path art.klad n7 --add 418,236
+klad path art.klad n7 --rm 4,5 --corner 2 --smooth 6
+klad path art.klad n7 --simplify 1.5
 ```
 
 - Without flags it lists the points (anchors) of a path, rect or ellipse, numbered across subpaths, with handles and corner/smooth/curve. Coordinates are the shape's own (as in its `d`, before its transform). After an edit it lists them again; numbers shift after inserts and removals.
@@ -168,13 +168,13 @@ klad path art.draw n7 --simplify 1.5
 ## Colour and fills
 
 ```
-klad palette art.draw --add '#f0c8a0' --name skin
-klad fill art.draw l2 --at 820,640 --ref lines --gap 4 --color skin
-klad fill art.draw l2 --polygon '100,100 400,120 260,380' --color '#20304a'
-klad refill art.draw l2
+klad palette art.klad --add '#f0c8a0' --name skin
+klad fill art.klad l2 --at 820,640 --ref lines --gap 4 --color skin
+klad fill art.klad l2 --polygon '100,100 400,120 260,380' --color '#20304a'
+klad refill art.klad l2
 ```
 
-- The palette lives in `doc.json`. Any colour argument takes `#rrggbb`, `#rrggbbaa` or a palette name. `klad palette art.draw` lists it; `--add` with an existing `--name` changes that colour; `--rm` takes a name, a colour or an index.
+- The palette lives in `doc.json`. Any colour argument takes `#rrggbb`, `#rrggbbaa` or a palette name. `klad palette art.klad` lists it; `--add` with an existing `--name` changes that colour; `--rm` takes a name, a colour or an index.
 - A flood fill starts at `--at` and spreads over pixels within `--tolerance` (0 to 1, default 0.1) of the seed pixel in the reference: `this` layer (default), `all` (everything visible, background included) or a layer id or name. Put flat colour on a layer under the lines and use `--ref <lines layer>`; a fill on the line layer itself covers the inside edge of the lines.
 - `--gap` closes openings in the lines up to that many px wide (inked shapes with small gaps); `--expand` (default 2) tucks the fill under the lines so no paper shows between line and colour.
 - Fills are records next to the strokes, with their coverage stored, so they render the same later. When the lines change, `klad refill <bundle> <layer>` recomputes every flood fill of that cel (`--id` for one).
@@ -185,29 +185,29 @@ klad refill art.draw l2
 Describe a piece instead of programming it: block the subject in as vector shapes on a hidden sketch layer (rects, ellipses, paths, groups; give them ids so later ops can name them), then let these commands draw on paint layers. Everything they make is ordinary strokes and fills, so `klad set`, `klad transform` and the user's pen edit it afterwards.
 
 ```bash
-klad add art.draw layer vector name=sketch visible=false
+klad add art.klad layer vector name=sketch visible=false
 echo '{"op":"add","node":{"id":"body","type":"ellipse","cx":400,"cy":420,"rx":160,"ry":120},"in":"<sketch id>","frame":0}
-{"op":"add","node":{"id":"eye","type":"ellipse","cx":450,"cy":380,"rx":18,"ry":18},"in":"<sketch id>","frame":0}' | klad apply art.draw
-klad fill art.draw flats --shape body --color skin          # exactly the shape's area, grown 2 px under the ink
-klad light art.draw --from body --light -1,-1 --shade shade --rim rim --depth 20   # shade away from the light, a rim towards it
-klad ink art.draw lines --from body,eye --weight 7 --light -1,-1                   # tapered strokes, weight from rules
-klad hatch art.draw shade --in body --angle 30 --spacing 8 --length 10-24 --color shadow
-klad scatter art.draw lines --in ground --mark "M0 0 Q 3 -22 8 -40" --count 20 --turn -25,25
-klad paint art.draw paint --in body --color skin --light -1,-1 --weight 12                      # a round form, painted from a light model
-klad paint art.draw paint --in pillar --form cylinder --axis 90 --lamp 200,600,150 --color '#c9b8a0'
-klad foliage art.draw canopy --in clump1 --color '#4d7a3b' --light -0.6,-0.8 --leaf 16 --mass crown   # a clump built from lit leaves
-klad grass art.draw field --in field --color '#6f8a3c' --light -0.9,-0.45 --blade 30 --far 0.22 --wind 12  # blades lit by rolling ground
-klad prepare art.draw                                                              # buffer every drawing before the user opens it
+{"op":"add","node":{"id":"eye","type":"ellipse","cx":450,"cy":380,"rx":18,"ry":18},"in":"<sketch id>","frame":0}' | klad apply art.klad
+klad fill art.klad flats --shape body --color skin          # exactly the shape's area, grown 2 px under the ink
+klad light art.klad --from body --light -1,-1 --shade shade --rim rim --depth 20   # shade away from the light, a rim towards it
+klad ink art.klad lines --from body,eye --weight 7 --light -1,-1                   # tapered strokes, weight from rules
+klad hatch art.klad shade --in body --angle 30 --spacing 8 --length 10-24 --color shadow
+klad scatter art.klad lines --in ground --mark "M0 0 Q 3 -22 8 -40" --count 20 --turn -25,25
+klad paint art.klad paint --in body --color skin --light -1,-1 --weight 12                      # a round form, painted from a light model
+klad paint art.klad paint --in pillar --form cylinder --axis 90 --lamp 200,600,150 --color '#c9b8a0'
+klad foliage art.klad canopy --in clump1 --color '#4d7a3b' --light -0.6,-0.8 --leaf 16 --mass crown   # a clump built from lit leaves
+klad grass art.klad field --in field --color '#6f8a3c' --light -0.9,-0.45 --blade 30 --far 0.22 --wind 12  # blades lit by rolling ground
+klad prepare art.klad                                                              # buffer every drawing before the user opens it
 ```
 
-- Painting a form: after the flats, `klad paint` paints each shape as a form. `--form round` (default) bulges any closed shape like a pillow, its height growing with the distance to the outline; `flat` is a plane facing `--facing x,y,z` (z toward the viewer, y down); `cylinder` is round across `--axis` degrees. The light model is a key light from `--light x,y` at `--elevation` (or `--lamp x,y,height` in canvas px: the shape nearest the lamp gets the full key light, farther ones less by inverse square, so paint a cluster in one op), cool fill from above (`--fill`, `--fill-strength`), warm bounce from below (`--bounce`, `--bounce-strength`) and a darker core just past the terminator (`--core`); `--color` is the local colour in full light, so the lit side comes out at that colour and the shadow side about four value steps under it. The lights multiply the local colour, so a warm colour goes darker and browner in shadow; `--shadow <colour>` (`"shadow"` in `apply`) turns the side out of the key light towards that colour's hue and chroma while keeping the values the model gives it, by `--shadow-mix` (default 0.7) and less in the halftones, with the chroma lowered in the darkest parts. A cool lavender or blue grey keeps shadows from going brown or grey; raise `--fill-strength` (0.3 or so) for lighter shadow sides. Every colour option of `paint` takes palette names. Strokes follow the form (along bands of equal light on round forms, along the axis on cylinders, at `--angle` on planes), take their colour from the model where they lie and stop where the light changes, so none carries the lit colour into the shadow. Thick paint: `oil` and `oil-load` have `body` (a brush key, 0 to 1), so their strokes lay paint height: flat in the middle with bristle grooves, lips at the sides, thinner at light pressure, taller for bigger brushes; new paint pushes most of the wet paint under it aside, so it builds up only a little where strokes cross. `smudge` and `wet` drag it, `blender` flattens it, the eraser takes it. It shows only through a `relief` effect on the layer (`klad effect art.draw <layer> relief strength=4 softness=3.5 light=-1,-1`): strength about 4 to 5 for fruit or a figure, 1 to 2 for a table or a wall; softness about a fifth of the stroke size (3 to 4.5 for strokes of 15 to 20 px). Below 1, a surface built from many small strokes shows every stroke's ridges and reads as wrinkled leather, not paint. Without the effect body changes no pixel. Passes go from twice `--weight` down to half of it (the small ones only where the form turns), then a decisive pass with `--bold` (`oil-load`) in the lights and a few quiet strokes in the shadows (`--decisive 0` skips both); `--vary` lets each stroke stray in value and temperature. Paint on a layer clipped to the flats, or lock the flats layer and paint into it: strokes then run past the outline and short strokes along it cut the edge in; on a plain layer they stay inside it and the flats show at the rim.
+- Painting a form: after the flats, `klad paint` paints each shape as a form. `--form round` (default) bulges any closed shape like a pillow, its height growing with the distance to the outline; `flat` is a plane facing `--facing x,y,z` (z toward the viewer, y down); `cylinder` is round across `--axis` degrees. The light model is a key light from `--light x,y` at `--elevation` (or `--lamp x,y,height` in canvas px: the shape nearest the lamp gets the full key light, farther ones less by inverse square, so paint a cluster in one op), cool fill from above (`--fill`, `--fill-strength`), warm bounce from below (`--bounce`, `--bounce-strength`) and a darker core just past the terminator (`--core`); `--color` is the local colour in full light, so the lit side comes out at that colour and the shadow side about four value steps under it. The lights multiply the local colour, so a warm colour goes darker and browner in shadow; `--shadow <colour>` (`"shadow"` in `apply`) turns the side out of the key light towards that colour's hue and chroma while keeping the values the model gives it, by `--shadow-mix` (default 0.7) and less in the halftones, with the chroma lowered in the darkest parts. A cool lavender or blue grey keeps shadows from going brown or grey; raise `--fill-strength` (0.3 or so) for lighter shadow sides. Every colour option of `paint` takes palette names. Strokes follow the form (along bands of equal light on round forms, along the axis on cylinders, at `--angle` on planes), take their colour from the model where they lie and stop where the light changes, so none carries the lit colour into the shadow. Thick paint: `oil` and `oil-load` have `body` (a brush key, 0 to 1), so their strokes lay paint height: flat in the middle with bristle grooves, lips at the sides, thinner at light pressure, taller for bigger brushes; new paint pushes most of the wet paint under it aside, so it builds up only a little where strokes cross. `smudge` and `wet` drag it, `blender` flattens it, the eraser takes it. It shows only through a `relief` effect on the layer (`klad effect art.klad <layer> relief strength=4 softness=3.5 light=-1,-1`): strength about 4 to 5 for fruit or a figure, 1 to 2 for a table or a wall; softness about a fifth of the stroke size (3 to 4.5 for strokes of 15 to 20 px). Below 1, a surface built from many small strokes shows every stroke's ridges and reads as wrinkled leather, not paint. Without the effect body changes no pixel. Passes go from twice `--weight` down to half of it (the small ones only where the form turns), then a decisive pass with `--bold` (`oil-load`) in the lights and a few quiet strokes in the shadows (`--decisive 0` skips both); `--vary` lets each stroke stray in value and temperature. Paint on a layer clipped to the flats, or lock the flats layer and paint into it: strokes then run past the outline and short strokes along it cut the edge in; on a plain layer they stay inside it and the flats show at the rim.
 - Every stroke the shape ops make is drawn like a hand (`--hand 1`, the default; `0` gives the old even strokes): its own pressure curve (a press-in, a peak, a longer lift-off), tapers that are a share of its length, a width that varies from stroke to stroke, and a slight bow on hatching and flat planes. Brushes for it: `oil` (soft edge, size and opacity from pressure) for building forms, `oil-load` (harder edge, more grain) for strokes that should stay visible.
 - `klad light` takes `--lamp x,y,height` too: each shape is shaded away from the lamp instead of one direction for all.
-- `klad prepare art.draw [--from 0 --to 23]` replays every painted drawing of those frames into the cache after a big CLI change, so the editor opens and plays it without replaying strokes. The editor still makes its frame pictures itself, quickly, from the cached drawings.
+- `klad prepare art.klad [--from 0 --to 23]` replays every painted drawing of those frames into the cache after a big CLI change, so the editor opens and plays it without replaying strokes. The editor still makes its frame pictures itself, quickly, from the cached drawings.
 
 - Foliage: never one leaf picture scattered evenly, and never a smooth blob with leaves sprinkled on its edge; both look fake. Block the crown in as 6 to 12 clump shapes (irregular blobs with lobes) plus one `crown` shape around them all, then for each clump from back to front: fill a darker, slightly smaller core (about 0.82 of the clump, so the sky shows between the edge leaves) and run `foliage` on it with `mass: "crown"`. Every leaf takes its colour from the clump lit as a round form and turned with the whole crown, in three value families from a cool shade through `--color` to a warm `--lit`, with the most variety in the light; leaves along the outline break the silhouette, most where light and sky reach, a few glowing at the shadow edge. Back clumps a darker colour, front ones lighter; leaf size about a fiftieth of the crown's width (`samples/tree`). Far canopies stay soft vector masses.
 - Grass: `grass` grows blades from the far (top) edge of a shape to the near one, smaller and denser far off (`--far`), leaning with `--wind`, each from a dark root to a lit tip over ground that rolls in soft light patches, with taller blades breaking the top edge and thin glints on lit blades. One kind of blade everywhere looks plastic: grass is a mix of species, each growing in its own patches. Without `kinds` the op grows a meadow mix (fine blades, broad flopping ones, dry straw, stalks with seed heads, clover low between them); give your own with `kinds` (JSON: `name`, `share`, `brush`, `length` and `width` against the blade, `curl`, `spread`, `color` or `hue`, `head` a picture brush stamped at the tip with `head_size`, `low` for rosettes and clover, `patchy` 0 to 1). Seed heads and low plants thin out with distance. Fill the shape a dark green first so gaps read as depth. A field with short blades and a near bank with long ones make a meadow; rare accents (your own tufts or flowers) are a species with a small share. Distant grass is a soft mass, not blades.
-- The shape ops decide where marks go and how light colours them; the brush decides what a mark looks like, and it should be yours when the subject needs it. `foliage`, `grass`, `scatter` and `paint` all take `--brush`: a stroke brush (round or chalk tip) draws each leaf or blade as a stroke, a picture brush stamps one picture per mark, turned to it. To make one, draw the shape in a small drawing of its own (black on transparent, pointing right for brushes whose angle follows the stroke), `klad render` it to a PNG, add it with `klad brushes art.draw --picture tuft tuft.png`, and define the brush with `klad brushes art.draw --set tuft tuft.json` (`{"tip":{"image":{"image":"tuft","more":["tuft-b"]}},"angle":"follow","spacing":1}`; several pictures give variety). `samples/meadow/build.sh` does exactly this. Make a new leaf or tuft for each species and style instead of reusing the library's for everything.
+- The shape ops decide where marks go and how light colours them; the brush decides what a mark looks like, and it should be yours when the subject needs it. `foliage`, `grass`, `scatter` and `paint` all take `--brush`: a stroke brush (round or chalk tip) draws each leaf or blade as a stroke, a picture brush stamps one picture per mark, turned to it. To make one, draw the shape in a small drawing of its own (black on transparent, pointing right for brushes whose angle follows the stroke), `klad render` it to a PNG, add it with `klad brushes art.klad --picture tuft tuft.png`, and define the brush with `klad brushes art.klad --set tuft tuft.json` (`{"tip":{"image":{"image":"tuft","more":["tuft-b"]}},"angle":"follow","spacing":1}`; several pictures give variety). `samples/meadow/build.sh` does exactly this. Make a new leaf or tuft for each species and style instead of reusing the library's for everything.
 - Ink rules: heavier on the side away from `--light` (the direction the light comes from, -1,-1 is top left), heavier on the silhouette than on inner lines (an outline inside another shape given in the same call), thinner on tight curves, a seeded wobble (`--wobble 0` for none). Outlines split into separate strokes at corners sharper than `--break` (60 degrees); `--gap 3` leaves inkers' gaps where lines meet. Open details (folds, cracks, ribs) go through `--path "M..."`.
 - `klad light` writes lasso fills with a cut: on the shade layer the shape minus itself moved towards the light (`--soft 3` overlapping steps soften the inner edge), on the rim layer a band along the lit edge. Clip the shade layer (multiply) and the rim layer to the flats, as in `samples/lantern/`.
 - `samples/lantern/generate.py` is the whole recipe for a prop in about 100 lines; `samples/ink-shapes/` shows the ink options side by side.
@@ -219,16 +219,16 @@ klad prepare art.draw                                                           
 Draw a character once and pose it, instead of redrawing every frame. Put its paint layers (lines, colour, shading) in a group and give the group bones: the skeleton poses every layer in it together. Name parts as you draw (`"part"` on strokes and fills): they are what weights and the rig export use.
 
 ```bash
-klad bone art.draw figure --add body --head 400,590 --tail 400,360
-klad bone art.draw figure --add upper --parent body --head 452,392 --tail 560,360    # a child starts at its parent's end, or anywhere
-klad weights art.draw figure --auto                          # blend from the bones
-klad weights art.draw figure --bone head --part head         # a part held rigidly by one bone
-klad weights art.draw figure --bone upper --set '470,380,20,1 500,370,16,0.8'    # soft dabs: x,y,radius,weight
-klad pose art.draw figure --from 0 --to 4 --bone upper=-35 --bone fore=-55 --hold 4
-klad inbetween art.draw --layers colour,lines --from 0 --to 4      # poses of one rest drawing in-between on the bones
-klad render art.draw --frame 4 --overlay bones                      # or --overlay weights:upper
-klad key art.draw lantern --frame 0 y=0 --ease in-out; klad key art.draw lantern --frame 12 y=-18
-klad export art.draw --godot-rig game/art --godot-scene game/art
+klad bone art.klad figure --add body --head 400,590 --tail 400,360
+klad bone art.klad figure --add upper --parent body --head 452,392 --tail 560,360    # a child starts at its parent's end, or anywhere
+klad weights art.klad figure --auto                          # blend from the bones
+klad weights art.klad figure --bone head --part head         # a part held rigidly by one bone
+klad weights art.klad figure --bone upper --set '470,380,20,1 500,370,16,0.8'    # soft dabs: x,y,radius,weight
+klad pose art.klad figure --from 0 --to 4 --bone upper=-35 --bone fore=-55 --hold 4
+klad inbetween art.klad --layers colour,lines --from 0 --to 4      # poses of one rest drawing in-between on the bones
+klad render art.klad --frame 4 --overlay bones                      # or --overlay weights:upper
+klad key art.klad lantern --frame 0 y=0 --ease in-out; klad key art.klad lantern --frame 12 y=-18
+klad export art.klad --godot-rig game/art --godot-scene game/art
 ```
 
 - Angles are degrees from the rest pose, positive turning clockwise on screen; a child follows its parent. Pose from the rest drawing (`--from` its frame); posing a frame again re-poses it.
@@ -241,10 +241,10 @@ klad export art.draw --godot-rig game/art --godot-scene game/art
 `paintover` turns a flat or smooth picture into a painted one: it renders what is below a paint layer (or `--from` layers) and lays brush strokes on that layer, big to small. Each stroke takes the source's colour where it starts and runs along the forms (across the colour gradient) until the colour under it changes; smaller brushes only go where the painting still differs from the source by more than `--threshold`, so detail lands where the source has it. Flat areas get broad, mostly level strokes. The strokes are ordinary strokes in the part `paint over`, so `body` and `relief` light them and the user can edit them.
 
 ```bash
-klad add art.draw layer paint name=brushwork            # on top of the drawing
-klad paintover art.draw brushwork --sizes 32,16,8 --threshold 6 [--in rock] [--focus face] [--brush oil-load] [--curve 0.5] [--length 1,8]
-klad paintover walk.draw brushwork --frame 0 --sizes 14,7
-klad paintover walk.draw brushwork --like c37 --frames 0-27    # carry it drawing to drawing through an animation
+klad add art.klad layer paint name=brushwork            # on top of the drawing
+klad paintover art.klad brushwork --sizes 32,16,8 --threshold 6 [--in rock] [--focus face] [--brush oil-load] [--curve 0.5] [--length 1,8]
+klad paintover walk.klad brushwork --frame 0 --sizes 14,7
+klad paintover walk.klad brushwork --like c37 --frames 0-27    # carry it drawing to drawing through an animation
 ```
 
 - Block in and light the picture first (flats, `paint`, shadows), then paint over it: the paint-over keeps your values and edges and adds the hand. Keep the source layers under the brushwork; hide them or not.
@@ -255,7 +255,7 @@ klad paintover walk.draw brushwork --like c37 --frames 0-27    # carry it drawin
 `compare` measures your drawing against a reference picture, so a critique is numbers as well as a look: the value range (L at the 5th, 50th and 95th percentile), saturation, stroke texture, edge sharpness and mean colour difference, with what differs in words, plus a row per `--region` and a heat map of where they differ most.
 
 ```bash
-klad compare art.draw study.png --region shade=40,300,200,120 --region cup=610,180,90,120 --heat diff.png
+klad compare art.klad study.png --region shade=40,300,200,120 --region cup=610,180,90,120 --heat diff.png
 ```
 
 Read the words ("lighter by 4 L", "bluer", "33% busier", "softer edges") and fix the biggest first. In the editor, "compare with the reference" (View) does the same against the drawing's reference picture layer.
@@ -276,14 +276,14 @@ When a piece needs more than `klad paint` gives, paint it stroke by stroke in a 
 
 ## Studying a reference
 
-To recreate a picture (a reference study): `klad add art.draw layer image src=ref.jpg reference=true`, then size it to the canvas with `klad set art.draw <node> x=0 y=0 w=<width> h=<height>` (a picture smaller than the canvas is placed at its own size). Read the reference in quarters with `klad render art.draw --references --region x,y,w,h` (a reference under an opaque background is covered: hide the background or render the reference alone), and take coordinates from those crops. Build in planes from back to front, compare often on one sheet (a bundle holding the reference picture above the render), and fix values before details: the first passes of a cave study were too bright everywhere, not too plain.
+To recreate a picture (a reference study): `klad add art.klad layer image src=ref.jpg reference=true`, then size it to the canvas with `klad set art.klad <node> x=0 y=0 w=<width> h=<height>` (a picture smaller than the canvas is placed at its own size). Read the reference in quarters with `klad render art.klad --references --region x,y,w,h` (a reference under an opaque background is covered: hide the background or render the reference alone), and take coordinates from those crops. Build in planes from back to front, compare often on one sheet (a bundle holding the reference picture above the render), and fix values before details: the first passes of a cave study were too bright everywhere, not too plain.
 - Light layers and mist on `screen` go behind the planes they light from behind; above a plane they turn its forms milky.
 
 ## Export
 
 ```
-klad export art.draw --scale 2
-klad export art.draw --layer hero --scale 4 --depth 16 -o hero.png
+klad export art.klad --scale 2
+klad export art.klad --layer hero --scale 4 --depth 16 -o hero.png
 ```
 
 Transparent PNG of the image or one layer or group, next to the bundle unless `-o`. 8-bit exports are dithered so gradients do not band; `--depth 16` keeps 16 bits; `--background` keeps the canvas colour. Vectors stay sharp at any scale, and above full size `klad export` draws the strokes again at that size, so lines stay crisp and textures keep their size (it replays every mark, so it takes a few seconds on a dense painting). Sprite sheets, numbered frames and Godot exports are under Time, Animation exports.
@@ -299,15 +299,15 @@ For anything with more than a handful of shapes, write a generator that prints o
 `timeline` has `fps` and `frames`; each layer has cels (`frame`, optional `hold`, optional `link` to reuse another cel). A cel that is not a link is a drawing; the frames it shows on are its exposure (from `frame` for `hold` frames, or until the next cel). `--frame n` on `ls`, `render`, `stroke`, `fill`, `lasso` and `add` picks the frame; a stroke or fill paints into the drawing exposed there.
 
 ```
-klad frames art.draw                          # exposure sheet: c4 = a drawing starts, | still showing, c9->c4 a link, . blank
-klad timeline art.draw --fps 12 --frames 24   # length and speed (no flags: show them, the origin, the Godot folder and the clips)
-klad cel art.draw new l3 --frame 4            # blank drawing; inside an exposure it takes over the rest of it
-klad cel art.draw dup c4 [--frame 6] [--insert]   # copy (strokes keep their ids); default right after c4; --insert moves later cels back
-klad cel art.draw link c4 --frame 8 --hold 2  # show c4 again
-klad cel art.draw unlink c9                   # the link becomes a drawing of its own
-klad frame art.draw insert 4 [--count 2] [--layers l3]   # what showed at 4 shows longer, the rest moves back
-klad frame art.draw remove 4 [--count 2] [--layers l3]
-klad hash art.draw --all                      # one pixel hash per frame
+klad frames art.klad                          # exposure sheet: c4 = a drawing starts, | still showing, c9->c4 a link, . blank
+klad timeline art.klad --fps 12 --frames 24   # length and speed (no flags: show them, the origin, the Godot folder and the clips)
+klad cel art.klad new l3 --frame 4            # blank drawing; inside an exposure it takes over the rest of it
+klad cel art.klad dup c4 [--frame 6] [--insert]   # copy (strokes keep their ids); default right after c4; --insert moves later cels back
+klad cel art.klad link c4 --frame 8 --hold 2  # show c4 again
+klad cel art.klad unlink c9                   # the link becomes a drawing of its own
+klad frame art.klad insert 4 [--count 2] [--layers l3]   # what showed at 4 shows longer, the rest moves back
+klad frame art.klad remove 4 [--count 2] [--layers l3]
+klad hash art.klad --all                      # one pixel hash per frame
 ```
 
 In `apply`: `{"op":"cel","new":"lines","frame":4,"hold":2,"id":"ball4"}` (the `id` lets later ops in the same batch name it), `{"op":"cel","link":"ball0","frame":15}`, `{"op":"frames","insert":4,"count":2}`, `{"op":"timeline","frames":24}`. For an animation script: make every drawing's cel first (`cel new` with an `id`), then its strokes and fills at that frame. `samples/bounce/generate.py` is the pattern: lines, colour filled against the lines, a multiply shadow, a held floor, the rest pose as links.
@@ -316,21 +316,21 @@ Strokes copied by `dup` keep their ids, so `c7:s3` in the copy is the same line 
 
 ### Keys, in-betweens, colour and timing
 
-Animate by keys: draw the key poses with their parts named, check the keys' arcs, let `klad inbetween` make the drawings between them, colour every drawing from the first with `klad fill --like`, check with `klad gaps`, set the timing with `klad retime`, check the arcs again. `samples/creature/` (`generate.py` and `build.sh`, which writes `creature.draw`) is the pattern: an idle and a walk on six layers (shadow, far leg, colour, a clipped multiply shade, a clipped rim light, lines), parts body, sprout, leaf, second leaf, near leg and far leg, `klad arcs --check` before and after in-betweening, the loop closed with `--loop`.
+Animate by keys: draw the key poses with their parts named, check the keys' arcs, let `klad inbetween` make the drawings between them, colour every drawing from the first with `klad fill --like`, check with `klad gaps`, set the timing with `klad retime`, check the arcs again. `samples/creature/` (`generate.py` and `build.sh`, which writes `creature.klad`) is the pattern: an idle and a walk on six layers (shadow, far leg, colour, a clipped multiply shade, a clipped rim light, lines), parts body, sprout, leaf, second leaf, near leg and far leg, `klad arcs --check` before and after in-betweening, the loop closed with `--loop`.
 
 ```
-klad copy art.draw c1:s3 c1:s4 --frame 6 [--layer shade] [--move 12,-4 --rotate 8 --pivot 512,400] [--cut 'x,y ...']
-klad inbetween art.draw --layers lines,colour,shade --from 0 --to 6 [--count 2] [--spacing in-out] [--match near] [--pair s3=s7]
-klad inbetween art.draw --layers lines,colour --from 9 --loop      # the loop's last in-betweens, towards its first drawing
-klad inbetween art.draw --layers lines --from 0 --to 6 --unpaired pop|fade|draw-on [--at 0.3]
-klad inbetween art.draw --redo [--layers lines] [--keep-drawn | --force]
-klad part art.draw c4:s14 c4:s15 --name leaf    # or --part leaf on stroke, fill, ink, hatch, scatter
-klad arcs art.draw --track 'lines:near leg' --track 'far:far leg' --clip walk --ground 823,811 --travel 7 --check
-klad render art.draw --frame 20 --track 'lines:near leg' --region 420,720,200,120 --scale 4   # the paths drawn
-klad render art.draw --sheet walk --drawings --overlay parts
-klad fill art.draw colour --like colour0 --frames all
-klad gaps art.draw colour --sheet all          # closed regions no fill covers, with a render marking them; naming the lines layer checks the layer that fills from it
-klad retime art.draw 0-11 --on 2               # or --on 1, --fit 16, --reverse, --pingpong; [--layers l3]
+klad copy art.klad c1:s3 c1:s4 --frame 6 [--layer shade] [--move 12,-4 --rotate 8 --pivot 512,400] [--cut 'x,y ...']
+klad inbetween art.klad --layers lines,colour,shade --from 0 --to 6 [--count 2] [--spacing in-out] [--match near] [--pair s3=s7]
+klad inbetween art.klad --layers lines,colour --from 9 --loop      # the loop's last in-betweens, towards its first drawing
+klad inbetween art.klad --layers lines --from 0 --to 6 --unpaired pop|fade|draw-on [--at 0.3]
+klad inbetween art.klad --redo [--layers lines] [--keep-drawn | --force]
+klad part art.klad c4:s14 c4:s15 --name leaf    # or --part leaf on stroke, fill, ink, hatch, scatter
+klad arcs art.klad --track 'lines:near leg' --track 'far:far leg' --clip walk --ground 823,811 --travel 7 --check
+klad render art.klad --frame 20 --track 'lines:near leg' --region 420,720,200,120 --scale 4   # the paths drawn
+klad render art.klad --sheet walk --drawings --overlay parts
+klad fill art.klad colour --like colour0 --frames all
+klad gaps art.klad colour --sheet all          # closed regions no fill covers, with a render marking them; naming the lines layer checks the layer that fills from it
+klad retime art.klad 0-11 --on 2               # or --on 1, --fit 16, --reverse, --pingpong; [--layers l3]
 ```
 
 - Name parts as you draw keys (`--part`, or `"part"` in ops): in-betweens pair part by part first, whatever the ids, so keys drawn separately, or redrawn, or with the user's strokes in between, still pair. Give each piece that moves on its own its own part (one per leaf, per limb): within a part marks pair in drawing order. Without parts keys pair by mark id, so make every key with the same ops in the same order, or `cel dup` a key and change the copy. `--match near` pairs drawings made separately (and turns strokes drawn backwards); `--pair` forces the odd one. Unpaired marks are left out and listed by default: read that list, or let them `--unpaired pop|fade|draw-on`.
@@ -351,11 +351,11 @@ klad retime art.draw 0-11 --on 2               # or --on 1, --fit 16, --reverse,
 A clip is a named frame range (both ends included) that exports as one animation: `idle`, `run`, `attack`. It loops or plays once, and may have its own fps (otherwise the document's).
 
 ```
-klad clip art.draw                                          # list: frames, length in s at its fps, loops or once
-klad clip art.draw --add run --from 0 --to 11 --loop --fps 24
-klad clip art.draw --set run --to 15 --no-loop              # change; --name sprint renames, --fps doc drops its own fps
-klad clip art.draw --rm run
-klad timeline art.draw --origin 512,700                     # the canvas point a Godot export puts on the node (default the centre)
+klad clip art.klad                                          # list: frames, length in s at its fps, loops or once
+klad clip art.klad --add run --from 0 --to 11 --loop --fps 24
+klad clip art.klad --set run --to 15 --no-loop              # change; --name sprint renames, --fps doc drops its own fps
+klad clip art.klad --rm run
+klad timeline art.klad --origin 512,700                     # the canvas point a Godot export puts on the node (default the centre)
 ```
 
 In `apply`: `{"op":"clip","add":"run","from":0,"to":11,"loop":true,"fps":24}`, `{"op":"clip","set":"run","name":"sprint","fps":null}`, `{"op":"clip","rm":"run"}`, `{"op":"timeline","origin":[512,700]}`. Frames inserted or removed on every layer move and stretch clips (an insert inside a clip lengthens it); on listed layers they leave clips alone. `klad frames` marks clips on the right (`[run` first frame, `run]` last) and lists them under the sheet. In the editor clips are bars on the strip above the frame numbers, and Return plays the clip under the playhead at its fps.
@@ -363,11 +363,11 @@ In `apply`: `{"op":"clip","add":"run","from":0,"to":11,"loop":true,"fps":24}`, `
 ### Animation exports
 
 ```
-klad export art.draw --sheet all [--scale 0.5] [--padding 2] [--max 4096] [--depth 16]
-klad export art.draw --sheet run -o out/run.png
-klad export art.draw --frames run                           # run-0000.png ... full size, one per frame, in art-run/
-klad export art.draw --godot ../game/art/hero               # first time: the folder is kept in the document
-klad export art.draw --godot                                # later: the kept folder (the editor's button does the same)
+klad export art.klad --sheet all [--scale 0.5] [--padding 2] [--max 4096] [--depth 16]
+klad export art.klad --sheet run -o out/run.png
+klad export art.klad --frames run                           # run-0000.png ... full size, one per frame, in art-run/
+klad export art.klad --godot ../game/art/hero               # first time: the folder is kept in the document
+klad export art.klad --godot                                # later: the kept folder (the editor's button does the same)
 ```
 
 - `--sheet all` exports every clip (or the whole timeline as `default` when there are none), `--sheet <clip>` one, `--sheet 0-11` a range. The PNG holds each distinct picture once (holds, links and frames that render the same share one), trimmed to its pixels, in order of first appearance; beyond `--max` it goes to more pages (`art-sheet-2.png`, ...). The JSON is Aseprite's array layout: one entry per exposure with `duration` in ms at the clip's fps (a clip's durations add up to its length), `frame` (rect in the page), `spriteSourceSize` (the trim) and `sourceSize`, plus `frameTags` per clip (`repeat: "1"` when it plays once). Entries on later pages carry `image`.
@@ -377,12 +377,12 @@ klad export art.draw --godot                                # later: the kept fo
 See the motion before reading single frames:
 
 ```
-klad render art.draw --sheet all              # every frame in one grid: frame number, drawing ids, holds
-klad render art.draw --sheet 0-11 --drawings  # one cell per drawing: frames that look the same share a cell ("4-5")
-klad render art.draw --sheet run --cell 192   # a clip by name; --cell is the longest side of a cell, --columns n
-klad render art.draw --frame 5 --overlay onion            # drawings before (red) and after (green) under each layer
-klad render art.draw --frame 5 --onion 1,3 --onion-layers lines --onion-by frames --no-tint
-klad render art.draw --sheet 0-7 --overlay onion --onion-loop 0-7   # onion in every cell, wrapping inside a loop
+klad render art.klad --sheet all              # every frame in one grid: frame number, drawing ids, holds
+klad render art.klad --sheet 0-11 --drawings  # one cell per drawing: frames that look the same share a cell ("4-5")
+klad render art.klad --sheet run --cell 192   # a clip by name; --cell is the longest side of a cell, --columns n
+klad render art.klad --frame 5 --overlay onion            # drawings before (red) and after (green) under each layer
+klad render art.klad --frame 5 --onion 1,3 --onion-layers lines --onion-by frames --no-tint
+klad render art.klad --sheet 0-7 --overlay onion --onion-loop 0-7   # onion in every cell, wrapping inside a loop
 ```
 
 Cell labels read like `klad frames`: `c5` starts a drawing, `|c5` holds it, `c9>c1` shows c1 again through a link, `.` is blank, and a grey title with `hold` means the frame looks exactly like the one before. Onion skin is under the layer it belongs to, faded with distance (counted in drawings unless `--onion-by frames`); without `--onion-layers` every layer with more than one drawing shows its own. A sheet of 24 frames of a 2048 canvas takes about 0.3 s; onion in a sheet costs more (about 0.8 s for one layer, 2 s for four). Render prints a pixel hash on its second line, handy for comparing with the Mac.

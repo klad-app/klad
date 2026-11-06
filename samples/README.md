@@ -18,4 +18,4 @@ Drawings made from scratch with the `klad` CLI, each from a generator that print
 | `rig` | Bones instead of a drawing per frame: a figure in a group with a skeleton, weights from the bones with the head, body and hand held rigidly by their parts, a wave posed at four keys and in-betweened on the bones, a lantern floating on keys, a far plane for parallax, and the Godot rig and parallax scene (`rig-godot/`) |
 | `solids` | Painting stroke by stroke: a sphere, a cube and a cylinder built in 3D with `docs/skill/drawkit.py`, lit, painted with natural strokes |
 
-The generated `.draw` bundles and pictures stay out of git.
+The generated `.klad` bundles and pictures stay out of git.

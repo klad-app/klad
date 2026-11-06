@@ -8,7 +8,7 @@ case "$(uname -s)" in
   *) built=target/windows ;;
 esac
 klad="${KLAD:-$root/${KLAD_TARGET_DIR:-$built}/release/klad}"
-out="${1:-$here/creature.draw}"
+out="${1:-$here/creature.klad}"
 if ! "$klad" arcs --help >/dev/null 2>&1; then
   echo "$klad is older than this example (it has no klad arcs): run just build first" >&2
   exit 1
@@ -48,7 +48,7 @@ echo "the walk's arcs, in-betweened:"
 "$klad" frames "$out"
 "$klad" gaps "$out" colour --sheet all | tail -1
 "$klad" hash "$out" --all --no-cache
-"$klad" render "$out" --sheet idle --drawings --cell 300 -o "${out%.draw}-idle.png"
-"$klad" render "$out" --sheet walk --drawings --cell 300 -o "${out%.draw}-walk.png"
-"$klad" render "$out" --sheet walk --drawings --cell 300 --track 'lines:near leg' --track 'far:far leg' --track 'lines:second leaf' -o "${out%.draw}-walk-arcs.png"
-"$klad" export "$out" --frame 0 --scale 2 -o "${out%.draw}@2x.png" >/dev/null
+"$klad" render "$out" --sheet idle --drawings --cell 300 -o "${out%.klad}-idle.png"
+"$klad" render "$out" --sheet walk --drawings --cell 300 -o "${out%.klad}-walk.png"
+"$klad" render "$out" --sheet walk --drawings --cell 300 --track 'lines:near leg' --track 'far:far leg' --track 'lines:second leaf' -o "${out%.klad}-walk-arcs.png"
+"$klad" export "$out" --frame 0 --scale 2 -o "${out%.klad}@2x.png" >/dev/null

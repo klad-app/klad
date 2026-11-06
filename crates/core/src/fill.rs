@@ -236,7 +236,7 @@ pub(crate) fn encode(out: &mut Vec<u8>, fill: &Fill) {
     }
 }
 
-pub(crate) fn decode(reader: &mut Reader, version: u8) -> Result<Fill> {
+pub(crate) fn decode(reader: &mut Reader) -> Result<Fill> {
     let id = u32::try_from(reader.varint()?)?;
     let color = [reader.u16()?, reader.u16()?, reader.u16()?, reader.u16()?];
     let opacity = reader.f32()?;
@@ -246,7 +246,7 @@ pub(crate) fn decode(reader: &mut Reader, version: u8) -> Result<Fill> {
         Author::Human
     };
     let tag = reader.u8()?;
-    let flags = if version >= 5 { tag & (FILL_LOCK | FILL_CUTS) } else { 0 };
+    let flags = tag & (FILL_LOCK | FILL_CUTS);
     let source = match tag & !flags {
         0 => {
             let (x, y) = (reader.f32()?, reader.f32()?);
@@ -368,7 +368,7 @@ mod tests {
             let mut bytes = Vec::new();
             encode(&mut bytes, fill);
             let mut reader = Reader::new(&bytes);
-            assert_eq!(&decode(&mut reader, 5).unwrap(), fill);
+            assert_eq!(&decode(&mut reader).unwrap(), fill);
             assert!(reader.done());
         });
         let mut bytes = Vec::new();

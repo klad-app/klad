@@ -10,7 +10,7 @@ use std::path::Path;
 
 fn main() -> klad_client::Result<()> {
     let klad = Klad::new();
-    let art = klad.drawing("art.draw");
+    let art = klad.drawing("art.klad");
     art.create(800, 600, Some("#e9e4da"))?;
     let ids = art.apply([
         json!({"op": "add", "layer": {"kind": "vector", "name": "sky"}}),

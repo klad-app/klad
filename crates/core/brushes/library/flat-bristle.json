@@ -1,5 +1,5 @@
 {
-  "format": "draw-anything-brush/1",
+  "format": "klad-brush/1",
   "name": "Flat bristle",
   "tip": { "image": { "image": "bristle-flat" } },
   "spacing": 0.05,

@@ -9,7 +9,7 @@ labels: bug
 **What you expected**
 
 **How to make it happen again**
-The steps in the editor, or the `klad` commands. A zipped `.draw` folder that shows it helps most.
+The steps in the editor, or the `klad` commands. A zipped `.klad` folder that shows it helps most.
 
 **Version and machine**
 - `klad --version`:

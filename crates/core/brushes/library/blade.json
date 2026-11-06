@@ -1,5 +1,5 @@
 {
-  "format": "draw-anything-brush/1",
+  "format": "klad-brush/1",
   "name": "Blade",
   "tip": { "round": { "hardness": 0.85 } },
   "spacing": 0.12,

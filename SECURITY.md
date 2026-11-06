@@ -1,6 +1,6 @@
 # Security
 
-klad opens `.draw` folders, pictures and fonts that may come from anyone, and runs agents' commands on them. A file that crashes it, reads or writes outside the drawing, or runs code is a security problem.
+klad opens `.klad` folders, pictures and fonts that may come from anyone, and runs agents' commands on them. A file that crashes it, reads or writes outside the drawing, or runs code is a security problem.
 
 ## Reporting
 

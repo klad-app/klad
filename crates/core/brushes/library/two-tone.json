@@ -1,5 +1,5 @@
 {
-  "format": "draw-anything-brush/1",
+  "format": "klad-brush/1",
   "name": "Two tone",
   "tip": { "round": { "hardness": 0.8 } },
   "spacing": 0.05,

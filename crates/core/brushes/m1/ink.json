@@ -1,5 +1,5 @@
 {
-  "format": "draw-anything-brush/1",
+  "format": "klad-brush/1",
   "name": "Ink (M1)",
   "tip": { "round": { "hardness": 0.92 } },
   "spacing": 0.04,

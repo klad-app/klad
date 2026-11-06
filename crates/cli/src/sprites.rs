@@ -584,7 +584,7 @@ func _init():
             },
         ];
         doc.layers = vec![ball];
-        let path = dir.join("hop.draw");
+        let path = dir.join("hop.klad");
         let bundle = Bundle::create(&path, doc).unwrap();
         let dot = |x: f32, y: f32| {
             marks(vec![

@@ -161,7 +161,7 @@ enum Command {
     },
     #[command(
         about = "Insert or remove frames in every layer or the listed ones",
-        long_about = "Insert or remove frames in every layer or the listed ones.\n\n  klad frame art.draw insert 4 --count 2\n  klad frame art.draw remove 4 --layers l3,l5\n\nInsert: what showed at the frame now shows there and for the inserted frames too (that exposure lengthens), everything after moves later. Remove: exposures over the removed frames get shorter, drawings left with no frames go (links to them take them over), everything after moves earlier. On every layer, clips and the timeline length follow; on listed layers an insert lengthens the timeline only as far as their drawings need (a last drawing without a hold keeps its length)."
+        long_about = "Insert or remove frames in every layer or the listed ones.\n\n  klad frame art.klad insert 4 --count 2\n  klad frame art.klad remove 4 --layers l3,l5\n\nInsert: what showed at the frame now shows there and for the inserted frames too (that exposure lengthens), everything after moves later. Remove: exposures over the removed frames get shorter, drawings left with no frames go (links to them take them over), everything after moves earlier. On every layer, clips and the timeline length follow; on listed layers an insert lengthens the timeline only as far as their drawings need (a last drawing without a hold keeps its length)."
     )]
     Frame {
         bundle: PathBuf,
@@ -177,7 +177,7 @@ enum Command {
     },
     #[command(
         about = "Track marks, parts or points across frames: positions, spacing, ground contacts, feet crossing",
-        long_about = "Track things across frames, the way an animator checks arcs and spacing: a mark (c4:s12, through the drawings that keep its id, as in-betweens do), a part (leaf, or lines:leaf: the centre of the part's marks in each drawing) or a point (x,y: carried by the stroke nearest to it). Prints each frame's position, the distance moved since the frame before, and the lowest point. --ground y (one for all tracks, or one per track) adds the frames where a track goes under the ground line or slides along it while touching it (for a cycle drawn in place, --travel gives the px per frame the planted foot should move back by); with two or more tracks, the frames where two of them swap sides (feet crossing) are listed. --check makes any of these an error, for scripts. klad render --overlay arcs --track ... draws the same paths.\n\n  klad arcs walk.draw --track 'near foot' --track 'far foot' --clip walk --ground 610,598 --travel 7 --check\n  klad arcs walk.draw --track c12:s4 --from 12 --to 27 --json"
+        long_about = "Track things across frames, the way an animator checks arcs and spacing: a mark (c4:s12, through the drawings that keep its id, as in-betweens do), a part (leaf, or lines:leaf: the centre of the part's marks in each drawing) or a point (x,y: carried by the stroke nearest to it). Prints each frame's position, the distance moved since the frame before, and the lowest point. --ground y (one for all tracks, or one per track) adds the frames where a track goes under the ground line or slides along it while touching it (for a cycle drawn in place, --travel gives the px per frame the planted foot should move back by); with two or more tracks, the frames where two of them swap sides (feet crossing) are listed. --check makes any of these an error, for scripts. klad render --overlay arcs --track ... draws the same paths.\n\n  klad arcs walk.klad --track 'near foot' --track 'far foot' --clip walk --ground 610,598 --travel 7 --check\n  klad arcs walk.klad --track c12:s4 --from 12 --to 27 --json"
     )]
     Arcs {
         bundle: PathBuf,
@@ -215,7 +215,7 @@ enum Command {
     },
     #[command(
         about = "Name a group of marks in a drawing (a part), so in-betweens pair them whatever their ids",
-        long_about = "Name a group of marks in a drawing: a part such as leaf, near leg or body. In-betweens pair marks part by part first (in order within a part, nearest shape when the counts differ), whatever their ids; arcs track a part's centre. A mark is in one part at most; naming it again moves it. dup, copy and in-betweens keep parts. --name '' takes the marks out of their part.\n\n  klad part art.draw c4:s14 c4:s15 --name leaf\n  klad part art.draw c9:s17 c9:s18 --name leaf\n  klad stroke art.draw lines --path \"M...\" --part leaf\n\nAlso an op: {\"op\":\"part\",\"ids\":[\"c4:s14\",\"c4:s15\"],\"name\":\"leaf\"}. klad strokes lists each mark's part."
+        long_about = "Name a group of marks in a drawing: a part such as leaf, near leg or body. In-betweens pair marks part by part first (in order within a part, nearest shape when the counts differ), whatever their ids; arcs track a part's centre. A mark is in one part at most; naming it again moves it. dup, copy and in-betweens keep parts. --name '' takes the marks out of their part.\n\n  klad part art.klad c4:s14 c4:s15 --name leaf\n  klad part art.klad c9:s17 c9:s18 --name leaf\n  klad stroke art.klad lines --path \"M...\" --part leaf\n\nAlso an op: {\"op\":\"part\",\"ids\":[\"c4:s14\",\"c4:s15\"],\"name\":\"leaf\"}. klad strokes lists each mark's part."
     )]
     Part {
         bundle: PathBuf,
@@ -227,7 +227,7 @@ enum Command {
     },
     #[command(
         about = "Duplicate a layer with its drawings, links and mask, above it",
-        long_about = "Duplicate a layer: its drawings, links, in-between marks and mask are copied with new ids, and the copy, named \"<name> copy\", goes right above it.\n\n  klad duplicate art.draw l3\n\nAlso an op in klad apply: {\"op\":\"duplicate\",\"layer\":\"l3\"}."
+        long_about = "Duplicate a layer: its drawings, links, in-between marks and mask are copied with new ids, and the copy, named \"<name> copy\", goes right above it.\n\n  klad duplicate art.klad l3\n\nAlso an op in klad apply: {\"op\":\"duplicate\",\"layer\":\"l3\"}."
     )]
     Duplicate {
         bundle: PathBuf,
@@ -237,7 +237,7 @@ enum Command {
     },
     #[command(
         about = "Make drawings on the timeline: new, dup, link, unlink, move",
-        long_about = "Make drawings on the timeline.\n\n  klad cel art.draw new l3 --frame 4            a blank drawing on layer l3 at frame 4\n  klad cel art.draw dup c4 [--frame 6]           a copy of c4's drawing (default: right after c4's exposure)\n  klad cel art.draw link c4 --frame 8            show c4's drawing again at frame 8\n  klad cel art.draw unlink c9                    turn the link c9 into a drawing of its own\n  klad cel art.draw move c5 --frame 12           start c5 at frame 12, keeping its hold; drawings in the way are pushed along\n\nInside an exposure a new cel takes over the rest of it; elsewhere it lasts until the next cel, or --hold frames (dup and link default to their source's hold). --insert moves later cels of that layer back to make room (only at the start or end of an exposure). Strokes keep their ids in a dup."
+        long_about = "Make drawings on the timeline.\n\n  klad cel art.klad new l3 --frame 4            a blank drawing on layer l3 at frame 4\n  klad cel art.klad dup c4 [--frame 6]           a copy of c4's drawing (default: right after c4's exposure)\n  klad cel art.klad link c4 --frame 8            show c4's drawing again at frame 8\n  klad cel art.klad unlink c9                    turn the link c9 into a drawing of its own\n  klad cel art.klad move c5 --frame 12           start c5 at frame 12, keeping its hold; drawings in the way are pushed along\n\nInside an exposure a new cel takes over the rest of it; elsewhere it lasts until the next cel, or --hold frames (dup and link default to their source's hold). --insert moves later cels of that layer back to make room (only at the start or end of an exposure). Strokes keep their ids in a dup."
     )]
     Cel {
         bundle: PathBuf,
@@ -256,7 +256,7 @@ enum Command {
     },
     #[command(
         about = "Copy strokes and fills into another drawing, with new ids, moving them on the way",
-        long_about = "Copy strokes and fills (<cel>:s<id>) into another drawing. The copies get new ids, printed as a map (c1:s3 -> c9:s12), and land on top of that drawing in the order they had. --to names the drawing; --frame takes the drawing the layer shows at that frame (a new drawing on an empty frame or past the end; a frame that shows a link names its source instead). The marks' own layer unless --layer. The move, turn, scale and flip options are klad transform's, applied to the copies together about the middle of their bounds or --pivot. --cut keeps only the parts inside a polygon.\n\n  klad copy art.draw c1:s3 c1:s4 --frame 4\n  klad copy art.draw c1:s3 --to c9 --move 12,-4 --rotate 8\n  klad copy art.draw c1:s3 --frame 6 --layer shade --flip h --pivot 512,400\n\nAlso a copy op in klad apply: {\"op\":\"copy\",\"ids\":[\"c1:s3\"],\"frame\":4,\"x\":12,\"y\":-4} (or \"to\":\"c9\")."
+        long_about = "Copy strokes and fills (<cel>:s<id>) into another drawing. The copies get new ids, printed as a map (c1:s3 -> c9:s12), and land on top of that drawing in the order they had. --to names the drawing; --frame takes the drawing the layer shows at that frame (a new drawing on an empty frame or past the end; a frame that shows a link names its source instead). The marks' own layer unless --layer. The move, turn, scale and flip options are klad transform's, applied to the copies together about the middle of their bounds or --pivot. --cut keeps only the parts inside a polygon.\n\n  klad copy art.klad c1:s3 c1:s4 --frame 4\n  klad copy art.klad c1:s3 --to c9 --move 12,-4 --rotate 8\n  klad copy art.klad c1:s3 --frame 6 --layer shade --flip h --pivot 512,400\n\nAlso a copy op in klad apply: {\"op\":\"copy\",\"ids\":[\"c1:s3\"],\"frame\":4,\"x\":12,\"y\":-4} (or \"to\":\"c9\")."
     )]
     Copy {
         bundle: PathBuf,
@@ -291,7 +291,7 @@ enum Command {
     },
     #[command(
         about = "Retime a range of frames: on ones/twos/threes, fit into n frames, reverse, ping-pong",
-        long_about = "Retime frames FROM-TO (both included) on every layer, or on --layers (with their masks and children). The range is cut where any of those layers changes what it shows; each piece is one picture.\n\n  klad retime art.draw 0-11 --on 2        every picture shows for 2 frames (ones to twos)\n  klad retime art.draw 0-23 --on 1        and back to ones\n  klad retime art.draw 0-11 --fit 16      the range becomes 16 frames; order and relative timing kept, at least one frame each\n  klad retime art.draw 0-7 --reverse\n  klad retime art.draw 0-7 --pingpong     the pictures again backwards as links, the ends not repeated: a b c d c b\n\nLater cels move by the change in length; on every layer clips move and stretch with it and the timeline grows or shrinks; on listed layers clips stay and the timeline only grows. A drawing that ends up in two places is shown again by a link. One history step. Also a retime op: {\"op\":\"retime\",\"from\":0,\"to\":11,\"on\":2,\"layers\":[\"l3\"]} (or \"fit\":16, \"reverse\":true, \"pingpong\":true)."
+        long_about = "Retime frames FROM-TO (both included) on every layer, or on --layers (with their masks and children). The range is cut where any of those layers changes what it shows; each piece is one picture.\n\n  klad retime art.klad 0-11 --on 2        every picture shows for 2 frames (ones to twos)\n  klad retime art.klad 0-23 --on 1        and back to ones\n  klad retime art.klad 0-11 --fit 16      the range becomes 16 frames; order and relative timing kept, at least one frame each\n  klad retime art.klad 0-7 --reverse\n  klad retime art.klad 0-7 --pingpong     the pictures again backwards as links, the ends not repeated: a b c d c b\n\nLater cels move by the change in length; on every layer clips move and stretch with it and the timeline grows or shrinks; on listed layers clips stay and the timeline only grows. A drawing that ends up in two places is shown again by a link. One history step. Also a retime op: {\"op\":\"retime\",\"from\":0,\"to\":11,\"on\":2,\"layers\":[\"l3\"]} (or \"fit\":16, \"reverse\":true, \"pingpong\":true)."
     )]
     Retime {
         bundle: PathBuf,
@@ -312,7 +312,7 @@ enum Command {
     },
     #[command(
         about = "Make the drawings between two keys: a new cel on each frame between them",
-        long_about = "Make in-betweens of two keys on paint layers: the drawings shown at --from and --to (the second key is the frame where a drawing starts; a link there names its source, so a loop's last in-betweens can lead back to its first drawing). By default a new cel on every frame between them; --count n spreads n of them, each holding until the next.\n\n  klad inbetween art.draw --layers lines,colour --from 0 --to 6\n  klad inbetween art.draw --layers lines --from 0 --to 8 --count 3 --spacing in-out\n  klad inbetween art.draw --layers arm --from 4 --to 10 --match near --pair s3=s7\n  klad inbetween art.draw --redo                     after a key changed\n\nStrokes pair by id (a key duplicated from the other keeps its ids), by --match order or by nearest shape; --pair forces pairs (first key id = second key id). Each pair is resampled along its length; points, pressure, tilt, size, opacity, flow, taper and colour move at the spacing (colour evenly in OKLab, so colour the second key for its light and the in-betweens carry the change), and the pair turns and scales along an arc about the point its best-fit rotation turns around, so a swinging limb keeps its length. A line end that touches another line in both keys touches it in every in-between. Lasso fills are interpolated; flood fills are recomputed in each in-between from a seed carried with the lines next to it (the layers they fill against go first). Unpaired marks and fills that fail (a seed on a line, a leak) are left out and listed.\n\nSpacing: even, in (eases in: the in-betweens bunch near the first key), out (they bunch near the second key), in-out, or the positions themselves, 0.2,0.5,0.9. Every in-between remembers its keys (tween in klad show), so --redo remakes them after a key changed; it refuses cels changed since they were made unless --force. One history step."
+        long_about = "Make in-betweens of two keys on paint layers: the drawings shown at --from and --to (the second key is the frame where a drawing starts; a link there names its source, so a loop's last in-betweens can lead back to its first drawing). By default a new cel on every frame between them; --count n spreads n of them, each holding until the next.\n\n  klad inbetween art.klad --layers lines,colour --from 0 --to 6\n  klad inbetween art.klad --layers lines --from 0 --to 8 --count 3 --spacing in-out\n  klad inbetween art.klad --layers arm --from 4 --to 10 --match near --pair s3=s7\n  klad inbetween art.klad --redo                     after a key changed\n\nStrokes pair by id (a key duplicated from the other keeps its ids), by --match order or by nearest shape; --pair forces pairs (first key id = second key id). Each pair is resampled along its length; points, pressure, tilt, size, opacity, flow, taper and colour move at the spacing (colour evenly in OKLab, so colour the second key for its light and the in-betweens carry the change), and the pair turns and scales along an arc about the point its best-fit rotation turns around, so a swinging limb keeps its length. A line end that touches another line in both keys touches it in every in-between. Lasso fills are interpolated; flood fills are recomputed in each in-between from a seed carried with the lines next to it (the layers they fill against go first). Unpaired marks and fills that fail (a seed on a line, a leak) are left out and listed.\n\nSpacing: even, in (eases in: the in-betweens bunch near the first key), out (they bunch near the second key), in-out, or the positions themselves, 0.2,0.5,0.9. Every in-between remembers its keys (tween in klad show), so --redo remakes them after a key changed; it refuses cels changed since they were made unless --force. One history step."
     )]
     Inbetween {
         bundle: PathBuf,
@@ -402,7 +402,7 @@ enum Command {
     },
     #[command(
         about = "Copy a font into the bundle for text nodes, by name or from a file, or list the fonts it has",
-        long_about = "Copy one of klad's fonts (by family, or family and style) or a font file (TTF or OTF) into the bundle's fonts folder, so text nodes render the same on every machine; a family that klad does not have yet but Google Fonts does is downloaded first. With no font, list the bundle's fonts. Text nodes also take a family name directly (font=Inter, font=\"Inter Bold\") and copy it in themselves.\n\n  klad font art.draw Cinzel\n  klad font art.draw \"Barlow Bold\"\n  klad font art.draw ~/fonts/Signage.ttf\n  klad add art.draw text --in l4 text=INN font=Cinzel size=48 x=120 y=80 fill=#2b1d12"
+        long_about = "Copy one of klad's fonts (by family, or family and style) or a font file (TTF or OTF) into the bundle's fonts folder, so text nodes render the same on every machine; a family that klad does not have yet but Google Fonts does is downloaded first. With no font, list the bundle's fonts. Text nodes also take a family name directly (font=Inter, font=\"Inter Bold\") and copy it in themselves.\n\n  klad font art.klad Cinzel\n  klad font art.klad \"Barlow Bold\"\n  klad font art.klad ~/fonts/Signage.ttf\n  klad add art.klad text --in l4 text=INN font=Cinzel size=48 x=120 y=80 fill=#2b1d12"
     )]
     Font { bundle: PathBuf, font: Option<String> },
     #[command(
@@ -425,7 +425,7 @@ enum Command {
     },
     #[command(
         about = "Fog and haze by depth: show, set or turn off the document's atmosphere",
-        long_about = "The atmosphere fades layers at the top of the stack that have a depth (klad set art.draw g2 depth=2) towards the fog colour, blurs them and takes colour out, more the deeper they are.\n\n  klad atmosphere art.draw\n  klad atmosphere art.draw color=#9aa8b8 top=#d8e0e8 density=0.5 blur=1 desaturate=0.15\n  klad atmosphere art.draw --off"
+        long_about = "The atmosphere fades layers at the top of the stack that have a depth (klad set art.klad g2 depth=2) towards the fog colour, blurs them and takes colour out, more the deeper they are.\n\n  klad atmosphere art.klad\n  klad atmosphere art.klad color=#9aa8b8 top=#d8e0e8 density=0.5 blur=1 desaturate=0.15\n  klad atmosphere art.klad --off"
     )]
     Atmosphere {
         bundle: PathBuf,
@@ -437,7 +437,7 @@ enum Command {
     },
     #[command(
         about = "Show the timeline (fps, length, origin, clips) or set fps, length and origin",
-        long_about = "Show the timeline (fps, length, origin, clips) or set fps, length and origin.\n\n  klad timeline art.draw\n  klad timeline art.draw --fps 12 --frames 24\n  klad timeline art.draw --origin 512,700      the canvas point a Godot export puts on the node's position\n  klad timeline art.draw --origin centre       back to the middle of the canvas (the default)"
+        long_about = "Show the timeline (fps, length, origin, clips) or set fps, length and origin.\n\n  klad timeline art.klad\n  klad timeline art.klad --fps 12 --frames 24\n  klad timeline art.klad --origin 512,700      the canvas point a Godot export puts on the node's position\n  klad timeline art.klad --origin centre       back to the middle of the canvas (the default)"
     )]
     Timeline {
         bundle: PathBuf,
@@ -452,7 +452,7 @@ enum Command {
     },
     #[command(
         about = "List, add, change, rename and remove clips (named frame ranges)",
-        long_about = "List, add, change, rename and remove clips: named frame ranges such as idle, run or attack. Exports turn each clip into an animation; a clip may have its own fps.\n\n  klad clip art.draw                                        list them\n  klad clip art.draw --add run --from 0 --to 11 --loop --fps 12\n  klad clip art.draw --set run --to 15 --no-loop\n  klad clip art.draw --set run --name sprint               rename\n  klad clip art.draw --set run --fps doc                   use the document's fps again\n  klad clip art.draw --rm run\n\nFrames inserted or removed on every layer move and stretch clips; a clip ends where the timeline ends."
+        long_about = "List, add, change, rename and remove clips: named frame ranges such as idle, run or attack. Exports turn each clip into an animation; a clip may have its own fps.\n\n  klad clip art.klad                                        list them\n  klad clip art.klad --add run --from 0 --to 11 --loop --fps 12\n  klad clip art.klad --set run --to 15 --no-loop\n  klad clip art.klad --set run --name sprint               rename\n  klad clip art.klad --set run --fps doc                   use the document's fps again\n  klad clip art.klad --rm run\n\nFrames inserted or removed on every layer move and stretch clips; a clip ends where the timeline ends."
     )]
     Clip {
         bundle: PathBuf,
@@ -489,7 +489,7 @@ enum Command {
     Show { bundle: PathBuf, id: String },
     #[command(
         about = "Add a layer, cel or shape",
-        long_about = "Add a layer, cel or shape.\n\n  klad add art.draw layer vector name=sky\n  klad add art.draw rect --in l2 x=0 y=0 w=2048 h=900 fill=#1b2a41\n  klad add art.draw ellipse --in l2 cx=500 cy=300 rx=80 ry=80 'fill={\"radial\":{\"center\":[500,300],\"radius\":80,\"stops\":[[0,\"#fff6d5\"],[1,\"#f3c76a\"]]}}'\n  klad add art.draw cel --in l3 frame=4 hold=2\n\nValues are JSON when they parse as JSON, otherwise strings. Dotted keys nest: transform.rotate=15, stroke.width=3."
+        long_about = "Add a layer, cel or shape.\n\n  klad add art.klad layer vector name=sky\n  klad add art.klad rect --in l2 x=0 y=0 w=2048 h=900 fill=#1b2a41\n  klad add art.klad ellipse --in l2 cx=500 cy=300 rx=80 ry=80 'fill={\"radial\":{\"center\":[500,300],\"radius\":80,\"stops\":[[0,\"#fff6d5\"],[1,\"#f3c76a\"]]}}'\n  klad add art.klad cel --in l3 frame=4 hold=2\n\nValues are JSON when they parse as JSON, otherwise strings. Dotted keys nest: transform.rotate=15, stroke.width=3."
     )]
     Add {
         bundle: PathBuf,
@@ -505,8 +505,8 @@ enum Command {
         flags: EditFlags,
     },
     #[command(
-        about = "Change properties: klad set art.draw n4 fill=#ff0000 transform.rotate=15 (null removes)",
-        long_about = "Change properties of a layer, cel, shape, stroke or fill. Values are JSON when they parse as JSON, otherwise strings; null removes a key. Dotted keys nest.\n\n  klad set art.draw n4 fill=#ff0000 transform.rotate=15\n  klad set art.draw l2 opacity=0.5 blend=multiply\n  klad set art.draw c4:s12 color=#c84a3a size=6 brush=pencil\n  klad set art.draw c4:s7 color=skin opacity=0.8\n\nStrokes take color, size, opacity, flow, brush and taper ([in,out] or null); fills take color and opacity. Colours may be palette names."
+        about = "Change properties: klad set art.klad n4 fill=#ff0000 transform.rotate=15 (null removes)",
+        long_about = "Change properties of a layer, cel, shape, stroke or fill. Values are JSON when they parse as JSON, otherwise strings; null removes a key. Dotted keys nest.\n\n  klad set art.klad n4 fill=#ff0000 transform.rotate=15\n  klad set art.klad l2 opacity=0.5 blend=multiply\n  klad set art.klad c4:s12 color=#c84a3a size=6 brush=pencil\n  klad set art.klad c4:s7 color=skin opacity=0.8\n\nStrokes take color, size, opacity, flow, brush and taper ([in,out] or null); fills take color and opacity. Colours may be palette names."
     )]
     Set {
         bundle: PathBuf,
@@ -526,7 +526,7 @@ enum Command {
     },
     #[command(
         about = "Move, rotate or scale strokes and fills (<cel>:s<id>)",
-        long_about = "Move, rotate or scale strokes and fills, addressed as <cel>:s<id> (klad strokes lists them). Rotation and scale turn about --pivot, by default the middle of the marks' bounds. Stroke sizes and tapers scale with them; fills move by whole pixels and are resampled when turned or scaled.\n\n  klad transform art.draw c4:s12 c4:s13 --move 40,-10\n  klad transform art.draw c4:s12 --rotate 15 --scale 1.2\n  klad transform art.draw c4:s3 c4:s5 --sx -1 --pivot 512,400\n\nAlso a transform op in klad apply: {\"op\":\"transform\",\"ids\":[\"c4:s12\"],\"x\":40,\"y\":-10,\"rotate\":15,\"sx\":1.2,\"sy\":1.2}"
+        long_about = "Move, rotate or scale strokes and fills, addressed as <cel>:s<id> (klad strokes lists them). Rotation and scale turn about --pivot, by default the middle of the marks' bounds. Stroke sizes and tapers scale with them; fills move by whole pixels and are resampled when turned or scaled.\n\n  klad transform art.klad c4:s12 c4:s13 --move 40,-10\n  klad transform art.klad c4:s12 --rotate 15 --scale 1.2\n  klad transform art.klad c4:s3 c4:s5 --sx -1 --pivot 512,400\n\nAlso a transform op in klad apply: {\"op\":\"transform\",\"ids\":[\"c4:s12\"],\"x\":40,\"y\":-10,\"rotate\":15,\"sx\":1.2,\"sy\":1.2}"
     )]
     Transform {
         bundle: PathBuf,
@@ -552,7 +552,7 @@ enum Command {
     },
     #[command(
         about = "Lasso strokes and fills on a paint layer; --cut also takes the parts crossing the edge",
-        long_about = "Select the strokes and fills of a paint layer inside a polygon and move, turn, scale, flip or delete them in one step. Without --cut only whole marks move: strokes whose points are all inside and fills whose pixels are. With --cut every stroke or fill crossing the edge is split at the edge: the part outside stays where it is and the part inside moves with the rest, so nothing outside the lasso changes. Without a move, turn, scale, flip or --rm it only lists what is inside and what crosses.\n\n  klad lasso art.draw l3 --polygon '100,100 400,120 380,400 90,380'\n  klad lasso art.draw l3 --polygon '100,100 400,120 380,400 90,380' --cut --move 60,-20\n  klad lasso art.draw l3 --polygon '...' --cut --rotate 15 --scale 1.2\n  klad lasso art.draw l3 --polygon '...' --flip h\n  klad lasso art.draw l3 --polygon '...' --cut --rm\n\nAlso a lasso op in klad apply: {\"op\":\"lasso\",\"layer\":\"l3\",\"polygon\":[[100,100],[400,120],[380,400]],\"cut\":true,\"x\":60,\"y\":-20} (or \"rm\":true)."
+        long_about = "Select the strokes and fills of a paint layer inside a polygon and move, turn, scale, flip or delete them in one step. Without --cut only whole marks move: strokes whose points are all inside and fills whose pixels are. With --cut every stroke or fill crossing the edge is split at the edge: the part outside stays where it is and the part inside moves with the rest, so nothing outside the lasso changes. Without a move, turn, scale, flip or --rm it only lists what is inside and what crosses.\n\n  klad lasso art.klad l3 --polygon '100,100 400,120 380,400 90,380'\n  klad lasso art.klad l3 --polygon '100,100 400,120 380,400 90,380' --cut --move 60,-20\n  klad lasso art.klad l3 --polygon '...' --cut --rotate 15 --scale 1.2\n  klad lasso art.klad l3 --polygon '...' --flip h\n  klad lasso art.klad l3 --polygon '...' --cut --rm\n\nAlso a lasso op in klad apply: {\"op\":\"lasso\",\"layer\":\"l3\",\"polygon\":[[100,100],[400,120],[380,400]],\"cut\":true,\"x\":60,\"y\":-20} (or \"rm\":true)."
     )]
     Lasso {
         bundle: PathBuf,
@@ -587,7 +587,7 @@ enum Command {
     },
     #[command(
         about = "List the points of a path, rect or ellipse, or edit them",
-        long_about = "Without edit flags: list the points (anchors) of a path, rect or ellipse with their handles, numbered across subpaths. Coordinates are the shape's own, as in its d, before its transform. Any edit turns a rect or ellipse into a path that looks the same.\n\n  klad path art.draw n7\n  klad path art.draw n7 --move 3 412,230\n  klad path art.draw n7 --nudge 3,4,5 0,-20\n  klad path art.draw n7 --handle 3 out 430,210\n  klad path art.draw n7 --insert 3,0.5      (split the segment after point 3)\n  klad path art.draw n7 --add 418,236       (a point on the nearest segment)\n  klad path art.draw n7 --rm 4,5 --corner 2 --smooth 6\n  klad path art.draw n7 --simplify 1.5      (fewer, smooth points within 1.5 px)\n\nAs ops: {\"op\":\"path\",\"id\":\"n7\",\"move\":3,\"to\":[412,230]}, \"move\":[3,4],\"by\":[0,-20]; \"handle\":3,\"out\":[430,210]; \"insert\":3,\"t\":0.5; \"add\":[418,236]; \"rm\":[4,5]; \"corner\":2; \"smooth\":6; \"simplify\":1.5. A smooth point keeps its handles in line unless \"free\":true."
+        long_about = "Without edit flags: list the points (anchors) of a path, rect or ellipse with their handles, numbered across subpaths. Coordinates are the shape's own, as in its d, before its transform. Any edit turns a rect or ellipse into a path that looks the same.\n\n  klad path art.klad n7\n  klad path art.klad n7 --move 3 412,230\n  klad path art.klad n7 --nudge 3,4,5 0,-20\n  klad path art.klad n7 --handle 3 out 430,210\n  klad path art.klad n7 --insert 3,0.5      (split the segment after point 3)\n  klad path art.klad n7 --add 418,236       (a point on the nearest segment)\n  klad path art.klad n7 --rm 4,5 --corner 2 --smooth 6\n  klad path art.klad n7 --simplify 1.5      (fewer, smooth points within 1.5 px)\n\nAs ops: {\"op\":\"path\",\"id\":\"n7\",\"move\":3,\"to\":[412,230]}, \"move\":[3,4],\"by\":[0,-20]; \"handle\":3,\"out\":[430,210]; \"insert\":3,\"t\":0.5; \"add\":[418,236]; \"rm\":[4,5]; \"corner\":2; \"smooth\":6; \"simplify\":1.5. A smooth point keeps its handles in line unless \"free\":true."
     )]
     Path {
         bundle: PathBuf,
@@ -707,7 +707,7 @@ enum Command {
     },
     #[command(
         about = "Paint a stroke with a brush along an SVG path or explicit points",
-        long_about = "Paint with a brush along an SVG path (M, L, H, V, C, S, Q, T, Z; several subpaths make several strokes) or explicit points.\n\n  klad stroke art.draw l3 --brush ink --size 14 --color #1b1b1b --path 'M100 400 C 300 200 500 600 700 400' --pressure 0.1,1,0.05\n  klad stroke art.draw l3 --brush ink --size 6 --taper 12,30 --path 'M100 100 Q 200 40 300 120'\n  klad stroke art.draw l3 --points '10,10,0.5 40,30,1 80,35,0.2'\n\nPressure is spread evenly along the stroke. --taper thins the first and last px of the line whatever the pressure. Brushes are a bundle brush id or a library brush (klad brushes). Strokes are marked as agent strokes."
+        long_about = "Paint with a brush along an SVG path (M, L, H, V, C, S, Q, T, Z; several subpaths make several strokes) or explicit points.\n\n  klad stroke art.klad l3 --brush ink --size 14 --color #1b1b1b --path 'M100 400 C 300 200 500 600 700 400' --pressure 0.1,1,0.05\n  klad stroke art.klad l3 --brush ink --size 6 --taper 12,30 --path 'M100 100 Q 200 40 300 120'\n  klad stroke art.klad l3 --points '10,10,0.5 40,30,1 80,35,0.2'\n\nPressure is spread evenly along the stroke. --taper thins the first and last px of the line whatever the pressure. Brushes are a bundle brush id or a library brush (klad brushes). Strokes are marked as agent strokes."
     )]
     Stroke {
         bundle: PathBuf,
@@ -755,7 +755,7 @@ enum Command {
     },
     #[command(
         about = "Fill a region of a paint layer, inside the lines (flood) or inside a polygon (lasso)",
-        long_about = "Fill a region of a paint layer. A flood fill starts at --at and spreads over pixels within --tolerance of that pixel in the reference: this layer (default), all (everything visible) or a layer id or name. --gap closes openings in the lines up to that many px wide; --expand grows the fill under the lines by that many px. --polygon fills a lasso polygon instead. The fill is stored with its coverage, so it renders the same later; klad refill recomputes it after the lines change.\n\n  klad fill art.draw l2 --at 820,640 --ref lines --gap 4 --color '#c84a3a'\n  klad fill art.draw l2 --at 820,640 --ref all --color skin\n  klad fill art.draw l2 --polygon '100,100 400,120 260,380' --color '#20304a'\n\nColours are #rrggbb, #rrggbbaa or a palette name. Also a fill op in klad apply: {\"op\":\"fill\",\"layer\":\"l2\",\"at\":[820,640],\"ref\":\"lines\",\"gap\":4,\"color\":\"#c84a3a\"}"
+        long_about = "Fill a region of a paint layer. A flood fill starts at --at and spreads over pixels within --tolerance of that pixel in the reference: this layer (default), all (everything visible) or a layer id or name. --gap closes openings in the lines up to that many px wide; --expand grows the fill under the lines by that many px. --polygon fills a lasso polygon instead. The fill is stored with its coverage, so it renders the same later; klad refill recomputes it after the lines change.\n\n  klad fill art.klad l2 --at 820,640 --ref lines --gap 4 --color '#c84a3a'\n  klad fill art.klad l2 --at 820,640 --ref all --color skin\n  klad fill art.klad l2 --polygon '100,100 400,120 260,380' --color '#20304a'\n\nColours are #rrggbb, #rrggbbaa or a palette name. Also a fill op in klad apply: {\"op\":\"fill\",\"layer\":\"l2\",\"at\":[820,640],\"ref\":\"lines\",\"gap\":4,\"color\":\"#c84a3a\"}"
     )]
     Fill {
         bundle: PathBuf,
@@ -803,7 +803,7 @@ enum Command {
     },
     #[command(
         about = "Ink the outlines of vector shapes as tapered strokes, the way an inker would",
-        long_about = "Ink the outlines of vector shapes (rects, ellipses, paths, groups of them; often on a hidden sketch layer) as strokes on a paint layer. An outline is split into separate strokes at corners sharper than --break degrees, each stroke tapers in and out, and its weight follows rules instead of pressure written by hand: heavier on the side facing away from the light, heavier on the silhouette (the outer edge of the shapes inked together) than on inner lines, thinner along tight curves, with a small seeded wobble.\n\n  klad ink art.draw lines --from body,eye,leg --weight 6 --light -1,-1\n  klad ink art.draw lines --from rock --weight 9 --break 45 --gap 3 --wobble 1\n  klad ink art.draw lines --path \"M10 10 C 80 0 120 60 200 40\" --weight 4\n\nThe strokes are ordinary agent strokes: klad set, klad transform and the editor edit them. Also an ink op: {\"op\":\"ink\",\"layer\":\"l3\",\"from\":[\"n5\"],\"weight\":6,\"light\":[-1,-1],\"break\":60,\"gap\":0,\"wobble\":0.6}."
+        long_about = "Ink the outlines of vector shapes (rects, ellipses, paths, groups of them; often on a hidden sketch layer) as strokes on a paint layer. An outline is split into separate strokes at corners sharper than --break degrees, each stroke tapers in and out, and its weight follows rules instead of pressure written by hand: heavier on the side facing away from the light, heavier on the silhouette (the outer edge of the shapes inked together) than on inner lines, thinner along tight curves, with a small seeded wobble.\n\n  klad ink art.klad lines --from body,eye,leg --weight 6 --light -1,-1\n  klad ink art.klad lines --from rock --weight 9 --break 45 --gap 3 --wobble 1\n  klad ink art.klad lines --path \"M10 10 C 80 0 120 60 200 40\" --weight 4\n\nThe strokes are ordinary agent strokes: klad set, klad transform and the editor edit them. Also an ink op: {\"op\":\"ink\",\"layer\":\"l3\",\"from\":[\"n5\"],\"weight\":6,\"light\":[-1,-1],\"break\":60,\"gap\":0,\"wobble\":0.6}."
     )]
     Ink {
         bundle: PathBuf,
@@ -857,7 +857,7 @@ enum Command {
     },
     #[command(
         about = "Shade and rim light vector shapes from one light direction",
-        long_about = "Make the two lighting layers of the flat-colour recipe from the shapes: on --shade, the side of each shape facing away from the light (the shape minus itself moved towards the light by --depth, in --soft overlapping steps so the inner edge is soft); on --rim, a thin band along the edge facing the light. Both are lasso fills with a cut, so with the layers clipped to the flats (multiply for shade, screen or add for rim) the light follows the shapes.\n\n  klad light art.draw --from body,head --light -1,-1 --shade shade --rim rim\n  klad light art.draw --from rock --shade shade --depth 24 --soft 4 --shade-color '#3a2f50'\n\nAlso a light op: {\"op\":\"light\",\"from\":[\"n5\"],\"light\":[-1,-1],\"shade\":\"l5\",\"rim\":\"l6\",\"depth\":14,\"soft\":3,\"rimWidth\":4}."
+        long_about = "Make the two lighting layers of the flat-colour recipe from the shapes: on --shade, the side of each shape facing away from the light (the shape minus itself moved towards the light by --depth, in --soft overlapping steps so the inner edge is soft); on --rim, a thin band along the edge facing the light. Both are lasso fills with a cut, so with the layers clipped to the flats (multiply for shade, screen or add for rim) the light follows the shapes.\n\n  klad light art.klad --from body,head --light -1,-1 --shade shade --rim rim\n  klad light art.klad --from rock --shade shade --depth 24 --soft 4 --shade-color '#3a2f50'\n\nAlso a light op: {\"op\":\"light\",\"from\":[\"n5\"],\"light\":[-1,-1],\"shade\":\"l5\",\"rim\":\"l6\",\"depth\":14,\"soft\":3,\"rimWidth\":4}."
     )]
     Light {
         bundle: PathBuf,
@@ -900,7 +900,7 @@ enum Command {
     },
     #[command(
         about = "Fill a shape's area with short tapered strokes: hatching, bark, fur, stone grain",
-        long_about = "Fill the area of closed vector shapes (or a polygon) with short tapered strokes, parallel at --angle or following the outline (--along), clipped to the area, with seeded variation.\n\n  klad hatch art.draw shade --in body --angle 35 --spacing 7 --length 10-24\n  klad hatch art.draw lines --in trunk --along --spacing 9 --weight 1.5 --color '#3b2a1e'\n\nAlso a hatch op: {\"op\":\"hatch\",\"layer\":\"l5\",\"in\":[\"n5\"],\"angle\":30,\"spacing\":6,\"length\":[12,30],\"jitter\":0.3,\"weight\":2}."
+        long_about = "Fill the area of closed vector shapes (or a polygon) with short tapered strokes, parallel at --angle or following the outline (--along), clipped to the area, with seeded variation.\n\n  klad hatch art.klad shade --in body --angle 35 --spacing 7 --length 10-24\n  klad hatch art.klad lines --in trunk --along --spacing 9 --weight 1.5 --color '#3b2a1e'\n\nAlso a hatch op: {\"op\":\"hatch\",\"layer\":\"l5\",\"in\":[\"n5\"],\"angle\":30,\"spacing\":6,\"length\":[12,30],\"jitter\":0.3,\"weight\":2}."
     )]
     Hatch {
         bundle: PathBuf,
@@ -944,7 +944,7 @@ enum Command {
     },
     #[command(
         about = "Paint a shape as a form, with strokes that follow it and colours from a light model",
-        long_about = "Paint closed vector shapes (or a polygon) as forms. --form round bulges any closed shape like a pillow (its height grows with the distance to its outline), flat is a plane facing --facing x,y,z, cylinder is round across --axis degrees. The light model: a key light from --light x,y at --elevation (or a --lamp x,y,height in canvas px; the shape nearest the lamp gets the full key light and farther ones less, by inverse square), cool fill from above (--fill, --fill-strength), warm bounce from below (--bounce, --bounce-strength) and a darker core just past the terminator (--core). --color is the local colour in full light.\n\nStrokes follow the form: along bands of equal light on round forms, along the axis on cylinders, at --angle on planes. Each takes its colour from the model where it lies and stops where the light changes, so no stroke carries the lit colour into the shadow. Passes go from 2x --weight down to half of it (the small ones only where the form turns), then a decisive pass with --bold in the lights and a few quiet strokes in the shadows (--decisive 0 skips both). Every stroke is drawn like a hand (--hand): its own pressure curve, tapers and width.\n\nPaint on a layer clipped to the flats, or lock the flats layer and paint into it: then strokes run past the outline and a pass of short strokes along it cuts the edge in, so no flat colour shows at the rim. On a plain layer strokes stay inside the outline.\n\n  klad paint art.draw paint --in rock --color '#8a8f96' --light -1,-1\n  klad paint art.draw paint --in pillar --form cylinder --axis 90 --color '#c9b8a0' --lamp 200,600,150\n  klad paint art.draw paint --in wall --form flat --facing 0,0,1 --angle 0 --weight 10\n\nAlso a paint op: {\"op\":\"paint\",\"layer\":\"l5\",\"in\":[\"n5\"],\"color\":\"#5d6a78\",\"light\":[-1,-1],\"weight\":14,\"form\":\"round\"}."
+        long_about = "Paint closed vector shapes (or a polygon) as forms. --form round bulges any closed shape like a pillow (its height grows with the distance to its outline), flat is a plane facing --facing x,y,z, cylinder is round across --axis degrees. The light model: a key light from --light x,y at --elevation (or a --lamp x,y,height in canvas px; the shape nearest the lamp gets the full key light and farther ones less, by inverse square), cool fill from above (--fill, --fill-strength), warm bounce from below (--bounce, --bounce-strength) and a darker core just past the terminator (--core). --color is the local colour in full light.\n\nStrokes follow the form: along bands of equal light on round forms, along the axis on cylinders, at --angle on planes. Each takes its colour from the model where it lies and stops where the light changes, so no stroke carries the lit colour into the shadow. Passes go from 2x --weight down to half of it (the small ones only where the form turns), then a decisive pass with --bold in the lights and a few quiet strokes in the shadows (--decisive 0 skips both). Every stroke is drawn like a hand (--hand): its own pressure curve, tapers and width.\n\nPaint on a layer clipped to the flats, or lock the flats layer and paint into it: then strokes run past the outline and a pass of short strokes along it cuts the edge in, so no flat colour shows at the rim. On a plain layer strokes stay inside the outline.\n\n  klad paint art.klad paint --in rock --color '#8a8f96' --light -1,-1\n  klad paint art.klad paint --in pillar --form cylinder --axis 90 --color '#c9b8a0' --lamp 200,600,150\n  klad paint art.klad paint --in wall --form flat --facing 0,0,1 --angle 0 --weight 10\n\nAlso a paint op: {\"op\":\"paint\",\"layer\":\"l5\",\"in\":[\"n5\"],\"color\":\"#5d6a78\",\"light\":[-1,-1],\"weight\":14,\"form\":\"round\"}."
     )]
     Paint {
         bundle: PathBuf,
@@ -1056,7 +1056,7 @@ enum Command {
     },
     #[command(
         about = "Buffer the drawings of a span of frames, as the editor's prepare does",
-        long_about = "Replay every painted drawing shown in frames --from to --to (all frames by default) into the bundle's cache, so the editor and later renders read them instead of replaying their strokes. Run it after a big change made by the CLI, before the editor opens or plays the file.\n\n  klad prepare art.draw\n  klad prepare art.draw --from 0 --to 23"
+        long_about = "Replay every painted drawing shown in frames --from to --to (all frames by default) into the bundle's cache, so the editor and later renders read them instead of replaying their strokes. Run it after a big change made by the CLI, before the editor opens or plays the file.\n\n  klad prepare art.klad\n  klad prepare art.klad --from 0 --to 23"
     )]
     Prepare {
         bundle: PathBuf,
@@ -1067,7 +1067,7 @@ enum Command {
     },
     #[command(
         about = "Scatter copies of a small mark over a shape: grass, cracks, dots",
-        long_about = "Scatter copies of a small mark (SVG path data around 0,0) inside closed vector shapes (or a polygon), avoiding other shapes, each copy scaled and turned a little (seeded).\n\n  klad scatter art.draw lines --in ground --mark \"M0 0 L0 -18\" --count 40 --size 0.7-1.2 --turn -15,15\n  klad scatter art.draw lines --in rock --mark \"M0 0 L6 3 L10 -2\" --spacing 22 --avoid moss\n\nAlso a scatter op: {\"op\":\"scatter\",\"layer\":\"l3\",\"in\":[\"n5\"],\"mark\":\"M0 0 L0 -18\",\"count\":40,\"size\":[0.7,1.2],\"turn\":[-15,15],\"avoid\":[\"n9\"]}."
+        long_about = "Scatter copies of a small mark (SVG path data around 0,0) inside closed vector shapes (or a polygon), avoiding other shapes, each copy scaled and turned a little (seeded).\n\n  klad scatter art.klad lines --in ground --mark \"M0 0 L0 -18\" --count 40 --size 0.7-1.2 --turn -15,15\n  klad scatter art.klad lines --in rock --mark \"M0 0 L6 3 L10 -2\" --spacing 22 --avoid moss\n\nAlso a scatter op: {\"op\":\"scatter\",\"layer\":\"l3\",\"in\":[\"n5\"],\"mark\":\"M0 0 L0 -18\",\"count\":40,\"size\":[0.7,1.2],\"turn\":[-15,15],\"avoid\":[\"n9\"]}."
     )]
     Scatter {
         bundle: PathBuf,
@@ -1113,7 +1113,7 @@ enum Command {
     },
     #[command(
         about = "Paint closed shapes as clumps of leaves, lit as forms",
-        long_about = "Build each closed shape out of leaves: leaf marks across the clump take their colour from a round form lit by --light (or a --lamp x,y,height), in a few value steps from --shade through --color to --lit (by default darker and cooler, lighter and warmer than --color), with the most variety in the light; then leaves along the outline, most on the side facing the light and the sky, a few glowing (--glow) at the shadow side's edge, so the silhouette breaks up and the sky shows between them. --mass names a shape around the whole crown, so every clump also turns with the big form. --leaf is the leaf size in px, --density how close the leaves sit. Fill a darker, slightly smaller core under each clump first and paint clumps back to front on one layer. The brush is leaves (several leaf shapes, one per dab).\n\n  klad foliage tree.draw canopy --in clump1 --color '#4d7a3b' --light -0.6,-0.8 --leaf 16 --mass crown\n\nAlso a foliage op: {\"op\":\"foliage\",\"layer\":\"canopy\",\"in\":[\"clump1\"],\"color\":\"#4d7a3b\",\"light\":[-0.6,-0.8],\"leaf\":16,\"mass\":\"crown\"}."
+        long_about = "Build each closed shape out of leaves: leaf marks across the clump take their colour from a round form lit by --light (or a --lamp x,y,height), in a few value steps from --shade through --color to --lit (by default darker and cooler, lighter and warmer than --color), with the most variety in the light; then leaves along the outline, most on the side facing the light and the sky, a few glowing (--glow) at the shadow side's edge, so the silhouette breaks up and the sky shows between them. --mass names a shape around the whole crown, so every clump also turns with the big form. --leaf is the leaf size in px, --density how close the leaves sit. Fill a darker, slightly smaller core under each clump first and paint clumps back to front on one layer. The brush is leaves (several leaf shapes, one per dab).\n\n  klad foliage tree.klad canopy --in clump1 --color '#4d7a3b' --light -0.6,-0.8 --leaf 16 --mass crown\n\nAlso a foliage op: {\"op\":\"foliage\",\"layer\":\"canopy\",\"in\":[\"clump1\"],\"color\":\"#4d7a3b\",\"light\":[-0.6,-0.8],\"leaf\":16,\"mass\":\"crown\"}."
     )]
     Foliage {
         bundle: PathBuf,
@@ -1163,7 +1163,7 @@ enum Command {
     },
     #[command(
         about = "Add, remove, rename, move or reparent a bone of a layer's or group's skeleton",
-        long_about = "Bones go on a paint layer or a group (a group's skeleton poses every paint layer in it together). A bone has a name, an optional parent, a head and a tail in canvas px; a child usually starts where its parent ends. Removing a bone removes its children.\n\n  klad bone art.draw body --add hip --head 400,500 --tail 400,420\n  klad bone art.draw body --add thigh --parent hip --head 400,500 --tail 410,620\n  klad bone art.draw body --rename thigh --as femur\n  klad bone art.draw body --move femur --tail 420,630\n  klad bone art.draw body --reparent femur --parent pelvis\n  klad bone art.draw body --rm femur\n\nAlso a bone op: {\"op\":\"bone\",\"layer\":\"body\",\"add\":\"thigh\",\"parent\":\"hip\",\"head\":[400,500],\"tail\":[410,620]}."
+        long_about = "Bones go on a paint layer or a group (a group's skeleton poses every paint layer in it together). A bone has a name, an optional parent, a head and a tail in canvas px; a child usually starts where its parent ends. Removing a bone removes its children.\n\n  klad bone art.klad body --add hip --head 400,500 --tail 400,420\n  klad bone art.klad body --add thigh --parent hip --head 400,500 --tail 410,620\n  klad bone art.klad body --rename thigh --as femur\n  klad bone art.klad body --move femur --tail 420,630\n  klad bone art.klad body --reparent femur --parent pelvis\n  klad bone art.klad body --rm femur\n\nAlso a bone op: {\"op\":\"bone\",\"layer\":\"body\",\"add\":\"thigh\",\"parent\":\"hip\",\"head\":[400,500],\"tail\":[410,620]}."
     )]
     Bone {
         bundle: PathBuf,
@@ -1197,7 +1197,7 @@ enum Command {
     },
     #[command(
         about = "Set how much each bone moves each part of the drawing: automatic, painted dabs, a whole part, smoothed",
-        long_about = "Every bone has a weight map over the rest drawing (a grid at a quarter of the canvas resolution); where weights blend, lines bend smoothly; a part held by one bone at weight 1 moves rigidly. --auto starts from the bones (by distance, blending across the joints). --set paints soft round dabs of a weight onto --bone: 'x,y,radius,weight ...'. --part makes a named part of the drawing (at --frame) fully that bone's (and no other's). --smooth blurs the maps a little. render --overlay weights:<bone> shows a bone's map.\n\n  klad weights art.draw body --auto\n  klad weights art.draw body --bone shin --set '400,600,30,1 410,640,20,0.8'\n  klad weights art.draw body --bone head --part head\n\nAlso a weights op: {\"op\":\"weights\",\"layer\":\"body\",\"bone\":\"shin\",\"set\":[[400,600,30,1]]}."
+        long_about = "Every bone has a weight map over the rest drawing (a grid at a quarter of the canvas resolution); where weights blend, lines bend smoothly; a part held by one bone at weight 1 moves rigidly. --auto starts from the bones (by distance, blending across the joints). --set paints soft round dabs of a weight onto --bone: 'x,y,radius,weight ...'. --part makes a named part of the drawing (at --frame) fully that bone's (and no other's). --smooth blurs the maps a little. render --overlay weights:<bone> shows a bone's map.\n\n  klad weights art.klad body --auto\n  klad weights art.klad body --bone shin --set '400,600,30,1 410,640,20,0.8'\n  klad weights art.klad body --bone head --part head\n\nAlso a weights op: {\"op\":\"weights\",\"layer\":\"body\",\"bone\":\"shin\",\"set\":[[400,600,30,1]]}."
     )]
     Weights {
         bundle: PathBuf,
@@ -1221,7 +1221,7 @@ enum Command {
     },
     #[command(
         about = "Pose a drawing with its bones: a new drawing at --to, bent from the rest drawing at --from",
-        long_about = "A pose is a turn per bone (degrees from its rest angle, children follow their parent) and a move of the whole (--root). Every paint layer under the skeleton gets a new drawing at --to: each stroke point and fill moves by its bones' weighted blend, the same way Godot's Skeleton2D bends a Polygon2D. The pose is kept on the drawing; posing that frame again re-poses it from the same rest drawing, and posing from a posed drawing starts from its rest drawing. klad inbetween between two poses of one rest drawing turns the bones instead of matching strokes.\n\n  klad pose art.draw body --from 0 --to 4 --bone thigh=25 --bone shin=-40 --root 0,6\n\nAlso a pose op: {\"op\":\"pose\",\"layer\":\"body\",\"from\":0,\"to\":4,\"bones\":{\"thigh\":25,\"shin\":-40},\"root\":[0,6]}."
+        long_about = "A pose is a turn per bone (degrees from its rest angle, children follow their parent) and a move of the whole (--root). Every paint layer under the skeleton gets a new drawing at --to: each stroke point and fill moves by its bones' weighted blend, the same way Godot's Skeleton2D bends a Polygon2D. The pose is kept on the drawing; posing that frame again re-poses it from the same rest drawing, and posing from a posed drawing starts from its rest drawing. klad inbetween between two poses of one rest drawing turns the bones instead of matching strokes.\n\n  klad pose art.klad body --from 0 --to 4 --bone thigh=25 --bone shin=-40 --root 0,6\n\nAlso a pose op: {\"op\":\"pose\",\"layer\":\"body\",\"from\":0,\"to\":4,\"bones\":{\"thigh\":25,\"shin\":-40},\"root\":[0,6]}."
     )]
     Pose {
         bundle: PathBuf,
@@ -1241,7 +1241,7 @@ enum Command {
     },
     #[command(
         about = "Key a layer, group or shape: its position, turn, scale or opacity at a frame, eased to the next key",
-        long_about = "Keys animate a layer, a group or a vector shape without a drawing per frame: x and y (px), rotate (degrees), sx, sy or scale, and opacity, each with its own keys. Between two keys the value follows the first key's ease: linear, in, out, in-out, step, or a curve x1,y1,x2,y2 (as in CSS). Before the first key and after the last the value holds. A layer or group turns and scales about the canvas centre; a shape about its own pivot. --rm removes the keys at that frame (only the named properties, or all).\n\n  klad key art.draw lantern --frame 0 y=0\n  klad key art.draw lantern --frame 12 y=-14 --ease in-out\n  klad key art.draw glow --frame 6 opacity=0.4\n  klad key art.draw lantern --frame 12 --rm\n\nAlso a key op: {\"op\":\"key\",\"id\":\"lantern\",\"frame\":12,\"y\":-14,\"ease\":\"in-out\"}."
+        long_about = "Keys animate a layer, a group or a vector shape without a drawing per frame: x and y (px), rotate (degrees), sx, sy or scale, and opacity, each with its own keys. Between two keys the value follows the first key's ease: linear, in, out, in-out, step, or a curve x1,y1,x2,y2 (as in CSS). Before the first key and after the last the value holds. A layer or group turns and scales about the canvas centre; a shape about its own pivot. --rm removes the keys at that frame (only the named properties, or all).\n\n  klad key art.klad lantern --frame 0 y=0\n  klad key art.klad lantern --frame 12 y=-14 --ease in-out\n  klad key art.klad glow --frame 6 opacity=0.4\n  klad key art.klad lantern --frame 12 --rm\n\nAlso a key op: {\"op\":\"key\",\"id\":\"lantern\",\"frame\":12,\"y\":-14,\"ease\":\"in-out\"}."
     )]
     Key {
         bundle: PathBuf,
@@ -1266,7 +1266,7 @@ enum Command {
     },
     #[command(
         about = "Measure a drawing against a reference picture: values, saturation, texture, edges, colour per region",
-        long_about = "Render the drawing (or read a PNG or JPEG) at the reference's size and compare the two in OKLab: the value range (L at the 5th, 50th and 95th percentile), mean chroma, stroke texture (mean absolute Laplacian of L), edge sharpness (99th percentile of the gradient) and the mean colour difference, with what differs in words (lighter, bluer, busier, softer edges). --region adds a row per named rectangle; --heat writes a picture of where they differ most (black, red, yellow, white as the difference grows to 20).\n\n  klad compare cafe.draw reference.png --region shade=40,300,200,120 --region cup=610,180,90,120 --heat diff.png"
+        long_about = "Render the drawing (or read a PNG or JPEG) at the reference's size and compare the two in OKLab: the value range (L at the 5th, 50th and 95th percentile), mean chroma, stroke texture (mean absolute Laplacian of L), edge sharpness (99th percentile of the gradient) and the mean colour difference, with what differs in words (lighter, bluer, busier, softer edges). --region adds a row per named rectangle; --heat writes a picture of where they differ most (black, red, yellow, white as the difference grows to 20).\n\n  klad compare cafe.klad reference.png --region shade=40,300,200,120 --region cup=610,180,90,120 --heat diff.png"
     )]
     Compare {
         drawing: PathBuf,
@@ -1282,7 +1282,7 @@ enum Command {
     },
     #[command(
         about = "Paint over a picture with brushwork: strokes that follow its forms and stop at its colour edges, big to small",
-        long_about = "Repaint what is below a paint layer (or the layers in --from) with strokes on that layer: big brushes first, then smaller ones only where the painting still differs from the source by more than --threshold (a colour difference in OKLab, x100), so detail lands where the source has it. Each stroke takes the source's colour where it starts, broken a little warm and cool (--vary), and runs along the forms (across the colour gradient) until the colour under it changes, it reaches --length (in brush widths, min,max) or it would bend more than --curve allows (0 straight, 1 follows every turn). --in limits it to closed shapes; --focus lets the smallest brush work only in and near one shape. The strokes are ordinary strokes in the part \"paint over\" (--part), one history step, so they take body and relief and can be edited.\n\nFor animation, paint over one key, then carry it to the next with --like <cel>: every stroke moves with the marks under it, takes its colour from the new drawing, and strokes are only added (part \"paint over added\") where the new drawing needs them. The carried strokes keep their order, so klad inbetween pairs them part by part and nothing boils.\n\n  klad paintover still.draw brushwork --sizes 32,16,8 --threshold 6\n  klad paintover walk.draw brushwork --frame 4 --like c12\n\nAlso a paintover op, alone in its batch: {\"op\":\"paintover\",\"layer\":\"brushwork\",\"sizes\":[32,16,8],\"threshold\":6}."
+        long_about = "Repaint what is below a paint layer (or the layers in --from) with strokes on that layer: big brushes first, then smaller ones only where the painting still differs from the source by more than --threshold (a colour difference in OKLab, x100), so detail lands where the source has it. Each stroke takes the source's colour where it starts, broken a little warm and cool (--vary), and runs along the forms (across the colour gradient) until the colour under it changes, it reaches --length (in brush widths, min,max) or it would bend more than --curve allows (0 straight, 1 follows every turn). --in limits it to closed shapes; --focus lets the smallest brush work only in and near one shape. The strokes are ordinary strokes in the part \"paint over\" (--part), one history step, so they take body and relief and can be edited.\n\nFor animation, paint over one key, then carry it to the next with --like <cel>: every stroke moves with the marks under it, takes its colour from the new drawing, and strokes are only added (part \"paint over added\") where the new drawing needs them. The carried strokes keep their order, so klad inbetween pairs them part by part and nothing boils.\n\n  klad paintover still.klad brushwork --sizes 32,16,8 --threshold 6\n  klad paintover walk.klad brushwork --frame 4 --like c12\n\nAlso a paintover op, alone in its batch: {\"op\":\"paintover\",\"layer\":\"brushwork\",\"sizes\":[32,16,8],\"threshold\":6}."
     )]
     Paintover {
         bundle: PathBuf,
@@ -1342,7 +1342,7 @@ enum Command {
     },
     #[command(
         about = "Grow grass in closed shapes: blades lit by the ground, smaller with distance, breaking the top edge",
-        long_about = "Fill closed shapes with grass blades from the far (top) edge to the near (bottom) one: each blade rises from its root, leans with --wind (degrees) and bends, and is smaller and denser towards the top (--far is the far size against the near one). The ground under them rolls in soft patches about --patch px wide, lit by --light (or a --lamp x,y,height): each blade runs from a dark root to a lit tip in a few value families from --shade through --color to --lit. Along the top edge taller blades (--edge) break the outline against what is behind. Near blades are drawn last.\n\nWith a stroke brush (blade, the default, or any round or chalk tip) each blade is a tapered stroke whose colour runs from --color at the root to the lit colour at the tip when the brush blends to a second colour by pressure. With a picture brush (a tip made of pictures, like your own tufts) each blade is one stamp of the picture, turned to the blade. Build your own brush for your grass (klad brushes --picture, --set) and pass it with --brush: the op decides where the marks go and how they are lit, the brush decides what they look like.\n\n  klad grass meadow.draw field --in field-shape --color '#6f8a3c' --light -0.9,-0.45 --blade 30 --far 0.22\n  klad grass meadow.draw bank --in bank --brush my-tuft --blade 160 --density 0.1\n\nAlso a grass op: {\"op\":\"grass\",\"layer\":\"field\",\"in\":[\"field-shape\"],\"color\":\"#6f8a3c\",\"blade\":30,\"far\":0.22,\"wind\":12}."
+        long_about = "Fill closed shapes with grass blades from the far (top) edge to the near (bottom) one: each blade rises from its root, leans with --wind (degrees) and bends, and is smaller and denser towards the top (--far is the far size against the near one). The ground under them rolls in soft patches about --patch px wide, lit by --light (or a --lamp x,y,height): each blade runs from a dark root to a lit tip in a few value families from --shade through --color to --lit. Along the top edge taller blades (--edge) break the outline against what is behind. Near blades are drawn last.\n\nWith a stroke brush (blade, the default, or any round or chalk tip) each blade is a tapered stroke whose colour runs from --color at the root to the lit colour at the tip when the brush blends to a second colour by pressure. With a picture brush (a tip made of pictures, like your own tufts) each blade is one stamp of the picture, turned to the blade. Build your own brush for your grass (klad brushes --picture, --set) and pass it with --brush: the op decides where the marks go and how they are lit, the brush decides what they look like.\n\n  klad grass meadow.klad field --in field-shape --color '#6f8a3c' --light -0.9,-0.45 --blade 30 --far 0.22\n  klad grass meadow.klad bank --in bank --brush my-tuft --blade 160 --density 0.1\n\nAlso a grass op: {\"op\":\"grass\",\"layer\":\"field\",\"in\":[\"field-shape\"],\"color\":\"#6f8a3c\",\"blade\":30,\"far\":0.22,\"wind\":12}."
     )]
     Grass {
         bundle: PathBuf,
@@ -1407,7 +1407,7 @@ enum Command {
     },
     #[command(
         about = "List closed regions of the lines that no fill on the layer covers",
-        long_about = "List the closed regions of a fill layer's reference (the lines its flood fills fill against) that no fill on the layer covers: pockets a fill missed, or drawings not coloured yet. Regions open to the canvas edge are the outside and do not count. Each pocket prints its bounds and size, and a render of the frame marks them in magenta with a box.\n\n  klad gaps art.draw colour --frame 4\n  klad gaps art.draw colour --sheet all\n  klad gaps art.draw colour --sheet walk --ref lines --gap 4\n\nThe reference, gap and tolerance default to those of the layer's flood fills on those frames."
+        long_about = "List the closed regions of a fill layer's reference (the lines its flood fills fill against) that no fill on the layer covers: pockets a fill missed, or drawings not coloured yet. Regions open to the canvas edge are the outside and do not count. Each pocket prints its bounds and size, and a render of the frame marks them in magenta with a box.\n\n  klad gaps art.klad colour --frame 4\n  klad gaps art.klad colour --sheet all\n  klad gaps art.klad colour --sheet walk --ref lines --gap 4\n\nThe reference, gap and tolerance default to those of the layer's flood fills on those frames."
     )]
     Gaps {
         bundle: PathBuf,
@@ -1442,7 +1442,7 @@ enum Command {
     },
     #[command(
         about = "The document palette: list, --add a colour (with --name), --rm a name, colour or index",
-        long_about = "The document palette, kept in doc.json. Named colours can be used wherever a colour goes (--color skin).\n\n  klad palette art.draw\n  klad palette art.draw --add '#f0c8a0' --name skin\n  klad palette art.draw --add '#d0a080' --name skin    (changes skin)\n  klad palette art.draw --rm skin\n\nAs ops: {\"op\":\"palette\",\"add\":\"#f0c8a0\",\"name\":\"skin\"}, {\"op\":\"palette\",\"rm\":\"skin\"}, {\"op\":\"palette\",\"set\":[{\"color\":\"#1b1b1b\",\"name\":\"ink\"}]}"
+        long_about = "The document palette, kept in doc.json. Named colours can be used wherever a colour goes (--color skin).\n\n  klad palette art.klad\n  klad palette art.klad --add '#f0c8a0' --name skin\n  klad palette art.klad --add '#d0a080' --name skin    (changes skin)\n  klad palette art.klad --rm skin\n\nAs ops: {\"op\":\"palette\",\"add\":\"#f0c8a0\",\"name\":\"skin\"}, {\"op\":\"palette\",\"rm\":\"skin\"}, {\"op\":\"palette\",\"set\":[{\"color\":\"#1b1b1b\",\"name\":\"ink\"}]}"
     )]
     Palette {
         bundle: PathBuf,
@@ -1457,7 +1457,7 @@ enum Command {
     },
     #[command(
         about = "Export PNGs, sprite sheets, numbered frames or a Godot SpriteFrames and scene",
-        long_about = "Export a transparent PNG of the whole image or one layer or group, at a frame, at any scale from 1/16 to 8 (vectors stay sharp; paint layers are resampled). 8-bit PNGs are dithered from the 16-bit float pixels so gradients do not band; --depth 16 writes 16-bit PNGs. --background keeps the canvas background colour.\n\n  klad export art.draw\n  klad export art.draw --scale 2\n  klad export art.draw --layer lines --scale 4 --depth 16 -o lines.png\n\nAnimations (each clip, or the whole timeline when there are no clips):\n\n  klad export art.draw --sheet all [--scale 0.5] [--padding 2] [--max 4096]\n      a PNG holding each distinct picture once, trimmed to its pixels (more pages, art-sheet-2.png ..., when it does not fit --max), plus art-sheet.json in Aseprite's array layout: one entry per exposure with its duration in ms, frameTags for clips\n  klad export art.draw --sheet run            one clip; --sheet 0-11 a range\n  klad export art.draw --frames run           numbered full-size PNGs, one per frame (run-0000.png ...) in art-run/\n  klad export art.draw --godot ../game/art    the sheet, art.tres (SpriteFrames: one animation per clip with its fps, loop and per-frame durations) and art.tscn (an AnimatedSprite2D placed so the timeline's origin sits on the node's position). The first folder given is kept in the document (export.godot); later exports and the editor's button write there, and Godot uids are kept so scenes using them keep working. --store replaces a kept folder."
+        long_about = "Export a transparent PNG of the whole image or one layer or group, at a frame, at any scale from 1/16 to 8 (vectors stay sharp; paint layers are resampled). 8-bit PNGs are dithered from the 16-bit float pixels so gradients do not band; --depth 16 writes 16-bit PNGs. --background keeps the canvas background colour.\n\n  klad export art.klad\n  klad export art.klad --scale 2\n  klad export art.klad --layer lines --scale 4 --depth 16 -o lines.png\n\nAnimations (each clip, or the whole timeline when there are no clips):\n\n  klad export art.klad --sheet all [--scale 0.5] [--padding 2] [--max 4096]\n      a PNG holding each distinct picture once, trimmed to its pixels (more pages, art-sheet-2.png ..., when it does not fit --max), plus art-sheet.json in Aseprite's array layout: one entry per exposure with its duration in ms, frameTags for clips\n  klad export art.klad --sheet run            one clip; --sheet 0-11 a range\n  klad export art.klad --frames run           numbered full-size PNGs, one per frame (run-0000.png ...) in art-run/\n  klad export art.klad --godot ../game/art    the sheet, art.tres (SpriteFrames: one animation per clip with its fps, loop and per-frame durations) and art.tscn (an AnimatedSprite2D placed so the timeline's origin sits on the node's position). The first folder given is kept in the document (export.godot); later exports and the editor's button write there, and Godot uids are kept so scenes using them keep working. --store replaces a kept folder."
     )]
     Export {
         bundle: PathBuf,
@@ -1522,7 +1522,7 @@ enum Command {
     },
     #[command(
         about = "List brushes: the library, and with a bundle the ones it embeds",
-        long_about = "List brushes: the built-in library, and with a bundle the brushes it embeds (a document keeps every brush it uses in brushes/<id>.json, so it renders the same when the library changes).\n\n  klad brushes\n  klad brushes art.draw\n  klad brushes art.draw --show ink"
+        long_about = "List brushes: the built-in library, and with a bundle the brushes it embeds (a document keeps every brush it uses in brushes/<id>.json, so it renders the same when the library changes).\n\n  klad brushes\n  klad brushes art.klad\n  klad brushes art.klad --show ink"
     )]
     Brushes {
         bundle: Option<PathBuf>,
@@ -1536,7 +1536,7 @@ enum Command {
         picture: Option<Vec<String>>,
     },
     #[command(
-        about = "List, add or remove a layer's effects: klad effect art.draw l3 glow radius=24 color=#ffd080",
+        about = "List, add or remove a layer's effects: klad effect art.klad l3 glow radius=24 color=#ffd080",
         long_about = "Effects apply in order when the layer composes: blur (radius), glow (radius, strength, threshold, color, blend), outline (width, color, inside), shadow (x, y, radius, color), noise (amount, size, seed, mono), displace (amount, size, seed, by: a layer id whose red and green push the pixels). With no effect name it lists them."
     )]
     Effect {
@@ -3567,7 +3567,7 @@ const REFERENCE_HEAD: &str = "_Last updated: with the commands it lists. `just r
 
 # klad command reference
 
-Every command of the `klad` command line with its options, as `klad <command> --help` prints them. A drawing is a `.draw` folder (`docs/format.md`); `klad apply` takes the same edits as JSON lines, one transaction per call. `docs/skill/SKILL.md` explains how an agent uses them, and the `klad-client` crate (`crates/client`) runs them from Rust.
+Every command of the `klad` command line with its options, as `klad <command> --help` prints them. A drawing is a `.klad` folder (`docs/format.md`); `klad apply` takes the same edits as JSON lines, one transaction per call. `docs/skill/SKILL.md` explains how an agent uses them, and the `klad-client` crate (`crates/client`) runs them from Rust.
 
 This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad itself.
 
@@ -3639,7 +3639,7 @@ mod tests {
         let lasso = Cli::try_parse_from([
             "draw",
             "lasso",
-            "a.draw",
+            "a.klad",
             "l1",
             "--polygon",
             "0,0 9,0 9,9",

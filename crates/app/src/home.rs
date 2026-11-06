@@ -343,10 +343,10 @@ mod tests {
         h.run_steps(2);
         h.get_by_label("Create").click();
         h.run_steps(3);
-        let made = dir.join("rock study.draw");
+        let made = dir.join("rock study.klad");
         assert_eq!(opened(&h), made);
         let cli = Bundle::blank(
-            dir.join("cli.draw"),
+            dir.join("cli.klad"),
             &Blank {
                 background: Some("#f4efe6".into()),
                 sketch: true,
@@ -372,7 +372,7 @@ mod tests {
     #[test]
     fn a_drawing_the_system_asks_to_open_opens_from_the_start_window() {
         let dir = folder("finder");
-        let made = dir.join("from finder.draw");
+        let made = dir.join("from finder.klad");
         Bundle::blank(&made, &small(), "cli").unwrap();
         let mut first = home(&dir, &[]);
         first.begin(&egui::Context::default(), None);
@@ -402,11 +402,11 @@ mod tests {
     #[test]
     fn recent_reopens_a_drawing_and_greys_out_a_moved_one() {
         let dir = folder("recent");
-        let (a, b) = (dir.join("ledge.draw"), dir.join("cave.draw"));
+        let (a, b) = (dir.join("ledge.klad"), dir.join("cave.klad"));
         [&a, &b].iter().for_each(|p| {
             Bundle::blank(p, &small(), "cli").unwrap();
         });
-        std::fs::rename(&b, dir.join("cave moved.draw")).unwrap();
+        std::fs::rename(&b, dir.join("cave moved.klad")).unwrap();
         let mut first = home(&dir, &[&a, &b]);
         first.begin(&egui::Context::default(), None);
         let mut h = harness(first);
@@ -419,17 +419,17 @@ mod tests {
         assert_eq!(opened(&h), a);
         assert!(h.state().start.is_none());
         let mut missing = home(&dir, &[]);
-        missing.begin(&egui::Context::default(), Some(&dir.join("nowhere.draw")));
+        missing.begin(&egui::Context::default(), Some(&dir.join("nowhere.klad")));
         assert!(missing.editor.is_none());
         let error = missing.start.as_ref().unwrap().error.clone().unwrap();
-        assert!(error.contains("nowhere.draw"), "{error}");
+        assert!(error.contains("nowhere.klad"), "{error}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn cmd_n_and_cmd_o_in_the_editor_switch_drawings_and_back_keeps_this_one() {
         let dir = folder("switch");
-        let (a, b) = (dir.join("first.draw"), dir.join("second.draw"));
+        let (a, b) = (dir.join("first.klad"), dir.join("second.klad"));
         [&a, &b].iter().for_each(|p| {
             Bundle::blank(p, &small(), "cli").unwrap();
         });
@@ -454,7 +454,7 @@ mod tests {
         h.run_steps(2);
         h.get_by_label("Create").click();
         h.run_steps(3);
-        assert_eq!(opened(&h), dir.join("third.draw"));
+        assert_eq!(opened(&h), dir.join("third.klad"));
         h.key_press_modifiers(Modifiers::COMMAND, Key::O);
         h.run_steps(3);
         h.get_by_role_and_label(Role::TextInput, "Or paste its path")
@@ -466,7 +466,7 @@ mod tests {
         let order: Vec<String> = h.state().settings.documents.clone();
         assert_eq!(
             order,
-            [&b, &dir.join("third.draw"), &a].map(|p| p.display().to_string())
+            [&b, &dir.join("third.klad"), &a].map(|p| p.display().to_string())
         );
         h.state_mut().editor.as_mut().unwrap().wants = None;
         h.get_by_label(theme::icon::FILE).click();
@@ -490,14 +490,14 @@ mod tests {
         let out = root.join("scratch/ui");
         std::fs::create_dir_all(&out).unwrap();
         let shown: Vec<PathBuf> = [
-            "samples/solids/solids.draw",
-            "samples/lantern/lantern-painted.draw",
-            "samples/creature/creature.draw",
+            "samples/solids/solids.klad",
+            "samples/lantern/lantern-painted.klad",
+            "samples/creature/creature.klad",
         ]
         .iter()
         .map(|p| std::fs::canonicalize(root.join(p)).expect("run just samples and build the painted lantern first"))
         .collect();
-        let gone = PathBuf::from("/Users/you/Drawings/old sketch.draw");
+        let gone = PathBuf::from("/Users/you/Drawings/old sketch.klad");
         let settings = Settings {
             drawings: Some("~/Drawings".into()),
             documents: shown
@@ -536,7 +536,7 @@ mod tests {
     #[test]
     fn the_document_menu_shows_the_licence_and_the_notices() {
         let dir = folder("about");
-        let path = dir.join("about.draw");
+        let path = dir.join("about.klad");
         Bundle::blank(&path, &small(), "cli").unwrap();
         let mut first = home(&dir, &[]);
         first.open(&egui::Context::default(), &path).unwrap();
@@ -565,11 +565,11 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let out = root.join("scratch/ui");
         std::fs::create_dir_all(&out).unwrap();
-        let source = std::fs::canonicalize(root.join("samples/lantern/lantern-painted.draw")).expect(
-            "build it first: PAINTED=1 FORCE=1 bash samples/lantern/build.sh samples/lantern/lantern-painted.draw",
+        let source = std::fs::canonicalize(root.join("samples/lantern/lantern-painted.klad")).expect(
+            "build it first: PAINTED=1 FORCE=1 bash samples/lantern/build.sh samples/lantern/lantern-painted.klad",
         );
         let dir = folder("editor-picture");
-        let path = dir.join("lantern.draw");
+        let path = dir.join("lantern.klad");
         let copied = std::process::Command::new("cp")
             .arg("-R")
             .arg(&source)

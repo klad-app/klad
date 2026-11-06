@@ -38,11 +38,11 @@ mod tests {
 
     #[test]
     fn only_document_files_count() {
-        assert!(relevant(Path::new("a.draw/doc.json")));
-        assert!(relevant(Path::new("a.draw/.cache/sync.json")));
-        assert!(relevant(Path::new("a.draw/.cache/notes.json")));
-        assert!(relevant(Path::new("a.draw/strokes/l1/c0.strokes")));
-        assert!(!relevant(Path::new("a.draw/doc.json.tmp-123")));
-        assert!(!relevant(Path::new("a.draw/.cache/tiles/l1.raster")));
+        assert!(relevant(Path::new("a.klad/doc.json")));
+        assert!(relevant(Path::new("a.klad/.cache/sync.json")));
+        assert!(relevant(Path::new("a.klad/.cache/notes.json")));
+        assert!(relevant(Path::new("a.klad/strokes/l1/c0.strokes")));
+        assert!(!relevant(Path::new("a.klad/doc.json.tmp-123")));
+        assert!(!relevant(Path::new("a.klad/.cache/tiles/l1.raster")));
     }
 }

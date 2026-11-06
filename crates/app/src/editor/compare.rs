@@ -142,18 +142,18 @@ mod tests {
     #[test]
     fn the_window_builds_the_cli_compare_and_finds_the_reference() {
         let joined = args(
-            Path::new("/w/a.draw"),
-            Path::new("/w/a.draw/images/f.png"),
+            Path::new("/w/a.klad"),
+            Path::new("/w/a.klad/images/f.png"),
             2,
             Path::new("/w/h.png"),
         )
         .join(" ");
         assert_eq!(
             joined,
-            "compare /w/a.draw /w/a.draw/images/f.png --frame 2 --json --heat /w/h.png"
+            "compare /w/a.klad /w/a.klad/images/f.png --frame 2 --json --heat /w/h.png"
         );
         let mut doc = klad_core::doc::Document::new(100, 100);
-        assert!(reference_image(Path::new("/w/a.draw"), &doc).is_none());
+        assert!(reference_image(Path::new("/w/a.klad"), &doc).is_none());
         let node: klad_core::doc::Node =
             serde_json::from_value(serde_json::json!({"id": "n1", "type": "image", "src": "f.png", "w": 10, "h": 10}))
                 .unwrap();
@@ -161,8 +161,8 @@ mod tests {
         layer.reference = true;
         doc.layers = vec![layer];
         assert_eq!(
-            reference_image(Path::new("/w/a.draw"), &doc),
-            Some(PathBuf::from("/w/a.draw/images/f.png"))
+            reference_image(Path::new("/w/a.klad"), &doc),
+            Some(PathBuf::from("/w/a.klad/images/f.png"))
         );
     }
 }

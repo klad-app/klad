@@ -97,9 +97,9 @@ impl Start {
 
     pub fn target(&self) -> PathBuf {
         let name = self.name.trim();
-        let file = match name.ends_with(".draw") {
+        let file = match name.ends_with(".klad") {
             true => name.to_string(),
-            false => format!("{name}.draw"),
+            false => format!("{name}.klad"),
         };
         expand(&self.folder).join(file)
     }
@@ -253,7 +253,7 @@ impl Start {
         let mut picked = None;
         if picker::NATIVE
             && ui
-                .add(egui::Button::new("Choose a .draw folder...").min_size(vec2(200.0, 28.0)))
+                .add(egui::Button::new("Choose a .klad folder...").min_size(vec2(200.0, 28.0)))
                 .clicked()
         {
             picked = picker::choose_folder(Some(&settings.drawings_folder()), "Open");
@@ -411,7 +411,7 @@ pub fn expand(text: &str) -> PathBuf {
 
 pub fn openable(path: &Path) -> Result<()> {
     if path.as_os_str().is_empty() {
-        bail!("paste the path of a .draw folder");
+        bail!("paste the path of a .klad folder");
     }
     if !path.is_dir() {
         bail!("{} is not a folder", path.display());
@@ -428,7 +428,7 @@ pub fn free_name(folder: &Path) -> String {
             1 => "untitled".to_string(),
             n => format!("untitled {n}"),
         })
-        .find(|name| !folder.join(format!("{name}.draw")).exists())
+        .find(|name| !folder.join(format!("{name}.klad")).exists())
         .unwrap_or_default()
 }
 
@@ -509,7 +509,7 @@ mod tests {
     #[test]
     fn a_thumbnail_is_rendered_once_and_again_when_the_drawing_changes() {
         assert!(draw_binary().is_some(), "build the klad binary first (just test does)");
-        let dir = std::env::temp_dir().join(format!("draw-thumb-{}.draw", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("draw-thumb-{}.klad", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let blank = Blank {
             width: 400,
@@ -545,9 +545,9 @@ mod tests {
         };
         let mut start = Start::new(&settings, Section::New);
         start.name = "  cave  ".into();
-        assert_eq!(start.target(), PathBuf::from("/art/cave.draw"));
-        start.name = "cave.draw".into();
-        assert_eq!(start.target(), PathBuf::from("/art/cave.draw"));
+        assert_eq!(start.target(), PathBuf::from("/art/cave.klad"));
+        start.name = "cave.klad".into();
+        assert_eq!(start.target(), PathBuf::from("/art/cave.klad"));
         assert_eq!(
             (start.blank().width, start.blank().height, start.blank().background),
             (2048, 2048, None)

@@ -155,8 +155,7 @@ fn read_patch(dir: &Path) -> Result<Patch> {
 fn snapshot_doc(dir: &Path) -> Result<Document> {
     let text = zstd::decode_all(&fs::read(dir.join("doc.json.zst"))?[..])?;
     let value: serde_json::Value = serde_json::from_slice(&text).context("reading the snapshot document")?;
-    let migrated = migrate(value).context("upgrading the snapshot document")?;
-    serde_json::from_value(migrated.value).context("reading the snapshot document")
+    serde_json::from_value(migrate(value)?).context("reading the snapshot document")
 }
 
 fn restored(current: &Document, entry: &Entry, dir: &Path) -> Result<Document> {
@@ -405,7 +404,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "timing: LANDSCAPE=<copy of landscape.draw> cargo test --release -p klad-core undo_timing -- --ignored --nocapture"]
+    #[ignore = "timing: LANDSCAPE=<copy of landscape.klad> cargo test --release -p klad-core undo_timing -- --ignored --nocapture"]
     fn undo_timing() {
         let path = std::env::var("LANDSCAPE").expect("LANDSCAPE");
         let mut bundle = Bundle::open(&path).unwrap();

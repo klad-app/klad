@@ -19,9 +19,9 @@ Drawings live on a timeline, frame by frame: holds, onion skins, loops and clips
 The creature in `samples/creature` is six keys on six layers (lines, colour, a clipped shade and rim light, the far leg, a shadow): an idle and a walk, in-betweened by part, coloured from the first drawing and timed on threes and twos.
 
 ```sh
-klad inbetween creature.draw --layers lines,colour --from 3 --to 5 --spacing in-out
-klad arcs creature.draw --track 'lines:near leg' --clip walk --check
-klad export creature.draw --godot ../game/art
+klad inbetween creature.klad --layers lines,colour --from 3 --to 5 --spacing in-out
+klad arcs creature.klad --track 'lines:near leg' --clip walk --check
+klad export creature.klad --godot ../game/art
 ```
 
 ![The courier's idle](docs/images/courier-idle.gif) ![The courier's run](docs/images/courier-run.gif)
@@ -29,9 +29,9 @@ klad export creature.draw --godot ../game/art
 The courier in `samples/courier` is drawn from shapes on every frame: a pose function places the body, legs and lantern, and the CLI fills, lights and inks them on thirteen layers. Its 16 drawings play as an idle and a run at 12 frames a second and export to Godot with that timing.
 
 ```sh
-klad fill courier.draw flats --shape shell-4 --color shell --frame 4
-klad light courier.draw --from shell-4 --light -0.6,-0.8 --shade shade --rim rim --frame 4
-klad ink courier.draw lines --from shell-4,head-4,near-leg-4 --weight 5 --frame 4
+klad fill courier.klad flats --shape shell-4 --color shell --frame 4
+klad light courier.klad --from shell-4 --light -0.6,-0.8 --shade shade --rim rim --frame 4
+klad ink courier.klad lines --from shell-4,head-4,near-leg-4 --weight 5 --frame 4
 ```
 
 ## Status
@@ -58,7 +58,7 @@ Building takes about ten minutes the first time.
 1. Install Rust with [rustup](https://rustup.rs) and [`just`](https://github.com/casey/just) (`brew install just`, or `cargo install just`). On Linux also `pkg-config`, `libfreetype-dev`, `libfontconfig1-dev`, `libxkbcommon-dev` and `libwayland-dev`.
 2. `git clone https://github.com/klad-app/klad && cd klad`, then `just build` makes `klad` and `klad-editor` in `target/release/` (on Linux in `target/linux/release/`).
 3. `target/release/klad open` starts the editor on its start window: make a drawing and start painting.
-4. `just samples` builds the sample drawings in `samples/` (a lantern, a walking creature, a running courier, an underground ruin, an inn sign, a tree, a meadow, painted solids, a bowl of lemons and the same painted over with brushwork, a bouncing ball, ink examples); open one with `target/release/klad open samples/lantern/lantern.draw`.
+4. `just samples` builds the sample drawings in `samples/` (a lantern, a walking creature, a running courier, an underground ruin, an inn sign, a tree, a meadow, painted solids, a bowl of lemons and the same painted over with brushwork, a bouncing ball, ink examples); open one with `target/release/klad open samples/lantern/lantern.klad`.
 5. `just app` makes `klad.app` and a disk image on a Mac; `just dist` makes the archive for the machine you are on (`just dist x86_64-pc-windows-msvc` for another target).
 
 ## Drawing with an agent
@@ -66,8 +66,8 @@ Building takes about ten minutes the first time.
 Any coding agent that can run commands (Claude Code, Codex and others) can draw. Give it `docs/skill/SKILL.md` (or the output of `klad skill`) as its instructions (it is written as an agent skill) and the path to a drawing, then ask:
 
 ```sh
-target/release/klad new art.draw --width 1600 --height 1200 --background '#e9e4da' --sketch
-target/release/klad open art.draw    # in another terminal, to watch and draw along
+target/release/klad new art.klad --width 1600 --height 1200 --background '#e9e4da' --sketch
+target/release/klad open art.klad    # in another terminal, to watch and draw along
 ```
 
 > "Block in a rock on the sketch layer, fill it, and paint it as a round form lit from the upper left."

@@ -242,7 +242,7 @@ mod tests {
 
     #[test]
     fn the_window_builds_the_cli_export() {
-        let (bundle, home) = (Path::new("/w/art.draw"), Path::new("/w"));
+        let (bundle, home) = (Path::new("/w/art.klad"), Path::new("/w"));
         let image = Form {
             background: true,
             scale: 2.0,
@@ -251,7 +251,7 @@ mod tests {
         };
         assert_eq!(
             args(bundle, home, 3, &image).join(" "),
-            "export /w/art.draw --frame 3 --scale 2 --background -o /w/out/hero.png"
+            "export /w/art.klad --frame 3 --scale 2 --background -o /w/out/hero.png"
         );
         let sheet = Form {
             what: What::Sheet,
@@ -262,7 +262,7 @@ mod tests {
         };
         assert_eq!(
             args(bundle, home, 0, &sheet).join(" "),
-            "export /w/art.draw --sheet walk --layer l2 --depth 16 --padding 2 --max 4096"
+            "export /w/art.klad --sheet walk --layer l2 --depth 16 --padding 2 --max 4096"
         );
         let frames = Form {
             what: What::Frames,
@@ -273,7 +273,7 @@ mod tests {
         };
         assert_eq!(
             args(bundle, home, 0, &frames).join(" "),
-            "export /w/art.draw --frames 0-11 --scale 0.5"
+            "export /w/art.klad --frames 0-11 --scale 0.5"
         );
     }
 }

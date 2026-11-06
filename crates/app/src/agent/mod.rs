@@ -156,7 +156,7 @@ fn looks_like_path(arg: &str) -> bool {
         || arg.contains('\\')
         || arg.starts_with('~')
         || [
-            ".png", ".jpg", ".jpeg", ".json", ".tres", ".tscn", ".ttf", ".otf", ".draw", ".svg",
+            ".png", ".jpg", ".jpeg", ".json", ".tres", ".tscn", ".ttf", ".otf", ".klad", ".svg",
         ]
         .iter()
         .any(|e| arg.to_ascii_lowercase().ends_with(e))
@@ -532,9 +532,9 @@ mod tests {
         let mut doc = Document::new(320, 200);
         doc.canvas.background = Some("#ffffff".into());
         doc.layers = vec![Layer::paint("l1", "paint", "c1")];
-        Bundle::create(dir.join("art.draw"), doc).unwrap();
+        Bundle::create(dir.join("art.klad"), doc).unwrap();
         Drawing {
-            bundle: dir.join("art.draw"),
+            bundle: dir.join("art.klad"),
             binary: binary(),
             editable,
         }
@@ -682,13 +682,13 @@ mod tests {
     #[test]
     fn paths_stay_in_the_drawing_and_base64_is_standard() {
         let d = Drawing {
-            bundle: PathBuf::from("/w/art.draw"),
+            bundle: PathBuf::from("/w/art.klad"),
             binary: PathBuf::new(),
             editable: true,
         };
-        assert!(allowed(&d, "art.draw/brushes/x.json").is_ok());
+        assert!(allowed(&d, "art.klad/brushes/x.json").is_ok());
         assert!(allowed(&d, "exports/hero.png").is_ok());
-        assert!(allowed(&d, "../other.draw/doc.json").is_err());
+        assert!(allowed(&d, "../other.klad/doc.json").is_err());
         assert!(allowed(&d, "/etc/passwd").is_err());
         assert!(allowed(&d, "exports/../../x.png").is_err());
         assert!(allowed(&d, "M10 20 L 30 40").is_ok());

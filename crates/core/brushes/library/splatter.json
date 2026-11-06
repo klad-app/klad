@@ -1,5 +1,5 @@
 {
-  "format": "draw-anything-brush/1",
+  "format": "klad-brush/1",
   "name": "Splatter",
   "tip": { "image": { "image": "splatter" } },
   "spacing": 1.2,

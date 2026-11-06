@@ -578,7 +578,7 @@ func _process(_delta):
         )
         .unwrap();
         fs::write(project.join("check.gd"), CHECK).unwrap();
-        let path = dir.join("arm.draw");
+        let path = dir.join("arm.klad");
         let mut doc = Document::new(600, 400);
         doc.canvas.background = Some("#f0e8dc".into());
         doc.timeline.frames = 8;

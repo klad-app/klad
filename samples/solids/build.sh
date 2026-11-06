@@ -8,7 +8,7 @@ case "$(uname -s)" in
   *) built=target/windows ;;
 esac
 klad="${KLAD:-$root/${KLAD_TARGET_DIR:-$built}/release/klad}"
-out="${1:-$here/solids.draw}"
+out="${1:-$here/solids.klad}"
 if [ -e "$out" ] && [ "${FORCE:-0}" != 1 ]; then
   echo "$out exists and may hold edits made in the editor; give another path, or FORCE=1 to rebuild it from generate.py" >&2
   exit 1
@@ -18,5 +18,5 @@ rm -rf "$out"
 python3 "$here/generate.py" > "$out.jsonl"
 "$klad" apply "$out" --file "$out.jsonl" >/dev/null
 rm "$out.jsonl"
-"$klad" render "$out" -o "${out%.draw}.png" | sed -n 1p
+"$klad" render "$out" -o "${out%.klad}.png" | sed -n 1p
 "$klad" hash "$out" --no-cache

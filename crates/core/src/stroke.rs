@@ -8,8 +8,9 @@ pub const POS_SCALE: f32 = 16.0;
 pub const PRESSURE_STEPS: f32 = 4095.0;
 pub const TILT_STEPS: f32 = 127.0;
 pub const ZSTD_LEVEL: i32 = 3;
-const MAGIC: &[u8; 4] = b"DAST";
-const VERSION: u8 = 6;
+const MAGIC: &[u8; 4] = b"KLST";
+const OLD_MAGIC: &[u8; 4] = b"DAST";
+const VERSION: u8 = 1;
 const MARK_STROKE: u8 = 0;
 const MARK_FILL: u8 = 1;
 const HAS_TILT: u8 = 1;
@@ -227,7 +228,7 @@ fn encode_stroke(out: &mut Vec<u8>, stroke: &Stroke) {
     }
 }
 
-fn decode_stroke(reader: &mut Reader, version: u8) -> Result<Stroke> {
+fn decode_stroke(reader: &mut Reader) -> Result<Stroke> {
     let id = u32::try_from(reader.varint()?)?;
     let name_len = reader.varint()? as usize;
     let brush = String::from_utf8(reader.take(name_len)?.to_vec())?;
@@ -237,23 +238,23 @@ fn decode_stroke(reader: &mut Reader, version: u8) -> Result<Stroke> {
     let flow = reader.f32()?;
     let seed = reader.u32()?;
     let channels = reader.u8()?;
-    let author = if version >= 2 && reader.u8()? == 1 {
+    let author = if reader.u8()? == 1 {
         Author::Agent
     } else {
         Author::Human
     };
-    let taper = if version >= 3 && channels & HAS_TAPER != 0 {
+    let taper = if channels & HAS_TAPER != 0 {
         [reader.f32()?, reader.f32()?]
     } else {
         [0.0, 0.0]
     };
-    let lock = version >= 5 && channels & HAS_LOCK != 0;
-    let cuts = if version >= 5 && channels & HAS_CUTS != 0 {
+    let lock = channels & HAS_LOCK != 0;
+    let cuts = if channels & HAS_CUTS != 0 {
         cut::decode(reader)?
     } else {
         Vec::new()
     };
-    let second = if version >= 6 && channels & HAS_SECOND != 0 {
+    let second = if channels & HAS_SECOND != 0 {
         Some([reader.u16()?, reader.u16()?, reader.u16()?, reader.u16()?])
     } else {
         None
@@ -431,24 +432,21 @@ pub fn encode_raw(marks: &[Mark]) -> Vec<u8> {
 
 pub fn decode_raw(bytes: &[u8]) -> Result<Vec<Mark>> {
     let mut reader = Reader::new(bytes);
-    if reader.take(4)? != MAGIC {
-        bail!("not a stroke file");
+    match reader.take(4)? {
+        m if m == MAGIC => {}
+        m if m == OLD_MAGIC => bail!("a stroke file of the old .draw format; this klad reads .klad drawings only"),
+        _ => bail!("not a stroke file"),
     }
     let version = reader.u8()?;
-    if version == 0 || version > VERSION {
-        bail!("stroke format version {version} is not supported");
+    if version != VERSION {
+        bail!("stroke file version {version} is not {VERSION}");
     }
     let count = reader.varint()? as usize;
     let marks = (0..count)
-        .map(|_| {
-            if version < 4 {
-                return decode_stroke(&mut reader, version).map(Mark::Stroke);
-            }
-            match reader.u8()? {
-                MARK_STROKE => decode_stroke(&mut reader, version).map(Mark::Stroke),
-                MARK_FILL => fill::decode(&mut reader, version).map(Mark::Fill),
-                other => bail!("unknown mark kind {other}"),
-            }
+        .map(|_| match reader.u8()? {
+            MARK_STROKE => decode_stroke(&mut reader).map(Mark::Stroke),
+            MARK_FILL => fill::decode(&mut reader).map(Mark::Fill),
+            other => bail!("unknown mark kind {other}"),
         })
         .collect::<Result<Vec<_>>>()?;
     if !reader.done() {
@@ -475,14 +473,6 @@ mod tests {
     use crate::fill::{Coverage, FillRef, FillSource, Seed};
     use crate::synth::Synth;
 
-    fn as_version(stroke: &Stroke, version: u8) -> Vec<u8> {
-        let mut bytes = encode_raw(&[Mark::Stroke(stroke.clone())]);
-        assert_eq!(bytes[6], MARK_STROKE);
-        bytes.remove(6);
-        bytes[4] = version;
-        bytes
-    }
-
     #[test]
     fn cel_round_trip_is_exact() {
         let strokes = marks(Synth::canvas(2048.0, 2048.0).strokes(200, 3));
@@ -507,33 +497,19 @@ mod tests {
     }
 
     #[test]
-    fn authors_survive_and_version_one_files_still_load() {
-        let agent = Stroke::new(1, "ink", [0.0, 0.0, 0.0, 1.0], 4.0, 1)
-            .with_points(&[(1.0, 1.0, 1.0), (2.0, 2.0, 1.0)], 5.0)
-            .by(Author::Agent);
-        let v2 = as_version(&agent, 2);
-        assert_eq!(decode_raw(&v2).unwrap()[0].author(), Author::Agent);
-        let author_at = 4 + 1 + 1 + 1 + 4 + 8 + 12 + 4 + 1;
-        assert_eq!(v2[author_at], 1);
-        let mut v1 = v2.clone();
-        v1[4] = 1;
-        v1.remove(author_at);
-        let legacy = decode_raw(&v1).unwrap();
-        let Mark::Stroke(legacy) = &legacy[0] else { panic!() };
-        assert_eq!(legacy.author, Author::Human);
-        assert_eq!(legacy.samples, agent.samples);
-    }
-
-    #[test]
-    fn tapers_survive_and_older_files_still_load() {
+    fn authors_and_tapers_round_trip_and_old_files_are_refused() {
         let points = [(1.0, 1.0, 1.0), (9.0, 2.0, 0.5)];
-        let tapered = Stroke::new(1, "ink", [0.0, 0.0, 0.0, 1.0], 4.0, 1)
+        let agent = Stroke::new(1, "ink", [0.0, 0.0, 0.0, 1.0], 4.0, 1)
             .with_points(&points, 5.0)
+            .by(Author::Agent)
             .tapered([12.0, 30.0]);
-        let back = decode_raw(&as_version(&tapered, 3)).unwrap();
-        assert_eq!(back[0].as_stroke().unwrap().taper, [12.0, 30.0]);
-        let plain = Stroke::new(1, "ink", [0.0, 0.0, 0.0, 1.0], 4.0, 1).with_points(&points, 5.0);
-        assert_eq!(decode_raw(&as_version(&plain, 2)).unwrap(), vec![Mark::Stroke(plain)]);
+        let mut bytes = encode_raw(&[agent.clone().into()]);
+        assert_eq!(decode_raw(&bytes).unwrap(), vec![Mark::Stroke(agent)]);
+        bytes[..4].copy_from_slice(OLD_MAGIC);
+        assert!(decode_raw(&bytes).unwrap_err().to_string().contains("old .draw format"));
+        bytes[..4].copy_from_slice(MAGIC);
+        bytes[4] = 2;
+        assert!(decode_raw(&bytes).is_err());
     }
 
     #[test]
@@ -581,7 +557,6 @@ mod tests {
         }];
         let back = decode_raw(&encode_raw(&[cut.clone().into(), plain.clone().into()])).unwrap();
         assert_eq!(back, vec![Mark::Stroke(cut.clone()), Mark::Stroke(plain.clone())]);
-        assert_eq!(&encode_raw(&[plain.clone().into()])[7..], &as_version(&plain, 4)[6..]);
         let bounds = Mark::Stroke(Stroke {
             cuts: vec![Cut {
                 keep: cut::Keep::Inside,

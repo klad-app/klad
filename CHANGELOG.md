@@ -4,11 +4,12 @@
 
 The first builds, and klad's licences.
 
+- Drawings are `.klad` folders in a fresh format, `klad/1`. Drawings from before (`.draw` folders) do not open and are not converted.
 - klad is source-available, not open source: the app is under the PolyForm Internal Use License 1.0.0, with permission for personal use, to propose contributions and to share the drawings you make (`LICENSE`); bought builds are under the same terms. The file format (`docs/format.md`), the command reference (`docs/cli.md`), the agent skill and the new `klad-client` crate are MIT (`LICENSE-MIT`), so any program or agent can read, write and make klad drawings. Contributions come in under a contributor licence agreement (`CLA.md`).
 - `klad-client`: run klad from Rust, apply edits as JSON ops, read drawings back as JSON, render them.
 - Builds for macOS (an app, Apple silicon and Intel in one) and Windows, sold on itch.io; Linux from source. Each has the `klad` command line, the editor, the fonts, the licences and the agent skill.
 - The editor runs on Windows and Linux (`klad open`, or `klad-editor`), with the platform's open dialog; pens that report pressure through the system (Windows) draw with it.
-- On a Mac, `.draw` drawings show in Finder as one item and open in klad with a double click.
+- On a Mac, `.klad` drawings show in Finder as one item and open in klad with a double click.
 - `klad install` (and "install the klad command" in the editor's document menu) puts `klad` on the terminal's path, for you and for agents. `klad skill` prints the agent skill.
 - The editor checks once a day whether a newer version is out and says so, with a link to what changed (off in the settings window); About's "check now" and `klad updates` check on demand and say why a check failed.
 - The agent's key field turns away a Claude subscription token (from `claude setup-token`) and says why: klad needs a Claude Console API key.

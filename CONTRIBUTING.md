@@ -4,7 +4,7 @@ Thank you for looking. klad is young and changes fast; issues with a drawing tha
 
 ## Before you start
 
-- Bugs: open an issue with what you did, what you saw (run the command again with `KLAD_BACKTRACE=1` for the details of an error), `klad --version`, your OS, and if you can the `.draw` folder (zipped) or the commands that make it.
+- Bugs: open an issue with what you did, what you saw (run the command again with `KLAD_BACKTRACE=1` for the details of an error), `klad --version`, your OS, and if you can the `.klad` folder (zipped) or the commands that make it.
 - Larger changes: open an issue first, so we can agree on the shape before you build it.
 - Security problems: see `SECURITY.md`, not the issue tracker.
 
@@ -23,7 +23,7 @@ These come from `CLAUDE.md`, which is also the guide for coding agents working o
 - No comments in code except `// TODO:`. Names and small functions carry the meaning.
 - Iterator chains where they read better than loops; plain loops in hot pixel code where they are clearer or faster.
 - Determinism: `core`, `brush` and `render` give the same pixels on every machine. Transcendental math goes through `libm`, randomness through the seeded `klad_core::rng`, no clock, no `HashMap` order in output, parallelism only over independent tiles or rows. A change that moves a sample's hash says why.
-- Bundles never break: a format change bumps the format version and adds a migration, so older drawings open unchanged.
+- Drawings never break: a format change bumps the format version (`klad/N`) and adds a migration, so older `.klad` drawings open unchanged, and updates `docs/format.md`.
 - Dependencies are permissive only (MIT, Apache-2.0, BSD, ISC, Zlib and the others in `deny.toml`). Adding one means `just audit` passes and `just notices` regenerates `THIRD-PARTY-NOTICES.md` in the same change.
 - Every feature has a CLI form and an editor form: a new command or op also gets its place in the editor, and an editor feature gets its command or op, with tests on both sides. The ops that draw from shapes (`ink`, `light`, `hatch`, `paint`, `scatter`) are the exception and stay CLI only.
 - New behaviour comes with tests in the crate that owns it. `just lint` and `just test` are clean before a pull request.

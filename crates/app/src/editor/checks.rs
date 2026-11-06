@@ -471,24 +471,24 @@ mod tests {
 
     #[test]
     fn the_job_arguments_are_the_cli_commands() {
-        assert_eq!(refill_args("a.draw", "l2", 4).join(" "), "refill a.draw l2 --frame 4");
+        assert_eq!(refill_args("a.klad", "l2", 4).join(" "), "refill a.klad l2 --frame 4");
         assert_eq!(
-            fill_like_args("a.draw", "l2", "c7", (3, 9)).join(" "),
-            "fill a.draw l2 --like c7 --frames 3-9"
+            fill_like_args("a.klad", "l2", "c7", (3, 9)).join(" "),
+            "fill a.klad l2 --like c7 --frames 3-9"
         );
         assert_eq!(
-            gaps_args("a.draw", "l2", (5, 5)).join(" "),
-            "gaps a.draw l2 --json --frame 5"
+            gaps_args("a.klad", "l2", (5, 5)).join(" "),
+            "gaps a.klad l2 --json --frame 5"
         );
         assert_eq!(
-            gaps_args("a.draw", "l2", (0, 11)).join(" "),
-            "gaps a.draw l2 --json --sheet 0-11"
+            gaps_args("a.klad", "l2", (0, 11)).join(" "),
+            "gaps a.klad l2 --json --sheet 0-11"
         );
         assert_eq!(
-            arcs_args("a.draw", "lines:near leg", (12, 27)),
+            arcs_args("a.klad", "lines:near leg", (12, 27)),
             [
                 "arcs",
-                "a.draw",
+                "a.klad",
                 "--track",
                 "lines:near leg",
                 "--from",
@@ -498,7 +498,7 @@ mod tests {
                 "--json"
             ]
         );
-        assert_eq!(font_args("a.draw", "/f/Sign.ttf").join(" "), "font a.draw /f/Sign.ttf");
+        assert_eq!(font_args("a.klad", "/f/Sign.ttf").join(" "), "font a.klad /f/Sign.ttf");
     }
 
     #[test]

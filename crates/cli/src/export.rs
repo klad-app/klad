@@ -106,13 +106,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let mut doc = Document::new(64, 32);
         doc.layers.push(Layer::paint("l1", "ink", "c1"));
-        let bundle = Bundle::create(dir.join("art.draw/"), doc).unwrap();
+        let bundle = Bundle::create(dir.join("art.klad/"), doc).unwrap();
         assert_eq!(default_path(&bundle, None, 0, 1.0), dir.join("art.png"));
         assert_eq!(default_path(&bundle, Some("ink"), 0, 2.0), dir.join("art-ink@2x.png"));
         assert_eq!(default_path(&bundle, None, 0, 0.5), dir.join("art@0.5x.png"));
         let out = dir.join("out/ink.png");
         run(
-            &dir.join("art.draw"),
+            &dir.join("art.klad"),
             Export {
                 layer: Some("ink".into()),
                 frame: 0,
@@ -138,7 +138,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let mut doc = Document::new(120, 60);
         doc.layers.push(Layer::paint("l1", "ink", "c1"));
-        let mut bundle = Bundle::create(dir.join("art.draw/"), doc).unwrap();
+        let mut bundle = Bundle::create(dir.join("art.klad/"), doc).unwrap();
         bundle
             .apply(
                 &klad_core::ops::parse_lines(

@@ -214,14 +214,14 @@ mod tests {
 
     #[test]
     fn the_window_builds_the_cli_paintover() {
-        let bundle = Path::new("/w/art.draw");
+        let bundle = Path::new("/w/art.klad");
         let form = Form {
             within: "rock".into(),
             ..Form::default()
         };
         assert_eq!(
             args(bundle, "l4", 3, &form, None).join(" "),
-            "paintover /w/art.draw l4 --frame 3 --sizes 32,16,8 --threshold 6 --length 1,8 --curve 0.5 --brush oil --vary 0.025 --seed 1 --in rock"
+            "paintover /w/art.klad l4 --frame 3 --sizes 32,16,8 --threshold 6 --length 1,8 --curve 0.5 --brush oil --vary 0.025 --seed 1 --in rock"
         );
         let carried = args(bundle, "l4", 3, &Form::default(), Some(("c9", "3-12".into()))).join(" ");
         assert!(carried.ends_with("--like c9 --frames 3-12"), "{carried}");

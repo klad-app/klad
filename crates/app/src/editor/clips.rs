@@ -392,11 +392,11 @@ mod tests {
     #[test]
     fn the_scene_and_rig_buttons_run_the_cli_export() {
         let args = godot_args(
-            std::path::Path::new("/w/a.draw"),
+            std::path::Path::new("/w/a.klad"),
             "--godot-rig",
             std::path::Path::new("/w/game/art"),
         );
-        assert_eq!(args.join(" "), "export /w/a.draw --godot-rig /w/game/art");
+        assert_eq!(args.join(" "), "export /w/a.klad --godot-rig /w/game/art");
     }
 
     #[test]

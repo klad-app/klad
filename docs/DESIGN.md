@@ -1,4 +1,4 @@
-_Last updated: 2026-11-06 11:54_
+_Last updated: 2026-11-06 15:05_
 
 # klad: design
 
@@ -29,7 +29,7 @@ crates/
 
 Two binaries from one crate: `klad`, the command line, and `klad-editor`, the editor alone (a windowed program on Windows, the executable of `klad.app` on a Mac, started by the Linux AppImage). `klad open [bundle]` launches the same editor from the command line, on the bundle or, without one, on the start window (new, open, recent). `--no-default-features` builds `klad` without the editor. `klad --version` and the editor's About show the version and `git describe` of the commit it was built from (`crates/version.rs`, shared by both crates' build scripts; `KLAD_BUILD` overrides it).
 
-**Platforms and packaging (M7).** Folders follow each platform: settings in `~/Library/Application Support/klad`, `%APPDATA%\klad` or `$XDG_CONFIG_HOME/klad`; downloaded fonts in the same places' data folder; drawings in `~/Drawings` by default. The open panel is `NSOpenPanel` on macOS and `rfd` elsewhere (the XDG portal on Linux, the common dialog on Windows). The pen: macOS reads `NSEvent`; elsewhere a pen that the system reports as a touch with force (Windows pens through `WM_POINTER`) draws with that pressure (`pen::from_egui`), and anything else draws as a mouse at full pressure; Linux tablets report no pressure through `winit` yet. `packaging/` makes the downloads: `macos/app.sh` builds `klad.app` (both binaries, lipo'd when several targets are given, the fonts, licences and skill in `Resources`, `.draw` declared as a document package of type `com.indicode.klad.drawing` so Finder shows a drawing as one item and opens it in klad) and a disk image; `archive.sh <target>` builds a `tar.gz` or `zip` with both binaries, `fonts/`, the licences and `SKILL.md`, and an AppImage on Linux when `APPIMAGETOOL` is set; `icon/` draws the icon in klad and packs `klad.icns` and `klad.ico`. Builds use the `dist` profile (no debug info, stripped, thin LTO); the samples hash the same from it. The fonts are found next to the binary (`fonts/`), in `../Resources/fonts` or `../share/klad/fonts`. On macOS a drawing opened from Finder arrives as an `application:openURLs:` message, which klad adds to `NSObject` before the event loop starts so it reaches whatever delegate `winit` installs; the paths queue up (`opened.rs`) and the start window or editor opens the last. `klad install` puts `klad` on the terminal's path (a link in `/usr/local/bin` through an administrator prompt on macOS, `~/.local/bin` on Linux, the user's `PATH` on Windows); the editor's document menu runs it as a job. `klad skill` prints the agent skill compiled into the binary. Builds are sold on itch.io (later Steam) for macOS and Windows, and Linux is built from source: on a version tag the `release` workflow builds the Windows version and pushes it to itch.io with butler (never as a workflow artifact, which anyone could download from a public repository) and publishes the changelog section as the release notes, and `just itch-mac` builds and pushes the Mac app from a Mac; `check` runs lint, tests and the audit on every pull request, tests on macOS and builds on Windows. The editor asks the GitHub releases API at most once a day (`updates.rs`, curl on a thread, off in the settings window) and, when a newer version is out, says so in the start window, the message line and About, with a link to what changed; it installs nothing. About's "check now" and `klad updates` check on demand (`updates::spawn`, a channel per check) and say why a check failed: no release published yet, no network, or a feed that does not parse.
+**Platforms and packaging (M7).** Folders follow each platform: settings in `~/Library/Application Support/klad`, `%APPDATA%\klad` or `$XDG_CONFIG_HOME/klad`; downloaded fonts in the same places' data folder; drawings in `~/Drawings` by default. The open panel is `NSOpenPanel` on macOS and `rfd` elsewhere (the XDG portal on Linux, the common dialog on Windows). The pen: macOS reads `NSEvent`; elsewhere a pen that the system reports as a touch with force (Windows pens through `WM_POINTER`) draws with that pressure (`pen::from_egui`), and anything else draws as a mouse at full pressure; Linux tablets report no pressure through `winit` yet. `packaging/` makes the downloads: `macos/app.sh` builds `klad.app` (both binaries, lipo'd when several targets are given, the fonts, licences and skill in `Resources`, `.klad` declared as a document package of type `com.indicode.klad.drawing` so Finder shows a drawing as one item and opens it in klad) and a disk image; `archive.sh <target>` builds a `tar.gz` or `zip` with both binaries, `fonts/`, the licences and `SKILL.md`, and an AppImage on Linux when `APPIMAGETOOL` is set; `icon/` draws the icon in klad and packs `klad.icns` and `klad.ico`. Builds use the `dist` profile (no debug info, stripped, thin LTO); the samples hash the same from it. The fonts are found next to the binary (`fonts/`), in `../Resources/fonts` or `../share/klad/fonts`. On macOS a drawing opened from Finder arrives as an `application:openURLs:` message, which klad adds to `NSObject` before the event loop starts so it reaches whatever delegate `winit` installs; the paths queue up (`opened.rs`) and the start window or editor opens the last. `klad install` puts `klad` on the terminal's path (a link in `/usr/local/bin` through an administrator prompt on macOS, `~/.local/bin` on Linux, the user's `PATH` on Windows); the editor's document menu runs it as a job. `klad skill` prints the agent skill compiled into the binary. Builds are sold on itch.io (later Steam) for macOS and Windows, and Linux is built from source: on a version tag the `release` workflow builds the Windows version and pushes it to itch.io with butler (never as a workflow artifact, which anyone could download from a public repository) and publishes the changelog section as the release notes, and `just itch-mac` builds and pushes the Mac app from a Mac; `check` runs lint, tests and the audit on every pull request, tests on macOS and builds on Windows. The editor asks the GitHub releases API at most once a day (`updates.rs`, curl on a thread, off in the settings window) and, when a newer version is out, says so in the start window, the message line and About, with a link to what changed; it installs nothing. About's "check now" and `klad updates` check on demand (`updates::spawn`, a channel per check) and say why a check failed: no release published yet, no network, or a feed that does not parse.
 
 ### Stack
 
@@ -90,7 +90,7 @@ The CLI render and the editor must agree. Rules for `core`, `brush` and `render`
 `docs/format.md` specifies everything below for other programs, byte by byte; this section is how klad itself uses it.
 
 ```
-art.draw/
+art.klad/
   doc.json                 canonical document (pretty JSON, stable key order)
   strokes/<layer>/<cel>.strokes   stroke and fill records per cel (binary, zstd)
   brushes/<id>.json        every brush the document uses, embedded on first use
@@ -101,11 +101,11 @@ art.draw/
 
 Committed: everything except `.cache/`. A fresh clone rebuilds the cache by replaying strokes and fills.
 
-### doc.json (format `draw-anything/9`)
+### doc.json (format `klad/1`)
 
 ```json
 {
-  "format": "draw-anything/7",
+  "format": "klad/1",
   "rev": 42,
   "canvas": { "width": 2048, "height": 2048, "background": "#f4efe6" },
   "timeline": { "fps": 12, "frames": 24, "origin": [1024, 1800],
@@ -154,7 +154,7 @@ Committed: everything except `.cache/`. A fresh clone rebuilds the cache by repl
 - **Masks.** `mask` is a paint layer kept under the layer it masks, with its own id, cels and stroke files (`strokes/<mask id>/<cel>.strokes`). Its alpha hides the layer: strokes and fills on the mask hide, the eraser shows the layer again, and an empty mask (or a frame without a mask cel) hides nothing. `visible: false` turns the mask off. A mask keeps opacity 1 and blend normal and has no mask or clip of its own. Paint, vector and group layers can have one. Internally a mask's layer path ends in `MASK`, so `locate`, `layer_at` and the history treat it as a layer.
 - **Clipping.** `clip: true` shows a layer only where its base, the nearest layer below it in the same list without `clip`, has alpha. The base and the clipped layers above it draw as one group: each clipped layer blends onto the base with its own blend and opacity (masked by the base's alpha), then the group composites onto what is below with the base's blend and opacity, as in Photoshop with "blend clipped layers as group". A hidden base hides its clipped layers; the lowest layer of a list draws unclipped.
 - **Lock alpha.** `lockAlpha: true` on a paint layer makes new strokes and fills land only where the layer already has alpha: they composite source-atop and leave alpha unchanged. The flag is recorded on each stroke and fill (stroke format 5), so turning it off later never changes what was drawn. An eraser stroke on a lock-alpha layer changes nothing (the editor refuses it).
-- `rev` increments on every write. Older formats are migrated on open (format, files, then the old files are removed); `/0` bundles from M0 upgrade this way. Format 2 (M2) changed no keys: it marks a bundle that embeds its brushes. `/1` bundles become `/2` by embedding the M1 version of every brush their strokes use (`crates/core/brushes/m1/`), so they render exactly as before. Format 3 (M2 batch 2) adds `palette` and marks a bundle whose paint cels may hold fills (stroke file version 4); `/2` bundles only change the format string, in memory until the next write. Format 4 (M2 batch 4) adds `mask`, `clip` and `lockAlpha`, and marks a bundle whose stroke files may be version 5; `/3` bundles only change the format string. Format 5 (M3 batch 3) adds a clip's `fps`, `timeline.origin` and `export.godot`; `/4` bundles only change the format string. Format 6 (M3 batch 4) adds a cel's `tween`; `/5` bundles only change the format string. History snapshots in older formats are migrated when undone.
+- `rev` increments on every write. `klad/1` (2026-11-06) is the first `.klad` format and starts clean: drawings from before it (`.draw` folders, `draw-anything/0` to `/9`, stroke files marked `DAST`) are refused on open with the reason and not converted (`migrate.rs` keeps the place where later migrations go). From here on a format change bumps the number and migrates older `.klad` drawings on open; history snapshots go through the same migration when undone.
 
 ### Edits
 
@@ -260,7 +260,7 @@ Every layer has `blend`, `opacity`, `visible`, `locked`, optional `mask`, `clip`
 
 Pen samples are quantised the moment they arrive, and the brush draws from the quantised values, so a replay matches what was drawn exactly. Before quantising, the editor passes each sample through:
 
-1. **The pen's calibration curve**: lightest and heaviest raw pressure and a gamma, kept per pen device in the user's settings (`~/Library/Application Support/draw-anything/settings.json`, `$KLAD_SETTINGS` overrides). A touching pen never records below one pressure step, so 0 keeps meaning "no reading".
+1. **The pen's calibration curve**: lightest and heaviest raw pressure and a gamma, kept per pen device in the user's settings (`~/Library/Application Support/klad/settings.json`, `$KLAD_SETTINGS` overrides). A touching pen never records below one pressure step, so 0 keeps meaning "no reading".
 2. **The brush's pressure smoothing**: an exponential average with a time constant in ms.
 3. **The brush's stabiliser**: the position is the average of the raw positions of the last N ms. At pen up the window drains, so the line catches up to where the pen lifted.
 
@@ -273,7 +273,7 @@ Stored pressure is therefore device independent and replays need none of these s
 | tilt x, y | 8 bit each (-1..1), delta |
 | time | ms since previous sample, varint |
 
-A stroke header holds the stroke id, brush id, colour, base size, opacity, flow, seed, author, the channel mask and, when set, the taper (in and out lengths in px; stroke format 3, M2), then (stroke format 5, M2 batch 4) the lock alpha bit in the channel mask and, when the mark has cuts, the cuts. Fills carry the same two in the high bits of their source byte; a stroke or fill without them encodes byte for byte as in format 4. Samples are stored per channel (all x deltas, then all y deltas, ...) so zstd compresses them well. One file per cel. Since stroke format 4 (M2 batch 2) every record starts with a kind byte, stroke or fill, and strokes and fills share one id counter per cel; files of versions 1 to 3 hold strokes only and still load.
+A stroke file starts with `KLST` and its version (1). A stroke header holds the stroke id, brush id, colour, base size, opacity, flow, seed, author, the channel mask and, when set, the taper (in and out lengths in px), the lock alpha bit in the channel mask and, when the mark has cuts, the cuts, and the second colour. Fills carry lock and cuts in the high bits of their source byte. Samples are stored per channel (all x deltas, then all y deltas, ...) so zstd compresses them well. One file per cel. Every record starts with a kind byte, stroke or fill, and strokes and fills share one id counter per cel. `docs/format.md` has the bytes.
 
 ### Size budget
 
@@ -322,7 +322,7 @@ A brush is JSON. The library is built in (`crates/core/brushes/library/`: `ink` 
 
 ```json
 {
-  "format": "draw-anything-brush/1",
+  "format": "klad-brush/1",
   "name": "Every key, with example values",
   "tip": { "round": { "hardness": 0.92 } },
   "spacing": 0.04,
@@ -366,7 +366,7 @@ Stateless: read the bundle, apply, write atomically, optionally render. Output i
 
 Every command with its options is in `docs/cli.md`, which `klad reference` (hidden) writes and a test keeps current. `klad-client` (`crates/client`) runs the commands from Rust: `Klad` finds the binary (`KLAD` or the path), `Drawing` applies op lines through `klad apply` and reads `ls`, `show`, `strokes`, `notes` and `selection` as JSON.
 
-An error is one line on stderr (`error: reading a.draw/doc.json: No such file or directory`) and exit code 1, whatever `RUST_BACKTRACE` says; a bug (a panic) is one line too, with where it happened and where to report it. `KLAD_BACKTRACE=1` prints the whole chain and the backtrace instead.
+An error is one line on stderr (`error: reading a.klad/doc.json: No such file or directory`) and exit code 1, whatever `RUST_BACKTRACE` says; a bug (a panic) is one line too, with where it happened and where to report it. `KLAD_BACKTRACE=1` prints the whole chain and the backtrace instead.
 
 | Command | Purpose |
 |---|---|
