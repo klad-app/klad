@@ -1071,7 +1071,7 @@ impl Cmd {
                 G::Layers,
                 T::None,
                 R::No,
-                "curves above the active layer, changing what is under it in its group; the inspector picks levels, hue, balance, a gradient map or a colour fill instead",
+                "curves above the active layer, changing what is under it in its group; layer settings switch it to levels, hue, balance, a gradient map or a colour fill",
             ),
             Cmd::NewVectorLayer => spec(
                 "layer.new-vector",
@@ -1624,7 +1624,7 @@ impl Cmd {
             ),
             Cmd::InspectorPane => spec(
                 "panel.inspector",
-                "inspector panel",
+                "layer settings panel",
                 icon::INSPECTOR,
                 G::Panels,
                 T::None,
@@ -2187,7 +2187,7 @@ impl Cmd {
             Cmd::HideDock => "Hide dock",
             Cmd::LayersPane => "Layers",
             Cmd::ToolPane => "Colour and brush",
-            Cmd::InspectorPane => "Inspector",
+            Cmd::InspectorPane => "Layer settings",
             Cmd::NotesPane => "Notes",
             Cmd::HistoryPane => "History",
             Cmd::Timeline => "Timeline",

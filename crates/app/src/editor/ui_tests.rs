@@ -212,6 +212,46 @@ fn the_strip_shrinks_then_folds_its_foot_when_the_window_is_short() {
 }
 
 #[test]
+fn settings_is_a_modal_with_a_sidebar_and_esc_closes_it_unless_a_key_is_being_set() {
+    let path = sample("settings-modal");
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    h.state_mut().invoke(Cmd::Settings).unwrap();
+    h.run_steps(3);
+    assert!(
+        h.query_by_label_contains("heaviest = my peak").is_some(),
+        "it opens on the pen"
+    );
+    assert!(h.query_by_label("reset every key").is_none(), "one section at a time");
+    h.get_by_label_contains("Keys").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("reset every key").is_some());
+    assert!(h.query_by_label_contains("heaviest = my peak").is_none());
+    h.get_by_label_contains("Updates").click();
+    h.run_steps(2);
+    assert!(h.query_by_label(&format!("klad {}", crate::VERSION)).is_some());
+    h.state_mut().settings_section = super::prefs::Section::Keys;
+    h.state_mut().capturing = Some(Cmd::Onion);
+    h.run_steps(1);
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    assert!(
+        h.state().windows.settings,
+        "Esc while a key is being set keeps the old key and the window"
+    );
+    assert!(h.state().capturing.is_none());
+    h.state_mut().tool = Tool::Fill;
+    h.key_press(Key::B);
+    h.run_steps(2);
+    assert_eq!(h.state().tool, Tool::Fill, "keys behind the modal stay still");
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    assert!(!h.state().windows.settings, "Esc closes it");
+    assert_eq!(Pane::Inspector.title(), "Layer settings");
+    assert_eq!(Cmd::InspectorPane.menu(), "Layer settings");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn every_control_is_pen_sized_and_has_a_hover_hint() {
     let path = sample("audit");
     let mut h = harness(editor(&path), vec2(1440.0, 900.0));
@@ -257,6 +297,11 @@ fn every_control_is_pen_sized_and_has_a_hover_hint() {
     h.state_mut().say(Tone::Error, "a test error with a close button");
     h.run_steps(3);
     checked += audit(&h, "windows open");
+    super::prefs::Section::ALL.into_iter().for_each(|section| {
+        h.state_mut().settings_section = section;
+        h.run_steps(2);
+        checked += audit(&h, section.name());
+    });
     {
         let ed = h.state_mut();
         ed.settings.layout.numbers = false;
@@ -617,6 +662,7 @@ fn panel_pictures() {
         h.state_mut().timeline.span = None;
     }
     h.state_mut().windows.settings = true;
+    h.state_mut().settings_section = super::prefs::Section::Keys;
     h.state_mut().key_filter = "layer".into();
     shot(&mut h, "9-settings-keys");
     h.state_mut().windows.settings = false;
@@ -1213,6 +1259,7 @@ fn a_key_changed_in_the_settings_runs_its_command_and_a_taken_key_is_refused() {
     let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
     activate(&mut h, "lines");
     h.state_mut().windows.settings = true;
+    h.state_mut().settings_section = super::prefs::Section::Keys;
     h.state_mut().key_filter = "duplicate the layer".into();
     h.run_steps(3);
     h.get_by_role_and_label(Role::Button, "change").click();

@@ -621,6 +621,7 @@ pub(crate) struct Editor {
     compare: Option<compare::Compared>,
     bones: bones::BoneTool,
     first: first::FirstSteps,
+    settings_section: prefs::Section,
     report_drawing: bool,
     strip_tools: [f32; 2],
     strip_foot: [f32; 2],
@@ -793,6 +794,7 @@ impl Editor {
             compare: None,
             bones: bones::BoneTool::default(),
             first: first::FirstSteps::default(),
+            settings_section: prefs::Section::default(),
             report_drawing: false,
             strip_tools: [570.0, 480.0],
             strip_foot: [186.0, 166.0],
@@ -868,6 +870,7 @@ impl Editor {
         let Some((key, modifiers)) = pressed else {
             return;
         };
+        ui.ctx().input_mut(|i| i.consume_key(modifiers, key));
         self.capturing = None;
         if key == egui::Key::Escape {
             self.say(Tone::Info, "the key stays as it was");
@@ -3995,57 +3998,80 @@ impl Editor {
         let mut curve = self.settings.curve(&key);
         let raw = self.readout.pressure;
         let peak = self.settings.peak(&key);
-        ui.label(if self.readout.device == 0 {
-            "pen: not identified yet (move it away from the tablet and back)".to_string()
-        } else {
-            format!("pen: {key}")
-        });
-        ui.add(egui::ProgressBar::new(raw).text(format!("pen {raw:.3}")));
-        ui.add(egui::ProgressBar::new(curve.apply(raw)).text(format!("recorded {:.3}", curve.apply(raw))));
-        ui.label(format!("heaviest press seen {peak:.3}"));
         let before = curve;
-        ui.add(egui::Slider::new(&mut curve.low, 0.0..=0.5).text("lightest"))
-            .hint("the pen's raw pressure that records as the lightest touch");
-        ui.add(egui::Slider::new(&mut curve.high, 0.05..=1.0).text("heaviest"))
-            .hint("the pen's raw pressure that records as full pressure");
-        ui.add(
-            egui::Slider::new(&mut curve.gamma, 0.3..=3.0)
-                .logarithmic(true)
-                .text("curve"),
-        )
-        .hint("below 1 light presses record heavier, above 1 lighter");
-        ui.horizontal_wrapped(|ui| {
-            if ui
-                .button("heaviest = my peak")
-                .hint("set heaviest to the hardest press seen with this pen")
-                .clicked()
-                && peak > 0.05
-            {
-                curve.high = peak;
-            }
-            if ui.button("reset").hint("the default curve").clicked() {
-                curve = PressureCurve::default();
-            }
-            if ui
-                .button("forget peak")
-                .hint("start measuring the hardest press again")
-                .clicked()
-                && let Some(pen) = self.settings.pens.get_mut(&key)
-            {
-                pen.peak = 0.0;
-                self.settings_dirty = true;
-            }
+        ui.spacing_mut().slider_width = 220.0;
+        prefs::grid(ui, "settings pen", |ui| {
+            prefs::row_label(ui, "Pen");
+            ui.label(if self.readout.device == 0 {
+                "not identified yet: move it away from the tablet and back".to_string()
+            } else {
+                key.clone()
+            });
+            ui.end_row();
+            prefs::row_label(ui, "Pressure");
+            ui.vertical(|ui| {
+                ui.add(
+                    egui::ProgressBar::new(raw)
+                        .desired_width(280.0)
+                        .text(format!("pen {raw:.3}")),
+                );
+                ui.add(
+                    egui::ProgressBar::new(curve.apply(raw))
+                        .desired_width(280.0)
+                        .text(format!("recorded {:.3}", curve.apply(raw))),
+                );
+                ui.label(egui::RichText::new(format!("heaviest press seen {peak:.3}")).color(crate::theme::WEAK));
+            });
+            ui.end_row();
+            prefs::row_label(ui, "Lightest");
+            ui.add(egui::Slider::new(&mut curve.low, 0.0..=0.5))
+                .hint("the pen's raw pressure that records as the lightest touch");
+            ui.end_row();
+            prefs::row_label(ui, "Heaviest");
+            ui.add(egui::Slider::new(&mut curve.high, 0.05..=1.0))
+                .hint("the pen's raw pressure that records as full pressure");
+            ui.end_row();
+            prefs::row_label(ui, "Curve");
+            ui.add(egui::Slider::new(&mut curve.gamma, 0.3..=3.0).logarithmic(true))
+                .hint("below 1 light presses record heavier, above 1 lighter");
+            ui.end_row();
+            prefs::row_label(ui, "");
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .button("heaviest = my peak")
+                    .hint("set heaviest to the hardest press seen with this pen")
+                    .clicked()
+                    && peak > 0.05
+                {
+                    curve.high = peak;
+                }
+                if ui.button("reset").hint("the default curve").clicked() {
+                    curve = PressureCurve::default();
+                }
+                if ui
+                    .button("forget peak")
+                    .hint("start measuring the hardest press again")
+                    .clicked()
+                    && let Some(pen) = self.settings.pens.get_mut(&key)
+                {
+                    pen.peak = 0.0;
+                    self.settings_dirty = true;
+                }
+            });
+            ui.end_row();
+            prefs::row_label(ui, "Response");
+            let (rect, _) = ui.allocate_exact_size(vec2(220.0, 120.0), Sense::hover());
+            let painter = ui.painter_at(rect);
+            painter.rect_filled(rect, 2.0, Color32::from_gray(28));
+            let at = |x: f32, y: f32| egui::pos2(rect.left() + x * rect.width(), rect.bottom() - y * rect.height());
+            let line: Vec<Pos2> = (0..=40)
+                .map(|i| i as f32 / 40.0)
+                .map(|x| at(x, curve.apply(x)))
+                .collect();
+            painter.add(egui::Shape::line(line, egui::Stroke::new(1.5, Color32::LIGHT_BLUE)));
+            painter.circle_filled(at(raw, curve.apply(raw)), 3.5, Color32::YELLOW);
+            ui.end_row();
         });
-        let (rect, _) = ui.allocate_exact_size(vec2(160.0, 90.0), Sense::hover());
-        let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 2.0, Color32::from_gray(28));
-        let at = |x: f32, y: f32| egui::pos2(rect.left() + x * rect.width(), rect.bottom() - y * rect.height());
-        let line: Vec<Pos2> = (0..=40)
-            .map(|i| i as f32 / 40.0)
-            .map(|x| at(x, curve.apply(x)))
-            .collect();
-        painter.add(egui::Shape::line(line, egui::Stroke::new(1.5, Color32::LIGHT_BLUE)));
-        painter.circle_filled(at(raw, curve.apply(raw)), 3.5, Color32::YELLOW);
         if curve != before {
             curve.high = curve.high.max(curve.low + 0.05);
             self.settings.set_curve(&key, curve);

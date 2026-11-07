@@ -1,80 +1,232 @@
 use super::Editor;
 use crate::commands::Cmd;
+use crate::layout::Layout;
 use crate::messages::Tone;
-use crate::theme::{self, Hint};
-use egui::{RichText, vec2};
+use crate::theme::{self, Hint, icon};
+use egui::{Align, RichText, vec2};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum Section {
+    #[default]
+    Pen,
+    Drawing,
+    Keys,
+    Layout,
+    Updates,
+}
+
+impl Section {
+    pub(super) const ALL: [Section; 5] = [
+        Section::Pen,
+        Section::Drawing,
+        Section::Keys,
+        Section::Layout,
+        Section::Updates,
+    ];
+
+    pub(super) fn name(self) -> &'static str {
+        match self {
+            Section::Pen => "Pen",
+            Section::Drawing => "Drawing",
+            Section::Keys => "Keys",
+            Section::Layout => "Layout",
+            Section::Updates => "Updates",
+        }
+    }
+
+    fn icon(self) -> &'static str {
+        match self {
+            Section::Pen => icon::PEN,
+            Section::Drawing => icon::BRUSH,
+            Section::Keys => icon::KEYBOARD,
+            Section::Layout => icon::SIDEBAR,
+            Section::Updates => icon::DOWNLOAD,
+        }
+    }
+
+    fn about(self) -> &'static str {
+        match self {
+            Section::Pen => {
+                "How hard you press, and the pressure your strokes record. Press on the tablet and watch the bars."
+            }
+            Section::Drawing => "What every new window starts with.",
+            Section::Keys => "The key for every command. Change one by pressing the new key.",
+            Section::Layout => "The size of everything around the canvas, and the panels.",
+            Section::Updates => "klad asks its release page for a newer version. It never installs one by itself.",
+        }
+    }
+}
+
+const SIDEBAR: f32 = 160.0;
+const LABELS: f32 = 150.0;
+
+pub(super) fn grid(ui: &mut egui::Ui, id: &str, rows: impl FnOnce(&mut egui::Ui)) {
+    egui::Grid::new(id)
+        .num_columns(2)
+        .min_col_width(LABELS)
+        .spacing(vec2(16.0, 10.0))
+        .show(ui, rows);
+}
+
+pub(super) fn row_label(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    ui.label(RichText::new(text).color(theme::WEAK))
+}
 
 impl Editor {
+    pub(super) fn settings_modal(&mut self, ctx: &egui::Context) {
+        if !self.windows.settings {
+            return;
+        }
+        let height = (ctx.content_rect().height() - 160.0).clamp(280.0, 520.0);
+        let mut close = false;
+        let modal = egui::Modal::new(egui::Id::unique("settings")).show(ctx, |ui| {
+            ui.set_width(760.0);
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(format!("{} Settings", icon::SETTINGS))
+                        .strong()
+                        .size(theme::HEADING),
+                );
+                ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                    close = ui
+                        .add(egui::Button::new(RichText::new(icon::CLOSE).size(theme::ICON)).frame(false))
+                        .hint("close the settings (Esc)")
+                        .clicked();
+                });
+            });
+            ui.separator();
+            ui.horizontal_top(|ui| {
+                ui.allocate_ui_with_layout(
+                    vec2(SIDEBAR, height),
+                    egui::Layout::top_down_justified(Align::Min),
+                    |ui| {
+                        ui.set_min_size(vec2(SIDEBAR, height));
+                        Section::ALL.into_iter().for_each(|section| {
+                            let text = RichText::new(format!("{}  {}", section.icon(), section.name()));
+                            if ui
+                                .add(
+                                    egui::Button::selectable(self.settings_section == section, text)
+                                        .min_size(vec2(SIDEBAR, 32.0)),
+                                )
+                                .hint(section.about())
+                                .clicked()
+                            {
+                                self.settings_section = section;
+                            }
+                        });
+                    },
+                );
+                ui.separator();
+                let width = ui.available_width();
+                ui.allocate_ui_with_layout(vec2(width, height), egui::Layout::top_down(Align::Min), |ui| {
+                    ui.set_min_size(vec2(width, height));
+                    let section = self.settings_section;
+                    ui.label(RichText::new(section.name()).strong().size(theme::HEADING));
+                    ui.add(egui::Label::new(RichText::new(section.about()).color(theme::WEAK)).wrap());
+                    ui.add_space(12.0);
+                    match section {
+                        Section::Keys => self.keys_section(ui),
+                        _ => {
+                            egui::ScrollArea::vertical()
+                                .id_salt(("settings", section.name()))
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| match section {
+                                    Section::Pen => self.pen_panel(ui),
+                                    Section::Drawing => self.defaults_section(ui),
+                                    Section::Layout => self.layout_section(ui),
+                                    _ => self.updates_section(ui),
+                                });
+                        }
+                    }
+                });
+            });
+        });
+        if close || (modal.should_close() && self.capturing.is_none()) {
+            self.windows.settings = false;
+        }
+    }
+
     pub(super) fn defaults_section(&mut self, ui: &mut egui::Ui) {
         let mut changed = false;
-        let d = &mut self.settings.defaults;
-        ui.horizontal_wrapped(|ui| {
-            let now = match (&d.brush, d.size) {
-                (Some(b), Some(s)) => format!("new windows start with {b} at {s:.1} px"),
-                _ => "new windows start with the ink brush at 12 px".to_string(),
-            };
-            ui.label(now);
-        });
         let (brush, size) = (self.brush.clone(), self.size);
-        ui.horizontal_wrapped(|ui| {
-            if ui
-                .button("use the current brush and size")
-                .hint("the brush and size you have now become the ones every window starts with")
-                .clicked()
-            {
-                d.brush = Some(brush.clone());
-                d.size = Some(size);
-                changed = true;
-            }
-            if ui
-                .add_enabled(d.brush.is_some(), egui::Button::new("forget them"))
-                .hint("start with the ink brush at 12 px again")
-                .clicked()
-            {
-                d.brush = None;
-                d.size = None;
-                changed = true;
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.label("shift K exposes on");
-            [1, 2, 3].into_iter().for_each(|n| {
-                if ui
-                    .selectable_value(&mut d.exposure, n, format!("{n}s"))
-                    .hint("how many frames each new drawing holds when shift K makes it")
-                    .clicked()
-                {
+        let d = &mut self.settings.defaults;
+        grid(ui, "settings drawing", |ui| {
+            row_label(ui, "Brush");
+            ui.vertical(|ui| {
+                ui.label(match (&d.brush, d.size) {
+                    (Some(b), Some(s)) => format!("{b} at {s:.1} px"),
+                    _ => "the ink brush at 12 px".to_string(),
+                });
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .button("use the current brush and size")
+                        .hint("the brush and size you have now become the ones every window starts with")
+                        .clicked()
+                    {
+                        d.brush = Some(brush.clone());
+                        d.size = Some(size);
+                        changed = true;
+                    }
+                    if ui
+                        .add_enabled(d.brush.is_some(), egui::Button::new("forget them"))
+                        .hint("start with the ink brush at 12 px again")
+                        .clicked()
+                    {
+                        d.brush = None;
+                        d.size = None;
+                        changed = true;
+                    }
+                });
+            });
+            ui.end_row();
+            row_label(ui, "New drawings hold");
+            ui.horizontal(|ui| {
+                [1, 2, 3].into_iter().for_each(|n| {
+                    if ui
+                        .selectable_value(
+                            &mut d.exposure,
+                            n,
+                            format!("{n} frame{}", if n == 1 { "" } else { "s" }),
+                        )
+                        .hint("how many frames each new drawing holds when shift K makes it")
+                        .clicked()
+                    {
+                        changed = true;
+                    }
+                });
+            });
+            ui.end_row();
+            row_label(ui, "Onion skin");
+            ui.horizontal(|ui| {
+                ui.label("before");
+                changed |= ui
+                    .add(egui::DragValue::new(&mut d.onion_before).range(0..=8))
+                    .hint("drawings shown before, in red, when onion skin is on")
+                    .changed();
+                ui.label("after");
+                changed |= ui
+                    .add(egui::DragValue::new(&mut d.onion_after).range(0..=8))
+                    .hint("drawings shown after, in green")
+                    .changed();
+                ui.label("opacity");
+                changed |= ui
+                    .add(egui::DragValue::new(&mut d.onion_opacity).range(0.05..=1.0).speed(0.01))
+                    .hint("how strong the nearest ghost is")
+                    .changed();
+            });
+            ui.end_row();
+            row_label(ui, "Around the canvas");
+            ui.horizontal(|ui| {
+                changed |= ui
+                    .color_edit_button_srgb(&mut d.surround)
+                    .hint("the grey around the canvas; neutral keeps colours true")
+                    .changed();
+                if ui.button("neutral grey").hint("back to the neutral grey").clicked() {
+                    d.surround = theme::SURROUND;
                     changed = true;
                 }
             });
-        });
-        ui.horizontal(|ui| {
-            ui.label("onion before");
-            changed |= ui
-                .add(egui::DragValue::new(&mut d.onion_before).range(0..=8))
-                .hint("drawings shown before, in red, when onion skin is on")
-                .changed();
-            ui.label("after");
-            changed |= ui
-                .add(egui::DragValue::new(&mut d.onion_after).range(0..=8))
-                .hint("drawings shown after, in green")
-                .changed();
-            ui.label("opacity");
-            changed |= ui
-                .add(egui::DragValue::new(&mut d.onion_opacity).range(0.05..=1.0).speed(0.01))
-                .hint("how strong the nearest ghost is")
-                .changed();
-        });
-        ui.horizontal(|ui| {
-            ui.label("around the canvas");
-            changed |= ui
-                .color_edit_button_srgb(&mut d.surround)
-                .hint("the grey around the canvas; neutral keeps colours true")
-                .changed();
-            if ui.button("neutral grey").hint("back to the neutral grey").clicked() {
-                d.surround = theme::SURROUND;
-                changed = true;
-            }
+            ui.end_row();
         });
         if changed {
             self.settings_dirty = true;
@@ -82,10 +234,11 @@ impl Editor {
         }
     }
 
-    pub(super) fn scale_section(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            let label = ui.label("UI scale");
+    fn layout_section(&mut self, ui: &mut egui::Ui) {
+        grid(ui, "settings layout", |ui| {
+            let label = row_label(ui, "Interface size");
             let mut scale = self.settings.ui_scale;
+            ui.spacing_mut().slider_width = 220.0;
             let r = ui
                 .add(egui::Slider::new(&mut scale, 0.75..=2.0).step_by(0.05))
                 .labelled_by(label.id)
@@ -94,16 +247,48 @@ impl Editor {
                 self.settings.ui_scale = scale;
                 self.settings_dirty = true;
             }
+            ui.end_row();
+            row_label(ui, "Panels");
+            ui.vertical(|ui| {
+                self.command_check(ui, Cmd::Timeline, "timeline");
+                self.command_check(ui, Cmd::Numbers, "numbers");
+                if ui
+                    .button("reset the layout")
+                    .hint("every panel back where it starts, at its first size")
+                    .clicked()
+                {
+                    self.settings.layout = Layout::default();
+                    self.settings_dirty = true;
+                }
+            });
+            ui.end_row();
         });
-        let mut check = self.settings.check_updates;
-        if ui
-            .checkbox(&mut check, "check for a new version once a day")
-            .hint("asks the release page on GitHub at most once a day; nothing is installed without you")
-            .changed()
-        {
-            self.settings.check_updates = check;
-            self.settings_dirty = true;
-        }
+        ui.add_space(16.0);
+        ui.label(
+            RichText::new("Tab hides the panels, shift Tab the dock, cmd K finds any command.").color(theme::WEAK),
+        );
+    }
+
+    fn updates_section(&mut self, ui: &mut egui::Ui) {
+        grid(ui, "settings updates", |ui| {
+            row_label(ui, "This version");
+            ui.label(format!("klad {}", crate::VERSION));
+            ui.end_row();
+            row_label(ui, "Every day");
+            let mut check = self.settings.check_updates;
+            if ui
+                .checkbox(&mut check, "check for a new version once a day")
+                .hint("asks the release page on GitHub at most once a day; nothing is installed without you")
+                .changed()
+            {
+                self.settings.check_updates = check;
+                self.settings_dirty = true;
+            }
+            ui.end_row();
+            row_label(ui, "Now");
+            ui.vertical(|ui| self.update_rows(ui));
+            ui.end_row();
+        });
     }
 
     pub(super) fn keys_section(&mut self, ui: &mut egui::Ui) {
@@ -144,7 +329,8 @@ impl Editor {
         let mut action: Option<(Cmd, &str)> = None;
         egui::ScrollArea::vertical()
             .id_salt("keys list")
-            .max_height(320.0)
+            .max_height(ui.available_height())
+            .auto_shrink([false, false])
             .show(ui, |ui| {
                 shown.iter().for_each(|cmd| {
                     let spec = cmd.spec();

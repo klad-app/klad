@@ -433,10 +433,7 @@ impl Editor {
         });
     }
 
-    fn about_panel(&mut self, ui: &mut egui::Ui) {
-        static LINES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
-        let lines = LINES.get_or_init(|| klad_core::notices::NOTICES.lines().collect());
-        ui.label(RichText::new(format!("klad {}", crate::VERSION)).strong());
+    pub(super) fn update_rows(&mut self, ui: &mut egui::Ui) {
         if let Some(checked) = self.update_check.as_ref().and_then(|c| c.try_recv().ok()) {
             self.update_check = None;
             self.update_said = Some(crate::updates::outcome(&checked));
@@ -470,6 +467,13 @@ impl Editor {
                 ui.label(RichText::new(said).color(theme::WEAK));
             }
         });
+    }
+
+    fn about_panel(&mut self, ui: &mut egui::Ui) {
+        static LINES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+        let lines = LINES.get_or_init(|| klad_core::notices::NOTICES.lines().collect());
+        ui.label(RichText::new(format!("klad {}", crate::VERSION)).strong());
+        self.update_rows(ui);
         ui.label("Source-available licence, copyright Indicode BV. Built on the open source work listed below; klad licences prints the same.");
         ui.add_space(6.0);
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
@@ -786,17 +790,7 @@ impl Editor {
                 self.settings_dirty = true;
             }
         }
-        if self.windows.settings {
-            let mut open = true;
-            Self::window(
-                ctx,
-                "settings",
-                (format!("{} Settings", icon::SETTINGS), settings_at),
-                &mut open,
-                |ui| self.settings_panel(ui),
-            );
-            self.windows.settings &= open;
-        }
+        self.settings_modal(ctx);
         if self.windows.brush {
             let mut open = true;
             Self::window(
@@ -1026,34 +1020,6 @@ impl Editor {
             self.command_check(ui, Cmd::Spin, "spin (fps test)");
             self.command_button(ui, Cmd::ResetNumbers, Some("reset"));
         });
-    }
-
-    fn settings_panel(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Pen calibration");
-        self.pen_panel(ui);
-        ui.separator();
-        ui.heading("Defaults");
-        self.defaults_section(ui);
-        ui.separator();
-        ui.heading("Keys");
-        self.keys_section(ui);
-        ui.separator();
-        ui.heading("Layout");
-        self.scale_section(ui);
-        ui.separator();
-        ui.horizontal_wrapped(|ui| {
-            self.command_check(ui, Cmd::Numbers, "numbers panel");
-            self.command_check(ui, Cmd::Timeline, "timeline");
-            if ui
-                .button("reset the layout")
-                .hint("every panel back where it starts, at its first size")
-                .clicked()
-            {
-                self.settings.layout = Layout::default();
-                self.settings_dirty = true;
-            }
-        });
-        ui.small("Tab hides the panels, shift Tab the dock, cmd K finds any command.");
     }
 
     fn log_panel(&mut self, ui: &mut egui::Ui) {

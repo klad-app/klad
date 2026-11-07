@@ -26,7 +26,7 @@ impl Pane {
         match self {
             Pane::Tool => "Colour and brush",
             Pane::Layers => "Layers",
-            Pane::Inspector => "Inspector",
+            Pane::Inspector => "Layer settings",
             Pane::Notes => "Notes for the agent",
             Pane::History => "History",
         }

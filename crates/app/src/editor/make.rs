@@ -216,7 +216,7 @@ impl Editor {
         self.selection = Some(made);
         self.say(
             Tone::Done,
-            format!("{id} is now inside a {kind}: the inspector sets how many copies and where they go"),
+            format!("{id} is now inside a {kind}: layer settings set how many copies and where they go"),
         );
         Ok(())
     }
@@ -577,7 +577,7 @@ impl Editor {
         self.say(
             Tone::Done,
             format!(
-                "{name} placed on a new layer: V moves and scales it, the inspector fades it or makes it a reference"
+                "{name} placed on a new layer: V moves and scales it, layer settings fade it or make it a reference"
             ),
         );
         Ok(())

@@ -848,9 +848,11 @@ impl Editor {
                 .collect()
         });
         let mut done = BTreeSet::new();
+        let modal = self.windows.settings;
         pressed
             .into_iter()
             .filter_map(|(cmd, repeat, shift)| cmd.map(|c| (c, repeat, shift)))
+            .filter(|(cmd, _, _)| !modal || *cmd == Cmd::Settings)
             .try_for_each(|(cmd, repeat, shift)| {
                 self.key_shift = shift;
                 let skip = repeat

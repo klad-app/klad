@@ -189,7 +189,7 @@ impl Editor {
             Err(_) => {
                 self.say(
                     Tone::Refused,
-                    format!("the font {file} is not in the drawing; pick another in the inspector"),
+                    format!("the font {file} is not in the drawing; pick another in layer settings"),
                 );
                 None
             }
@@ -374,7 +374,7 @@ impl Editor {
                 self.used_colour();
                 self.say(
                     Tone::Done,
-                    "text added: T and a click on it types more, V moves it, the inspector changes its font",
+                    "text added: T and a click on it types more, V moves it, layer settings change its font",
                 );
             }
         }
