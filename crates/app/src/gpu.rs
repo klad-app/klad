@@ -336,6 +336,11 @@ pub struct Outbox {
 }
 
 impl Outbox {
+    #[cfg(test)]
+    pub fn tile(&self, index: usize) -> Option<&[f16]> {
+        self.tiles.get(&index).map(Vec::as_slice)
+    }
+
     pub fn send(&mut self, tiles: Vec<(usize, Vec<f16>)>, frames: Vec<FrameImage>, drops: Vec<u64>) {
         self.tiles.extend(tiles);
         drops.into_iter().for_each(|key| {

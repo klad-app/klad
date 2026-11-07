@@ -1438,6 +1438,7 @@ impl Editor {
                         &mut state.shown,
                         done.changed.intersection(&composed).copied().collect(),
                     );
+                    state.shown.extend(earlier.difference(&composed));
                     let current = state.finish.as_ref().map_or(state.snap.rev, |f| f.rev) == rev;
                     let last = state.finish.as_ref().is_some_and(|f| f.ops == done.ops);
                     if current {

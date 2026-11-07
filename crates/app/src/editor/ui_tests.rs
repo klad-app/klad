@@ -1115,6 +1115,100 @@ fn a_shape_previews_only_its_tiles_while_dragged_and_two_drags_in_a_row_both_lan
 }
 
 #[test]
+fn after_a_drag_with_a_pan_every_tile_on_the_canvas_shows_the_committed_picture() {
+    let dir = std::env::temp_dir().join(format!("draw-ui-panned-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut doc = Document::new(2048, 1024);
+    doc.canvas.background = Some("#ffffff".into());
+    let mut noisy = Layer::group(
+        "g",
+        "g",
+        vec![Layer::vector(
+            "v",
+            "shapes",
+            "cv",
+            vec![
+                klad_core::doc::Node::new(
+                    "n1",
+                    klad_core::doc::Shape::Rect {
+                        x: 40.0,
+                        y: 40.0,
+                        w: 200.0,
+                        h: 150.0,
+                        radius: 0.0,
+                    },
+                )
+                .filled("#a04030"),
+            ],
+        )],
+    );
+    noisy.effects = vec![klad_core::look::Effect::Noise(klad_core::look::Noise::default())];
+    doc.layers = vec![noisy];
+    Bundle::create(&dir, doc).unwrap();
+    let mut h = harness(editor(&dir), vec2(1440.0, 900.0));
+    settle(&mut h, |ed| ed.canvas_current() && ed.dirty.is_empty());
+    activate(&mut h, "shapes");
+    h.state_mut().tool = Tool::Select;
+    let mut view = h.state().view.unwrap();
+    view.zoom = 3.0;
+    view.center = egui::Vec2::new(200.0, 150.0);
+    h.state_mut().view = Some(view);
+    h.run_steps(2);
+    let rect = h.state().canvas_rect;
+    let at = |h: &Harness<'static, Editor>, x: f32, y: f32| {
+        rect.min + h.state().view.unwrap().to_screen(egui::Vec2::new(x, y), rect.size())
+    };
+    let start = at(&h, 140.0, 115.0);
+    h.hover_at(start);
+    h.run_steps(1);
+    h.drag_at(start);
+    h.run_steps(1);
+    (1..=6).for_each(|i| {
+        h.hover_at(start + vec2(30.0 * i as f32, 0.0));
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        h.run_steps(1);
+    });
+    settle(&mut h, |ed| ed.preview.as_ref().is_some_and(|p| p.job.is_none()));
+    let mut panned = h.state().view.unwrap();
+    panned.center = egui::Vec2::new(1700.0, 800.0);
+    h.state_mut().view = Some(panned);
+    let end = start + vec2(400.0, 300.0);
+    (1..=6).for_each(|i| {
+        h.hover_at(start + vec2(180.0, 0.0) + (end - start - vec2(180.0, 0.0)) * (i as f32 / 6.0));
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        h.run_steps(1);
+    });
+    h.drop_at(end);
+    h.run_steps(1);
+    settle(&mut h, |ed| {
+        ed.preview.is_none() && ed.drag.is_none() && ed.dirty.is_empty()
+    });
+    let ed = h.state();
+    let outbox = crate::stats::lock(&ed.outbox);
+    let tiles = ed.scene.all_tiles();
+    let committed = ed.scene.compose(&tiles, None).unwrap();
+    committed.iter().for_each(|(i, want)| {
+        let shown = outbox
+            .tile(*i)
+            .unwrap_or_else(|| panic!("tile {i} never reached the canvas"));
+        let worst = shown
+            .iter()
+            .zip(want)
+            .map(|(a, b)| (a.to_f32() - b.to_f32()).abs())
+            .fold(0.0f32, f32::max);
+        assert!(
+            worst <= 2.0 / 255.0,
+            "tile {i} shows {:.1}/255 off the committed picture",
+            worst * 255.0
+        );
+    });
+    drop(outbox);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn a_tap_that_wobbles_selects_and_a_drag_past_three_points_moves() {
     let path = sample("tap");
     let mut h = harness(editor(&path), vec2(1440.0, 900.0));
