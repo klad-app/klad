@@ -43,6 +43,8 @@ Early, and open for testing. What works today:
 
 ![The start window](docs/images/start-window.png)
 
+The guides in `docs/guide/` show how to paint, select, fill, animate, rig and export in the editor, one recipe at a time, starting with [Getting started](docs/guide/getting-started.md).
+
 ## Try it
 
 - macOS and Windows: signed installers will be sold on itch.io and Steam, under the same licence as the source (see [Licence](#licence)). Until then, build klad from source as below.

@@ -3878,3 +3878,85 @@ fn check_now_in_about_says_what_the_releases_feed_holds() {
     );
     let _ = std::fs::remove_file(&feed);
 }
+
+type Moment = fn(&mut Editor) -> anyhow::Result<()>;
+
+#[test]
+#[ignore]
+fn guide_pictures() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let samples = std::env::var("KLAD_SAMPLES").map_or_else(|_| root.join("samples"), PathBuf::from);
+    let out = root.join("scratch/ui/guide");
+    std::fs::create_dir_all(&out).unwrap();
+    let moments: [(&str, &str, &str, Moment); 5] = [
+        ("painting", "lemons/lemons.klad", "lemon-a", |ed| {
+            ed.invoke(Cmd::Brush)?;
+            ed.pick("oil");
+            Ok(())
+        }),
+        ("animation", "creature/creature.klad", "lines", |ed| {
+            ed.go_to(16)?;
+            ed.invoke(Cmd::Onion)
+        }),
+        ("bones", "rig/rig.klad", "figure", |ed| ed.invoke(Cmd::BoneTool)),
+        ("brush", "lemons/lemons.klad", "lemon-a", |ed| {
+            ed.pick("oil");
+            ed.invoke(Cmd::BrushWindow)
+        }),
+        ("selection", "lantern/lantern.klad", "lines", |ed| {
+            ed.tool = Tool::Strokes;
+            ed.select_all_strokes();
+            Ok(())
+        }),
+    ];
+    moments.iter().for_each(|(name, sample, layer, moment)| {
+        let source = std::fs::canonicalize(samples.join(sample))
+            .expect("run just samples first, or point KLAD_SAMPLES at built samples");
+        let dir = std::env::temp_dir().join(format!("draw-guide-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(source.file_name().unwrap());
+        let copied = std::process::Command::new("cp")
+            .arg("-R")
+            .arg(&source)
+            .arg(&path)
+            .status()
+            .unwrap();
+        assert!(copied.success());
+        let gpu = egui_kittest::wgpu::create_render_state(
+            egui_kittest::wgpu::default_wgpu_setup(),
+            egui_wgpu::RendererOptions::PREDICTABLE,
+        );
+        let mut settings = Settings::default();
+        settings.layout.timeline_height = 210.0;
+        let mut first = crate::home::Home::with(settings, None, Some(gpu.clone()));
+        first.open(&egui::Context::default(), &path).unwrap();
+        let mut h = Harness::builder()
+            .with_size(vec2(1600.0, 1000.0))
+            .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(gpu))
+            .build_ui_state(|ui, home: &mut crate::home::Home| home.frame(ui), first);
+        let settle = |h: &mut Harness<'static, crate::home::Home>| {
+            let started = std::time::Instant::now();
+            while !h.state().editor.as_ref().unwrap().canvas_current() && started.elapsed().as_secs() < 180 {
+                h.step();
+                h.render().unwrap();
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            h.state_mut().editor.as_mut().unwrap().redraw_canvas();
+            (0..8).for_each(|_| {
+                h.step();
+                h.render().unwrap();
+            });
+        };
+        settle(&mut h);
+        let ed = h.state_mut().editor.as_mut().unwrap();
+        let id = ed.scene.bundle.doc.find_layer(layer).unwrap().id.clone();
+        if let Some(klad_core::doc::Loc::Layer(at)) = ed.scene.bundle.doc.locate(&id) {
+            ed.activate(at).unwrap();
+        }
+        moment(ed).unwrap();
+        settle(&mut h);
+        h.render().unwrap().save(out.join(format!("{name}.png"))).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+    });
+}
