@@ -172,6 +172,52 @@ fn adjustments_change_what_is_under_them_in_their_group_or_clip() {
 }
 
 #[test]
+fn tiles_skip_empty_clip_stacks_and_groups_and_still_match_the_whole() {
+    let mut doc = Document::new(900, 700);
+    doc.canvas.background = Some("#f2ede1".into());
+    let clipped = |layer: Layer, blend: Blend| Layer {
+        clip: true,
+        blend,
+        ..layer
+    };
+    let part = |id: &str, cx: f32, cy: f32| {
+        vec![
+            disc(id, cx, cy, 60.0, "#6fd6cf"),
+            clipped(
+                rect(&format!("{id}s"), cx, cy - 80.0, 90.0, 160.0, "#7090a0"),
+                Blend::Multiply,
+            ),
+            clipped(
+                rect(&format!("{id}r"), cx - 70.0, cy - 70.0, 40.0, 140.0, "#ffffff"),
+                Blend::Normal,
+            ),
+        ]
+    };
+    let mut glowing = disc("glow", 228.0, 600.0, 14.0, "#ffd080");
+    glowing.effects = effects(r#"[{"glow":{"radius":30,"strength":1.2}}]"#);
+    let mut faded = Layer::group("faded", "faded", part("p3", 640.0, 560.0));
+    faded.opacity = 0.7;
+    let curve = Adjustment::Curves(Curves {
+        points: vec![[0.0, 0.0], [0.5, 0.35], [1.0, 1.0]],
+        ..Curves::default()
+    });
+    let mut scene = Layer::group(
+        "scene",
+        "scene",
+        [
+            vec![rect("sky", 100.0, 100.0, 380.0, 260.0, "#173b52")],
+            part("p1", 180.0, 170.0),
+            part("p2", 420.0, 300.0),
+            vec![glowing, faded, Layer::adjust("dim", "dim", curve)],
+        ]
+        .concat(),
+    );
+    scene.effects = effects(r#"[{"noise":{"amount":0.08,"size":2,"seed":3,"mono":true}}]"#);
+    doc.layers = vec![scene, rect("type", 560.0, 60.0, 280.0, 90.0, "#0e2b3c")];
+    assert_eq!(worst(&full(&doc), &tiled(&doc)), 0, "tiles differ from the whole");
+}
+
+#[test]
 fn displacement_follows_another_layer() {
     let mut doc = Document::new(400, 200);
     let mut map = rect("l9", 0.0, 0.0, 400.0, 200.0, "#ff8080");

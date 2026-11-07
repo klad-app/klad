@@ -304,8 +304,57 @@ fn draw_onions<'a>(canvas: &Canvas, layers: impl Iterator<Item = &'a Layer>, ctx
         .try_for_each(|r| draw_raster(canvas, r, ctx))
 }
 
+fn occupied_in(raster: &Raster, window: IRect) -> bool {
+    tiles_in(raster.cols, raster.rows, window)
+        .into_iter()
+        .any(|i| raster.at(i).is_some())
+}
+
+fn ghosted(layer: &Layer, ctx: Ctx, window: IRect) -> bool {
+    ctx.onions
+        .and_then(|o| o.get(&layer.id))
+        .is_some_and(|r| occupied_in(r, window))
+}
+
+fn may_draw(layer: &Layer, ctx: Ctx, window: IRect) -> bool {
+    if !ctx.shows(layer) {
+        return false;
+    }
+    if layer.keyed(ctx.frame).1.is_some() || layer.reads_under() {
+        return true;
+    }
+    let reach = effects::margin(&ctx.effects(layer), 1.0);
+    let window = window.with_outset((reach, reach));
+    ghosted(layer, ctx, window)
+        || match &layer.content {
+            LayerContent::Group { children } => children.iter().any(|c| may_draw(c, ctx, window)),
+            LayerContent::Adjust { .. } => true,
+            LayerContent::Paint { .. } | LayerContent::Vector { .. } => {
+                layer.content_at(ctx.frame).is_some_and(|cel| {
+                    let swapped = ctx.swap.filter(|s| s.cel == cel.id).is_some_and(|s| {
+                        tiles_in(s.cols, s.rows, window)
+                            .into_iter()
+                            .any(|i| matches!(s.tiles.get(&i), Some(Some(_))))
+                    });
+                    swapped
+                        || ctx
+                            .rasters
+                            .get(&cel.id)
+                            .map_or(layer.kind() == Kind::Vector, |r| occupied_in(r, window))
+                })
+            }
+        }
+}
+
 fn draw_clipped(canvas: &Canvas, base: &Layer, clipped: &[&Layer], ctx: Ctx) -> Result<()> {
     if !ctx.shows(base) {
+        return Ok(());
+    }
+    if ctx.detail == 1.0
+        && let Some(area) = ctx.area
+        && !may_draw(base, ctx, area)
+        && clipped.iter().all(|l| !ghosted(l, ctx, area))
+    {
         return Ok(());
     }
     if base.reads_under() {
