@@ -4,7 +4,7 @@
 
 The first builds, and klad's licences.
 
-- Drawings are `.klad` folders in a fresh format, `klad/1`. Drawings from before (`.draw` folders) do not open and are not converted.
+- Drawings are `.klad` folders in a fresh format, `klad/2` (drawings from the first builds, `klad/1`, open as they are). Drawings from before (`.draw` folders) do not open and are not converted.
 - klad is source-available, not open source: the app is under the PolyForm Internal Use License 1.0.0, with permission for personal use, to propose contributions and to share the drawings you make (`LICENSE`); bought builds are under the same terms. The file format (`docs/format.md`), the command reference (`docs/cli.md`), the agent skill and the new `klad-client` crate are MIT (`LICENSE-MIT`), so any program or agent can read, write and make klad drawings. Contributions come in under a contributor licence agreement (`CLA.md`).
 - `klad-client`: run klad from Rust, apply edits as JSON ops, read drawings back as JSON, render them.
 - Builds for macOS (an app, Apple silicon and Intel in one) and Windows, sold on itch.io; Linux from source. Each has the `klad` command line, the editor, the fonts, the licences and the agent skill.
@@ -18,6 +18,8 @@ The first builds, and klad's licences.
 - Help > Report a problem shows the report before it is copied (version, system, the last messages and lines of klad's log, with your home folder hidden) and can zip the drawing to attach; `klad report` prints the same. Errors and crashes are kept in a small log for it.
 - Messages say what happened and what to do next; when klad itself goes wrong it says so, and that your work is saved.
 - Bones: a layer or group gets a skeleton (`klad bone`, the bone tool J), weights from the bones or painted (`klad weights`), and poses that bend the drawing (`klad pose`, pose mode); in-betweens of two poses turn the bones. The bone tool lists the skeleton, picks a bone in every mode, and moves ends, joints and whole bones with their children (`klad bone --move` with `--by`).
+- Bones are drawn as chains: letting go of a bone starts the next one from its end, each click adds one, shift fans them from one joint, Esc ends the chain (`klad bone --chain`).
+- IK: a bone and its parent become a limb (or a bone alone an aim) that reaches for a target, bending the way it is drawn, with softness so knees do not snap straight (`klad ik`, the bone tool's options). In pose mode, drag a limb's end and the limb follows; move the whole by a root bone's head and planted feet stay where they are (`klad pose --target`, `--mix`); in-betweens keep them planted. Exports to Godot carry the solved turns.
 - A first start: the start window welcomes, offers first steps (draw a shape, fill it, hand the drawing to an agent, ticked off as you go; Help > First steps opens them again) and six sample drawings that open as copies (`klad samples` lists and copies them).
 - Picking strokes takes what you see: the topmost layer that shows paint under the pen and the mark covering the point, on all layers or this layer only (the S and V options).
 - A selected shape takes the colour as its fill or its outline (the shape's bar, Edit > Shape).

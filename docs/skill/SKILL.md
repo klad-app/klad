@@ -223,10 +223,13 @@ Draw a character once and pose it, instead of redrawing every frame. Put its pai
 ```bash
 klad bone art.klad figure --add body --head 400,590 --tail 400,360
 klad bone art.klad figure --add upper --parent body --head 452,392 --tail 560,360    # a child starts at its parent's end, or anywhere
+klad bone art.klad figure --chain thigh,shin,foot --through '390,590 395,700 385,810 425,815' --parent body   # each the child of the one before
+klad ik art.klad figure --add shin                           # a limb: shin and thigh reach for a target, bending as drawn
 klad weights art.klad figure --auto                          # blend from the bones
 klad weights art.klad figure --bone head --part head         # a part held rigidly by one bone
 klad weights art.klad figure --bone upper --set '470,380,20,1 500,370,16,0.8'    # soft dabs: x,y,radius,weight
 klad pose art.klad figure --from 0 --to 4 --bone upper=-35 --bone fore=-55 --hold 4
+klad pose art.klad figure --from 0 --to 8 --target shin=405,800 --root 30,-6        # the foot stays on 405,800 while the body moves
 klad inbetween art.klad --layers colour,lines --from 0 --to 4      # poses of one rest drawing in-between on the bones
 klad render art.klad --frame 4 --overlay bones                      # or --overlay weights:upper
 klad key art.klad lantern --frame 0 y=0 --ease in-out; klad key art.klad lantern --frame 12 y=-18
@@ -234,7 +237,8 @@ klad export art.klad --godot-rig game/art --godot-scene game/art
 ```
 
 - Angles are degrees from the rest pose, positive turning clockwise on screen; a child follows its parent. Pose from the rest drawing (`--from` its frame); posing a frame again re-poses it.
-- Fix a skeleton in place: `--move upper --tail 570,350` moves an end (children that start at that tail come along), `--move upper --by 10,0` moves a bone with all its children, `--reparent hand --parent fore` changes a parent. The user does the same in the bone tool: the skeleton list picks a bone, its ends and middle drag, alt drag from an end draws a child.
+- Fix a skeleton in place: `--move upper --tail 570,350` moves an end (children that start at that tail come along), `--move upper --by 10,0` moves a bone with all its children, `--reparent hand --parent fore` changes a parent. The user does the same in the bone tool: the skeleton list picks a bone, its ends and middle drag, a drag on empty canvas draws a chain (each click adds the next bone; Esc ends it), alt drag from an end starts a chain from there.
+- IK poses a limb by where its end goes: `klad ik --add shin` makes the shin and its parent a limb (`--chain 1` an aim: the bone alone points at the target), `--bend clockwise|counterclockwise|flip` picks the side the joint bends to (by default as drawn), `--softness 8` keeps a knee from snapping straight. Each pose then sets targets (`--target shin=x,y`, canvas px): the limb turns so the shin's tail lands there, and the target ignores `--root`, so a planted foot stays planted while the body bobs; `--mix shin=0.5` blends between the bones' own turns and the target. In-betweens move targets in straight lines, so plant feet with the same target in both keys and swing free limbs with turns instead. `klad bones` lists the constraints, each pose's targets and its solved turns.
 - Automatic weights bend joints over a short stretch; hold rigid things (head, hands, props) with `--part`, or a stiff limb with dabs at 1. Look at `--overlay weights:<bone>` before posing.
 - Keys move whole layers, groups and shapes (`x`, `y`, `rotate`, `sx`, `sy`, `scale`, `opacity`) between frames with an ease (`linear`, `in`, `out`, `in-out`, `step`, or a curve `x1,y1,x2,y2`); a segment follows its first key's ease. A lantern that floats, a glow that pulses, a far plane that drifts: no drawing per frame.
 - Godot: `--godot` exports frames (always works), `--godot-rig` a Skeleton2D with Polygon2D parts and an AnimationPlayer per clip (only frames that are poses of the rest drawing; the others are listed), `--godot-scene` one Parallax2D per top-level layer scrolling by its depth. `samples/rig` builds all of it.

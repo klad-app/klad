@@ -524,6 +524,7 @@ pub fn summarize(ops: &[Op]) -> String {
             Op::Foliage(spec) => format!("foliage on {}", spec.layer),
             Op::PaintOver(spec) => format!("paint over on {}", spec.layer),
             Op::Bone(spec) => format!("bones on {}", spec.layer),
+            Op::Ik(spec) => format!("IK on {}", spec.layer),
             Op::Key(spec) => format!("keys on {} at frame {}", spec.id, spec.frame),
             Op::Weights(spec) => format!("weights on {}", spec.layer),
             Op::Pose(spec) => format!("pose on {} at frame {}", spec.layer, spec.to),

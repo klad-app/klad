@@ -26,7 +26,7 @@ mod sheet;
 mod sprites;
 
 use agent::{Look, Output};
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::{Args, Parser, Subcommand};
 use klad_brush::BrushSet;
 use klad_core::bundle::{Blank, Bundle};
@@ -35,8 +35,8 @@ use klad_core::fill::{EXPAND, FillSource, TOLERANCE};
 use klad_core::history::Stack;
 use klad_core::markedit::{LassoAction, MarkTransform};
 use klad_core::ops::{
-    BoneSpec, ClipEdit, CopySpec, CopyTarget, FillSpec, FoliageSpec, GrassSpec, HatchSpec, InbetweenSpec, InkSpec,
-    LassoSpec, LightSpec, Op, PaintOverSpec, PaintSpec, PaletteEdit, Place, PoseSpec, ScatterSpec, StrokeSpec,
+    BoneSpec, ClipEdit, CopySpec, CopyTarget, FillSpec, FoliageSpec, GrassSpec, HatchSpec, IkSpec, InbetweenSpec,
+    InkSpec, LassoSpec, LightSpec, Op, PaintOverSpec, PaintSpec, PaletteEdit, Place, PoseSpec, ScatterSpec, StrokeSpec,
     WeightsSpec,
 };
 use klad_core::retime::{Retime, RetimeSpec};
@@ -45,6 +45,7 @@ use klad_core::timing::{CelAction, CelSpec, FrameSpec};
 use klad_core::tween::{Match, Spacing, Unpaired};
 use klad_render::{View, compose};
 use marks::{fill_json, hex8, stroke_json};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -1163,7 +1164,7 @@ enum Command {
     },
     #[command(
         about = "Add, remove, rename, move or reparent a bone of a layer's or group's skeleton",
-        long_about = "Bones go on a paint layer or a group (a group's skeleton poses every paint layer in it together). A bone has a name, an optional parent, a head and a tail in canvas px; a child usually starts where its parent ends. Removing a bone removes its children. Moving a tail takes the heads of the children that start there along; --by moves a bone with all its children.\n\n  klad bone art.klad body --add hip --head 400,500 --tail 400,420\n  klad bone art.klad body --add thigh --parent hip --head 400,500 --tail 410,620\n  klad bone art.klad body --rename thigh --as femur\n  klad bone art.klad body --move femur --tail 420,630\n  klad bone art.klad body --move femur --by 12,-4\n  klad bone art.klad body --reparent femur --parent pelvis\n  klad bone art.klad body --rm femur\n\nAlso a bone op: {\"op\":\"bone\",\"layer\":\"body\",\"add\":\"thigh\",\"parent\":\"hip\",\"head\":[400,500],\"tail\":[410,620]}."
+        long_about = "Bones go on a paint layer or a group (a group's skeleton poses every paint layer in it together). A bone has a name, an optional parent, a head and a tail in canvas px; a child usually starts where its parent ends. --chain adds several bones at once, each the child of the one before and starting where it ends, through one more point than bones (the editor's bone tool draws chains the same way). Removing a bone removes its children (and the IK on them, its poses keeping their look). Moving a tail takes the heads of the children that start there along; --by moves a bone with all its children.\n\n  klad bone art.klad body --add hip --head 400,500 --tail 400,420\n  klad bone art.klad body --add thigh --parent hip --head 400,500 --tail 410,620\n  klad bone art.klad body --chain thigh,shin,foot --through '400,500 410,620 405,740 440,745' --parent hip\n  klad bone art.klad body --rename thigh --as femur\n  klad bone art.klad body --move femur --tail 420,630\n  klad bone art.klad body --move femur --by 12,-4\n  klad bone art.klad body --reparent femur --parent pelvis\n  klad bone art.klad body --rm femur\n\nAlso a bone op: {\"op\":\"bone\",\"layer\":\"body\",\"add\":\"thigh\",\"parent\":\"hip\",\"head\":[400,500],\"tail\":[410,620]}, or {\"op\":\"bone\",\"layer\":\"body\",\"chain\":[\"thigh\",\"shin\"],\"through\":[[400,500],[410,620],[405,740]],\"parent\":\"hip\"}."
     )]
     Bone {
         bundle: PathBuf,
@@ -1188,6 +1189,42 @@ enum Command {
         tail: Option<[f32; 2]>,
         #[arg(long, value_parser = parse_pair, allow_hyphen_values = true, help = "dx,dy in px: with --move, the bone and its children")]
         by: Option<[f32; 2]>,
+        #[arg(
+            long,
+            help = "names of a chain of new bones, comma separated: each the child of the one before"
+        )]
+        chain: Option<String>,
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "the chain's points, 'x,y x,y ...': one more than its bones"
+        )]
+        through: Option<String>,
+        #[command(flatten)]
+        flags: EditFlags,
+    },
+    #[command(
+        about = "Add, change or remove an IK on a bone: a limb (the bone and its parent) or an aim reaches for a target set per pose",
+        long_about = "An IK turns bones so the end of a limb reaches a target, instead of turning each bone by hand. A limb (--chain 2, when the bone has a parent) turns the bone and its parent so the bone's tail lands on the target, the joint between them bending --bend clockwise or counterclockwise on screen (by default the way it bends in the rest drawing; flip turns it over); out of reach it points straight at the target. An aim (--chain 1) turns the bone to point at the target. --softness (px) eases the limb into full stretch so a knee does not snap straight: it starts slowing that far before full reach and is straight that far past it. Targets are set per pose (klad pose --target), in canvas px, and stay put when the root moves, so a foot stays planted while the body moves; a pose without a target for an IK leaves that limb to its turns. IKs are solved parent first: a foot's aim after its leg's limb.\n\n  klad ik art.klad body --add shin\n  klad ik art.klad body --add shin --chain 2 --bend counterclockwise --softness 8\n  klad ik art.klad body --add foot --chain 1\n  klad ik art.klad body --set shin --bend flip\n  klad ik art.klad body --rm shin\n\nAlso an ik op: {\"op\":\"ik\",\"layer\":\"body\",\"add\":\"shin\",\"chain\":2,\"bend\":\"clockwise\",\"softness\":8}. Removing an IK (or its bone) keeps every pose as it looks, as turns."
+    )]
+    Ik {
+        bundle: PathBuf,
+        layer: String,
+        #[arg(long)]
+        add: Option<String>,
+        #[arg(long)]
+        set: Option<String>,
+        #[arg(long)]
+        rm: Option<String>,
+        #[arg(long, help = "2: a limb, the bone and its parent; 1: an aim, the bone alone")]
+        chain: Option<u8>,
+        #[arg(long, value_parser = ["clockwise", "counterclockwise", "flip"], help = "which way the limb's joint bends on screen")]
+        bend: Option<String>,
+        #[arg(
+            long,
+            help = "px: how far before full reach the limb starts to slow, so it does not snap straight"
+        )]
+        softness: Option<f32>,
         #[command(flatten)]
         flags: EditFlags,
     },
@@ -1233,7 +1270,7 @@ enum Command {
     },
     #[command(
         about = "Pose a drawing with its bones: a new drawing at --to, bent from the rest drawing at --from",
-        long_about = "A pose is a turn per bone (degrees from its rest angle, children follow their parent) and a move of the whole (--root). Every paint layer under the skeleton gets a new drawing at --to: each stroke point and fill moves by its bones' weighted blend, the same way Godot's Skeleton2D bends a Polygon2D. The pose is kept on the drawing; posing that frame again re-poses it from the same rest drawing, and posing from a posed drawing starts from its rest drawing. klad inbetween between two poses of one rest drawing turns the bones instead of matching strokes.\n\n  klad pose art.klad body --from 0 --to 4 --bone thigh=25 --bone shin=-40 --root 0,6\n\nAlso a pose op: {\"op\":\"pose\",\"layer\":\"body\",\"from\":0,\"to\":4,\"bones\":{\"thigh\":25,\"shin\":-40},\"root\":[0,6]}."
+        long_about = "A pose is a turn per bone (degrees from its rest angle, children follow their parent), a move of the whole (--root), and a target per IK (--target, canvas px; see klad ik): the IK's limb turns so its end reaches the target, and the target stays put when the root moves. --mix blends an IK's limb from its turns (0) to reaching the target (1, the default). Every paint layer under the skeleton gets a new drawing at --to: each stroke point and fill moves by its bones' weighted blend, the same way Godot's Skeleton2D bends a Polygon2D. The pose is kept on the drawing; posing that frame again re-poses it from the same rest drawing, and posing from a posed drawing starts from its rest drawing. klad inbetween between two poses of one rest drawing turns the bones instead of matching strokes, and moves the targets in straight lines, so a foot planted in both keys stays planted.\n\n  klad pose art.klad body --from 0 --to 4 --bone thigh=25 --bone shin=-40 --root 0,6\n  klad pose art.klad body --from 0 --to 8 --target shin=410,740 --root 20,6\n  klad pose art.klad body --from 0 --to 12 --target shin=430,700 --mix shin=0.5 --bone shin=-20\n\nAlso a pose op: {\"op\":\"pose\",\"layer\":\"body\",\"from\":0,\"to\":4,\"bones\":{\"thigh\":25,\"shin\":-40},\"root\":[0,6],\"ik\":{\"shin\":{\"target\":[410,740],\"mix\":1}}}."
     )]
     Pose {
         bundle: PathBuf,
@@ -1246,6 +1283,18 @@ enum Command {
         bones: Vec<String>,
         #[arg(long, value_parser = parse_pair, allow_hyphen_values = true, default_value = "0,0")]
         root: [f32; 2],
+        #[arg(
+            long = "target",
+            help = "bone=x,y: where the end of that bone's IK reaches, in canvas px; repeat for more",
+            allow_hyphen_values = true
+        )]
+        targets: Vec<String>,
+        #[arg(
+            long = "mix",
+            help = "bone=0..1: how far that IK pulls its limb from the turns to the target (default 1)",
+            allow_hyphen_values = true
+        )]
+        mixes: Vec<String>,
         #[arg(long)]
         hold: Option<u32>,
         #[command(flatten)]
@@ -2843,8 +2892,22 @@ fn run() -> Result<()> {
             head,
             tail,
             by,
+            chain,
+            through,
             flags,
         } => {
+            let through = through
+                .map(|t| {
+                    t.split_whitespace()
+                        .map(parse_pair)
+                        .collect::<Result<Vec<_>>>()
+                        .context("--through takes points 'x,y x,y ...'")
+                })
+                .transpose()?;
+            let chain = chain.map(|c| c.split(',').map(|n| n.trim().to_string()).collect::<Vec<_>>());
+            if chain.is_some() != through.is_some() {
+                bail!("--chain names the bones and --through gives their points: give both");
+            }
             let spec = BoneSpec {
                 layer: layer_id(&bundle, &layer)?,
                 add,
@@ -2857,8 +2920,34 @@ fn run() -> Result<()> {
                 head,
                 tail,
                 by,
+                chain,
+                through,
             };
             agent::edit(&bundle, &[Op::Bone(spec)], &output(&flags, 0))?;
+        }
+        Command::Ik {
+            bundle,
+            layer,
+            add,
+            set,
+            rm,
+            chain,
+            bend,
+            softness,
+            flags,
+        } => {
+            let spec = IkSpec {
+                layer: layer_id(&bundle, &layer)?,
+                add,
+                set,
+                rm,
+                chain,
+                bend: bend
+                    .map(|b| serde_json::from_value(serde_json::Value::String(b)))
+                    .transpose()?,
+                softness,
+            };
+            agent::edit(&bundle, &[Op::Ik(spec)], &output(&flags, 0))?;
         }
         Command::Bones { bundle, json } => rig::list(&Bundle::open(&bundle)?, json)?,
         Command::Solo { bundle, layer, flags } => {
@@ -2945,6 +3034,8 @@ fn run() -> Result<()> {
             to,
             bones,
             root,
+            targets,
+            mixes,
             hold,
             flags,
         } => {
@@ -2957,12 +3048,42 @@ fn run() -> Result<()> {
                     Ok((name.trim().to_string(), deg.trim().parse()?))
                 })
                 .collect::<Result<_>>()?;
+            let mut ik: BTreeMap<String, klad_core::rig::Reach> = targets
+                .iter()
+                .map(|t| -> Result<(String, klad_core::rig::Reach)> {
+                    let (name, at) = t
+                        .split_once('=')
+                        .ok_or_else(|| anyhow!("--target {t:?} is not bone=x,y"))?;
+                    Ok((
+                        name.trim().to_string(),
+                        klad_core::rig::Reach {
+                            target: parse_pair(at.trim())?,
+                            mix: 1.0,
+                        },
+                    ))
+                })
+                .collect::<Result<_>>()?;
+            mixes.iter().try_for_each(|m| -> Result<()> {
+                let (name, value) = m
+                    .split_once('=')
+                    .ok_or_else(|| anyhow!("--mix {m:?} is not bone=0..1"))?;
+                let value: f32 = value.trim().parse()?;
+                if !(0.0..=1.0).contains(&value) {
+                    bail!("--mix {m:?}: the mix goes from 0 (its turns) to 1 (the target)");
+                }
+                match ik.get_mut(name.trim()) {
+                    Some(r) => r.mix = value,
+                    None => bail!("--mix {}: give its --target {}=x,y too", name.trim(), name.trim()),
+                }
+                Ok(())
+            })?;
             let spec = PoseSpec {
                 layer: layer_id(&bundle, &layer)?,
                 from,
                 to,
                 bones,
                 root,
+                ik,
                 hold,
                 resolved: None,
             };

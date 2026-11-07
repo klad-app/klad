@@ -2,7 +2,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use klad_core::bundle::Bundle;
 use klad_core::doc::{Document, Layer};
 use klad_core::ops::{Applied, Op, PoseSpec, PosedCel, apply, rig_owner};
-use klad_core::rig::{Bone, CELL, Pose, Rig, Weights, family, painted, tips, weights_for};
+use klad_core::rig::{Bone, CELL, Ik, Pose, Rig, Weights, applied, between, family, painted, tips, weights_for};
 use klad_core::stroke::Mark;
 use klad_render::overlay::Heat;
 use serde_json::json;
@@ -27,11 +27,32 @@ pub fn bones_at(bundle: &Bundle, frame: u32) -> Result<Vec<klad_render::overlay:
             owner
                 .bones
                 .iter()
-                .zip(tips(&owner.bones, &pose))
+                .zip(tips(&owner.bones, &owner.ik, &pose))
                 .map(|(b, (h, t))| (b.name.clone(), h, t))
                 .collect::<Vec<_>>()
         })
         .collect())
+}
+
+pub fn targets_at(bundle: &Bundle, frame: u32) -> Vec<([f32; 2], [f32; 2])> {
+    owners(&bundle.doc)
+        .into_iter()
+        .flat_map(|owner| {
+            let pose = pose_at(owner, frame);
+            let shown = tips(&owner.bones, &owner.ik, &pose);
+            pose.ik
+                .iter()
+                .filter_map(|(bone, reach)| {
+                    let i = owner.bones.iter().position(|b| &b.name == bone)?;
+                    owner
+                        .ik
+                        .iter()
+                        .any(|c| &c.bone == bone)
+                        .then_some((shown[i].1, reach.target))
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 pub fn heat(bundle: &Bundle, bone: &str) -> Result<Heat> {
@@ -68,6 +89,19 @@ fn posed(bundle: &Bundle, doc: &mut Document, spec: &PoseSpec, weights: &Weights
     if let Some(b) = spec.bones.keys().find(|b| !owner.bones.iter().any(|o| &o.name == *b)) {
         bail!("no bone {b} on {}", owner.name);
     }
+    if let Some(b) = spec.ik.keys().find(|b| !owner.ik.iter().any(|c| &c.bone == *b)) {
+        bail!(
+            "no IK on {b} on {}: add one first with klad ik --add {b}{}",
+            owner.name,
+            match owner.ik.is_empty() {
+                true => String::new(),
+                false => format!(
+                    " (the IKs end on {})",
+                    owner.ik.iter().map(|c| c.bone.as_str()).collect::<Vec<_>>().join(", ")
+                ),
+            }
+        );
+    }
     let canvas = (doc.canvas.width, doc.canvas.height);
     let layers: Vec<Layer> = painted(&owner).into_iter().cloned().collect();
     layers
@@ -78,9 +112,10 @@ fn posed(bundle: &Bundle, doc: &mut Document, spec: &PoseSpec, weights: &Weights
                 rest: rest.clone(),
                 angles: spec.bones.clone(),
                 root: spec.root,
+                ik: spec.ik.clone(),
             };
             let marks = bundle.read_marks(&layer.id, &rest)?;
-            let made = Rig::new(&owner.bones, weights, &pose).pose(&marks, canvas);
+            let made = Rig::new(&owner.bones, &owner.ik, weights, &pose).pose(&marks, canvas);
             let here = layer.cels().iter().find(|c| c.frame == spec.to);
             let (cel, fresh) = match here {
                 Some(c) if c.pose.as_ref().is_some_and(|p| p.rest == rest) => (c.id.clone(), false),
@@ -171,7 +206,20 @@ pub fn list(bundle: &Bundle, as_json: bool) -> Result<()> {
                     "tail": b.tail,
                     "weights": weights.as_ref().is_some_and(|w| w.maps.contains_key(&b.name)),
                 })).collect::<Vec<_>>(),
-                "poses": painted(o).iter().flat_map(|l| l.cels().iter().filter_map(|c| c.pose.as_ref().map(|p| json!({"cel": c.id, "frame": c.frame, "rest": p.rest, "angles": p.angles, "root": p.root})))).collect::<Vec<_>>(),
+                "ik": o.ik.iter().map(|c| json!({
+                    "bone": c.bone,
+                    "chain": c.chain,
+                    "bend": c.bend,
+                    "softness": c.softness,
+                })).collect::<Vec<_>>(),
+                "poses": painted(o).iter().flat_map(|l| l.cels().iter().filter_map(|c| c.pose.as_ref().map(|p| {
+                    let mut entry = json!({"cel": c.id, "frame": c.frame, "rest": p.rest, "angles": p.angles, "root": p.root});
+                    if !p.ik.is_empty() {
+                        entry["ik"] = json!(p.ik);
+                        entry["solved"] = json!(applied(&o.bones, &o.ik, p));
+                    }
+                    entry
+                }))).collect::<Vec<_>>(),
             })
         })
         .collect();
@@ -198,13 +246,49 @@ pub fn list(bundle: &Bundle, as_json: bool) -> Result<()> {
                 if painted { "" } else { "  no weights yet" }
             );
         });
+        o.ik.iter().for_each(|c: &Ik| {
+            let parent = o.bones.iter().find(|b| b.name == c.bone).and_then(|b| b.parent.clone());
+            match (c.chain, parent) {
+                (2, Some(p)) => println!(
+                    "  ik {}: a limb with {p}, bending {}{}",
+                    c.bone,
+                    serde_json::to_value(c.bend)
+                        .ok()
+                        .and_then(|v| v.as_str().map(str::to_string))
+                        .unwrap_or_default(),
+                    match c.softness > 0.0 {
+                        true => format!(", softness {} px", c.softness),
+                        false => String::new(),
+                    }
+                ),
+                _ => println!("  ik {}: an aim", c.bone),
+            }
+        });
         painted(o).iter().for_each(|l| {
             l.cels()
                 .iter()
                 .filter_map(|c| c.pose.as_ref().map(|p| (c, p)))
                 .for_each(|(c, p)| {
                     let angles: Vec<String> = p.angles.iter().map(|(k, v)| format!("{k}={v}")).collect();
-                    println!("  pose {} at {} from {}: {}", c.id, c.frame, p.rest, angles.join(" "));
+                    let root = match p.root == [0.0, 0.0] {
+                        true => String::new(),
+                        false => format!(" root {},{}", p.root[0], p.root[1]),
+                    };
+                    let targets: Vec<String> =
+                        p.ik.iter()
+                            .map(|(k, r)| match r.mix == 1.0 {
+                                true => format!(" target {k}={},{}", r.target[0], r.target[1]),
+                                false => format!(" target {k}={},{} mix {}", r.target[0], r.target[1], r.mix),
+                            })
+                            .collect();
+                    println!(
+                        "  pose {} at {} from {}: {}{root}{}",
+                        c.id,
+                        c.frame,
+                        p.rest,
+                        angles.join(" "),
+                        targets.concat()
+                    );
                 })
         });
     });
@@ -214,6 +298,7 @@ pub fn list(bundle: &Bundle, as_json: bool) -> Result<()> {
 #[derive(Clone)]
 pub struct Posed {
     bones: Vec<Bone>,
+    ik: Vec<Ik>,
     weights: Weights,
     a: Pose,
     b: Pose,
@@ -222,9 +307,9 @@ pub struct Posed {
 
 impl Posed {
     pub fn at(&self, t: f32, canvas: (u32, u32)) -> (Vec<Mark>, Pose) {
-        let pose = self.a.mix(&self.b, t);
+        let pose = between(&self.bones, &self.ik, &self.a, &self.b, t);
         (
-            Rig::new(&self.bones, &self.weights, &pose).pose(&self.rest, canvas),
+            Rig::new(&self.bones, &self.ik, &self.weights, &pose).pose(&self.rest, canvas),
             pose,
         )
     }
@@ -262,6 +347,7 @@ pub fn posed_pair(bundle: &Bundle, layer: &str, a: &str, b: &str) -> Result<Opti
     };
     Ok(Some(Posed {
         bones: owner.bones.clone(),
+        ik: owner.ik.clone(),
         weights,
         a: pa.clone(),
         b: pb,
@@ -308,6 +394,114 @@ mod tests {
         let marks = bundle.read_marks("l1", &cel).unwrap();
         let s = marks.iter().find_map(Mark::as_stroke).unwrap();
         s.samples[s.samples.len() - 1].pos()
+    }
+
+    #[test]
+    fn an_ik_limb_reaches_its_target_and_stays_planted_through_the_in_betweens() {
+        let dir = arm("ik");
+        edit(
+            &dir,
+            r#"{"op":"bone","layer":"l1","chain":["upper","fore","hand"],"through":[[100,200],[300,200],[480,200],[520,200]]}
+{"op":"ik","layer":"l1","add":"fore"}
+{"op":"weights","layer":"l1","auto":true}"#,
+        )
+        .unwrap();
+        let bundle = Bundle::open(&dir).unwrap();
+        let owner = bundle.doc.layer("l1").unwrap().clone();
+        assert_eq!(owner.ik.len(), 1);
+        assert_eq!(owner.bones[1].parent.as_deref(), Some("upper"));
+        assert!(
+            edit(
+                &dir,
+                r#"{"op":"pose","layer":"l1","from":0,"to":4,"ik":{"hand":{"target":[1,1]}}}"#
+            )
+            .is_err(),
+            "a target needs an IK on that bone"
+        );
+        let target = [400.0, 300.0];
+        edit(
+            &dir,
+            r#"{"op":"pose","layer":"l1","from":0,"to":4,"ik":{"fore":{"target":[400,300]}}}
+{"op":"pose","layer":"l1","from":0,"to":8,"root":[40,-30],"ik":{"fore":{"target":[400,300]}}}"#,
+        )
+        .unwrap();
+        edit(&dir, r#"{"op":"inbetween","layers":["l1"],"from":4,"to":8}"#).unwrap();
+        let bundle = Bundle::open(&dir).unwrap();
+        (4..=8).for_each(|f| {
+            let end = end_of(&bundle, f);
+            assert!(
+                (end.0 - target[0]).hypot(end.1 - target[1]) < 4.0,
+                "frame {f}: the forearm's end stays on its target while the shoulder moves: {end:?}"
+            );
+        });
+        let mid = bundle
+            .doc
+            .layer("l1")
+            .unwrap()
+            .content_at(6)
+            .unwrap()
+            .pose
+            .clone()
+            .unwrap();
+        assert_eq!(mid.ik["fore"].target, target, "the in-between keeps the target");
+        assert!((mid.root[0] - 20.0).abs() < 1e-3 && (mid.root[1] + 15.0).abs() < 1e-3);
+        let shown = targets_at(&bundle, 6);
+        assert_eq!(shown.len(), 1);
+        assert!((shown[0].0[0] - target[0]).hypot(shown[0].0[1] - target[1]) < 0.01 && shown[0].1 == target);
+        let solved = applied(
+            &owner.bones,
+            &owner.ik,
+            bundle
+                .doc
+                .layer("l1")
+                .unwrap()
+                .content_at(4)
+                .unwrap()
+                .pose
+                .as_ref()
+                .unwrap(),
+        );
+        let out = dir.join("godot");
+        crate::scene::rig(&dir, Some(out.clone())).unwrap();
+        let scene = std::fs::read_dir(&out)
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .find(|p| p.extension().is_some_and(|x| x == "tscn"))
+            .unwrap();
+        let text = std::fs::read_to_string(scene).unwrap();
+        let track = text
+            .split("tracks/")
+            .find(|t| t.contains("Skeleton2D/upper:rotation\""))
+            .unwrap();
+        let block = text[text.find(track).unwrap()..].to_string();
+        let values: Vec<f32> = block
+            .split("\"values\": [")
+            .nth(1)
+            .unwrap()
+            .split(']')
+            .next()
+            .unwrap()
+            .split(',')
+            .map(|v| v.trim().parse().unwrap())
+            .collect();
+        let wanted = solved["upper"] * (std::f32::consts::PI / 180.0);
+        assert!(
+            values.iter().any(|v| (v - wanted).abs() < 1e-3),
+            "the rig exports the solved turn {wanted}: {values:?}"
+        );
+        edit(&dir, r#"{"op":"ik","layer":"l1","rm":"fore"}"#).unwrap();
+        let bundle = Bundle::open(&dir).unwrap();
+        let kept = bundle
+            .doc
+            .layer("l1")
+            .unwrap()
+            .content_at(4)
+            .unwrap()
+            .pose
+            .clone()
+            .unwrap();
+        assert!(kept.ik.is_empty() && (kept.angles["upper"] - solved["upper"]).abs() < 1e-4);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

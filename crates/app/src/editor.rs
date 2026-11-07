@@ -2932,6 +2932,7 @@ impl Editor {
         self.keep_typing_focus(ui, &response)?;
         self.typing_keys(ui)?;
         self.pen_keys(ui)?;
+        self.bone_keys(ui);
         self.command_keys(ui)?;
         let ctx = ui.ctx().clone();
         let was_focused = self.focused;
@@ -2947,6 +2948,9 @@ impl Editor {
             .admit(holding, events)
             .into_iter()
             .try_for_each(|e| self.on_pen(&ctx, e, rect, was_focused))?;
+        if self.tool == Tool::Bone && response.secondary_clicked() {
+            self.end_chain();
+        }
         if self.tool == Tool::Note
             && response.secondary_clicked()
             && let (Some(p), Some(view)) = (response.interact_pointer_pos(), self.view)

@@ -10,6 +10,11 @@ pub fn migrate(value: Value) -> Result<Value> {
         .to_string();
     match format.as_str() {
         FORMAT => Ok(value),
+        "klad/1" => {
+            let mut value = value;
+            value["format"] = Value::from(FORMAT);
+            Ok(value)
+        }
         old if old.starts_with("draw-anything/") => bail!(
             "a drawing in the old .draw format ({old}); this klad opens {FORMAT} drawings (.klad) only and does not convert old ones"
         ),
@@ -28,7 +33,15 @@ mod tests {
         let current = json!({"format": FORMAT, "rev": 1});
         assert_eq!(migrate(current.clone()).unwrap(), current);
         let old = migrate(json!({"format": "draw-anything/9"})).unwrap_err().to_string();
-        assert!(old.contains("old .draw format") && old.contains("klad/1"), "{old}");
+        assert!(old.contains("old .draw format") && old.contains(FORMAT), "{old}");
+        let first = json!({"format": "klad/1", "rev": 3, "layers": [{"id": "l1", "bones": [{"name": "hip", "head": [0, 0], "tail": [0, 9]}]}]});
+        let mut moved = first.clone();
+        moved["format"] = json!(FORMAT);
+        assert_eq!(
+            migrate(first).unwrap(),
+            moved,
+            "a klad/1 drawing opens as it was, in the new format"
+        );
         assert!(
             migrate(json!({"format": "klad/7"}))
                 .unwrap_err()

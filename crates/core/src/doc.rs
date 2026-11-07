@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const FORMAT: &str = "klad/1";
+pub const FORMAT: &str = "klad/2";
 pub const MAX_SIZE: u32 = 16384;
 pub const MASK: usize = usize::MAX;
 
@@ -147,6 +147,8 @@ pub struct Layer {
     pub reference: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bones: Vec<crate::rig::Bone>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ik: Vec<crate::rig::Ik>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub keys: crate::keys::Keys,
 }
@@ -521,6 +523,7 @@ impl Layer {
             depth: None,
             reference: false,
             bones: Vec::new(),
+            ik: Vec::new(),
             keys: BTreeMap::new(),
         }
     }
@@ -1224,6 +1227,13 @@ impl Document {
                 && (!depth.is_finite() || depth < 0.0)
             {
                 bail!("layer {}: depth {depth} must be 0 or more", layer.id);
+            }
+            if !layer.bones.is_empty() || !layer.ik.is_empty() {
+                if !matches!(layer.kind(), Kind::Paint | Kind::Group) {
+                    bail!("layer {}: bones go on a paint layer or a group", layer.id);
+                }
+                crate::rig::check(&layer.bones).with_context(|| format!("layer {}", layer.id))?;
+                crate::rig::check_ik(&layer.bones, &layer.ik).with_context(|| format!("layer {}", layer.id))?;
             }
             check_cels(layer)
         })

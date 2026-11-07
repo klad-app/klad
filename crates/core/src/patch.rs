@@ -127,6 +127,7 @@ fn layer_shell(layer: &Layer) -> Layer {
         depth: layer.depth,
         reference: layer.reference,
         bones: layer.bones.clone(),
+        ik: layer.ik.clone(),
         keys: layer.keys.clone(),
     }
 }

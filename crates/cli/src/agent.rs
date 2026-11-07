@@ -415,6 +415,10 @@ pub fn render_look(
                     true => crate::rig::bones_at(bundle, frame)?,
                     false => Vec::new(),
                 },
+                targets: match kinds.bones {
+                    true => crate::rig::targets_at(bundle, frame),
+                    false => Vec::new(),
+                },
                 heat: kinds
                     .weights
                     .as_deref()

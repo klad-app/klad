@@ -253,3 +253,64 @@ fn solo_shows_one_layer_and_undo_brings_the_rest_back() {
     assert_eq!(shown(), [true, true, true]);
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_chain_and_its_ik_are_set_up_and_posed_from_the_command_line() {
+    let dir = std::env::temp_dir().join(format!("klad-binary-ik-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let bundle = dir.join("a.klad");
+    let klad = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let path = bundle.to_str().unwrap();
+    klad(&["new", path, "--width", "400", "--height", "400", "--frames", "6"]);
+    klad(&[
+        "stroke",
+        path,
+        "l1",
+        "--path",
+        "M100 100 L100 200 L100 300",
+        "--size",
+        "6",
+    ]);
+    let made = klad(&[
+        "bone",
+        path,
+        "l1",
+        "--chain",
+        "thigh,shin",
+        "--through",
+        "100,100 100,200 100,300",
+    ]);
+    assert!(made.contains("chain thigh, shin"), "{made}");
+    let ik = klad(&["ik", path, "l1", "--add", "shin", "--softness", "4"]);
+    assert!(ik.contains("a limb with thigh") && ik.contains("softness 4"), "{ik}");
+    klad(&["ik", path, "l1", "--set", "shin", "--bend", "flip"]);
+    klad(&[
+        "pose",
+        path,
+        "l1",
+        "--from",
+        "0",
+        "--to",
+        "3",
+        "--target",
+        "shin=180,240",
+        "--mix",
+        "shin=0.5",
+        "--root",
+        "-10,0",
+    ]);
+    let listed = klad(&["bones", path]);
+    assert!(
+        listed.contains("ik shin: a limb with thigh, bending counterclockwise, softness 4 px"),
+        "{listed}"
+    );
+    assert!(listed.contains("root -10,0 target shin=180,240 mix 0.5"), "{listed}");
+    let json: serde_json::Value = serde_json::from_str(&klad(&["bones", path, "--json"])).unwrap();
+    assert_eq!(json[0]["ik"][0]["bone"], "shin");
+    assert!(json[0]["poses"][0]["solved"]["thigh"].is_number());
+    std::fs::remove_dir_all(&dir).unwrap();
+}

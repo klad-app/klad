@@ -1,4 +1,4 @@
-_Last updated: 2026-11-06 (format `klad/1`, stroke files `KLST` version 1, brushes `klad-brush/1`)_
+_Last updated: 2026-11-07 (format `klad/2`, stroke files `KLST` version 1, brushes `klad-brush/1`)_
 
 # The klad drawing format
 
@@ -30,13 +30,13 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
 - **Colours** are `"#rrggbb"` or `"#rrggbbaa"`: sRGB, straight (not premultiplied) alpha.
 - **Ids** are unique across the whole document and use letters, digits, `-` and `_`. klad makes new ones from a prefix (`l` layer, `c` cel, `n` node) and `nextId`. Ids are case sensitive.
 - **JSON** is UTF-8, written pretty with a stable key order. Keys at their default value are left out; readers must take the defaults listed below for missing keys. Most objects reject keys they do not know, so writers must not add their own.
-- **Versions.** `format` names the version of `doc.json` and everything it implies; this is `klad/1`, the first. Later versions will open older `klad/` drawings and migrate them in memory (written back on the next change). A reader that meets a newer version than it knows should refuse to write the bundle. Drawings from before `klad/1` (`.draw` folders, formats `draw-anything/0` to `/9`) do not open.
+- **Versions.** `format` names the version of `doc.json` and everything it implies; this is `klad/2`. Each version opens the older `klad/` drawings and migrates them in memory (written back on the next change). A reader that meets a newer version than it knows should refuse to write the bundle. Drawings from before `klad/1` (`.draw` folders, formats `draw-anything/0` to `/9`) do not open.
 
 ## doc.json
 
 ```json
 {
-  "format": "klad/1",
+  "format": "klad/2",
   "rev": 42,
   "canvas": { "width": 2048, "height": 2048, "background": "#f4efe6" },
   "timeline": { "fps": 12, "frames": 24, "origin": [1024, 1800],
@@ -60,7 +60,7 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `format` | string | | `"klad/1"` |
+| `format` | string | | `"klad/2"` |
 | `rev` | integer | | grows by one on every write |
 | `canvas` | object | | `width`, `height` (px), `background` (a colour; none is transparent) |
 | `timeline` | object | 12 fps, 1 frame | see below |
@@ -103,6 +103,7 @@ A clip is `name` (unique), `from` and `to` (both included), `loop` (false) and `
 | `depth` | number | none | on a top-level layer or group: how far the plane is (0 near); drives the atmosphere and parallax |
 | `reference` | bool | false | shown in the editor, left out of renders and exports (pictures to trace) |
 | `bones` | array | `[]` | a skeleton (paint layers and groups, below) |
+| `ik` | array | `[]` | the skeleton's IK constraints (below) |
 | `keys` | object | `{}` | animated properties (below) |
 
 Layers compose bottom to top. Groups compose their children into one image, then blend that with the group's opacity and blend. An **adjustment layer** changes what is under it inside its group (or, with `clip`, only its base).
@@ -130,7 +131,7 @@ A cel that is not a link is a **drawing**; frames no cel covers are blank. Drawi
 
 `tween` records an in-between made from two keys: `from` and `to` (the keys' drawing ids), `t` (0 to 1, after spacing), `match` (`order` or `near` when marks were not paired by id), `pairs` (forced pairs, `[first key mark, second key mark]`), `made` (a hash of the marks as made, so klad can tell whether someone drew on it since) and `unpaired` (`pop`, `pop 0.3`, `fade` or `draw-on`: how marks found in one key only were shown). The marks themselves are stored like any drawing's; the record only says how to remake them.
 
-`pose` records a drawing bent from a rest drawing by its layer's skeleton: `rest` (the rest drawing's id), `angles` (degrees from rest per bone name) and `root` (`[dx, dy]`, default `[0, 0]`). Its marks are stored bent, so a reader can draw it without knowing about bones.
+`pose` records a drawing bent from a rest drawing by its layer's skeleton: `rest` (the rest drawing's id), `angles` (degrees from rest per bone name), `root` (`[dx, dy]`, default `[0, 0]`) and `ik` (per IK constraint, named by its bone: `target`, `[x, y]` in canvas px, and `mix`, 0 to 1, default 1; see Skeletons). The bones' turns are `angles` with the IK solved on top of them. Its marks are stored bent, so a reader can draw it without knowing about bones.
 
 ### Vector nodes
 
@@ -210,6 +211,17 @@ A key is `frame`, `value` and `ease` (`linear` when absent; `in`, `out`, `in-out
 ### Skeletons
 
 A paint layer or a group may have `bones`: each a `name` (unique in the skeleton), a `parent` (a bone listed before it; none for a root), a `head` and a `tail` (`[x, y]` in canvas px, at rest). A group's skeleton moves every paint layer in it together. Each skeleton has a weights file (below). Posed drawings store their marks already bent (see `pose` above), so bones and weights are only needed to make new poses.
+
+A pose turns each bone about its head by its angle, its children with it, and moves the root bones by `root`. A bone's world turn is its angle plus its parent's world turn; a child's head moves with its parent's frame.
+
+`ik` lists the skeleton's IK constraints, one per bone at most: `bone` (the end of the limb), `chain` (`2`, the default: the bone and its parent, a limb; `1`: the bone alone, an aim), `bend` (`clockwise`, the default, or `counterclockwise`: the way the limb's joint bends on screen, as the bone turns relative to its parent) and `softness` (px, default 0). A pose with an `ik` entry for a constraint solves it after the pose's angles and root, on top of them:
+
+- **Aim** (`chain` 1): the bone turns so its tail points at the target; a target on its head leaves it as it is.
+- **Limb** (`chain` 2, parent A, bone B): with s the posed head of A, l1 the rest distance from A's head to B's head (B need not start at A's tail), l2 B's length and d the distance from s to the target, the reach r is d eased by the softness (below) and clamped to between |l1 - l2| and l1 + l2. The joint (B's posed head) is the meeting point of the circle of radius l1 about s and the circle of radius l2 about the point r along the line from s to the target, on the `bend` side: B turns clockwise relative to the line from A's head to B's head for `clockwise`. A then turns so its head-to-B line points at the joint, and B so its tail is at the target (or, out of reach, straight towards it at full reach).
+- **Softness** s eases the reach: r = d up to l1 + l2 - s; r = d - (d - l1 - l2 + s)^2 / (4 s) up to l1 + l2 + s; then r = l1 + l2. So the limb slows before full reach and is straight only once the target is s past it.
+- **Mix** m blends each turned bone from the pose's angle a to the solved angle b the short way round: a + m wrap(b - a), wrap taking an angle to -180 to 180 degrees.
+
+Constraints are solved parent first, by the position of the limb's top bone (A for a limb, the bone for an aim) in `bones`, then of its bone; each sees the bones as the ones before it left them. The solve is in 64-bit floats with deterministic maths, so it gives the same turns everywhere. A pose without an entry for a constraint leaves that limb to its angles. In-betweens of two poses of one rest drawing mix the angles, the root, each target and each mix by t (a constraint in one key only counts, in the other, as mix 0 with its target at that key's limb end), then solve.
 
 ## Stroke files
 
@@ -320,3 +332,4 @@ Drawing a stroke: walk the samples, interpolate between them, stamp the tip ever
 | Format | Change |
 |---|---|
 | `klad/1` | the first `.klad` format (2026-11). Drawings from before it, `.draw` folders in formats `draw-anything/0` to `/9` with stroke files marked `DAST`, do not open. |
+| `klad/2` | skeletons get `ik` constraints and poses their `ik` targets (2026-11-07). `klad/1` drawings open unchanged. |

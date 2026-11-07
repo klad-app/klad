@@ -120,6 +120,7 @@ pub struct Overlay {
     pub frame: Option<u32>,
     pub numbers: bool,
     pub bones: Vec<Shown>,
+    pub targets: Vec<([f32; 2], [f32; 2])>,
     pub heat: Option<Heat>,
 }
 
@@ -172,6 +173,34 @@ fn draw_bones(
         canvas.draw_circle(a, 4.0 * px, &color([0.0, 0.0, 0.0], 0.7));
         canvas.draw_circle(a, 2.5 * px, &color(hue, 1.0));
         draw_label(canvas, name, (a.0 + b.0) / 2.0 + 4.0, (a.1 + b.1) / 2.0, px, hue);
+    });
+}
+
+fn draw_targets(canvas: &Canvas, targets: &[([f32; 2], [f32; 2])], to_out: impl Fn([f32; 2]) -> (f32, f32), px: f32) {
+    let pen = |rgb: [f32; 3], a: f32, width: f32| {
+        let mut paint = color(rgb, a);
+        paint.set_anti_alias(true);
+        paint.set_style(PaintStyle::Stroke);
+        paint.set_stroke_width(width);
+        paint
+    };
+    let hue = [1.0, 0.45, 0.2];
+    targets.iter().for_each(|(end, target)| {
+        let (e, t) = (to_out(*end), to_out(*target));
+        if (e.0 - t.0).hypot(e.1 - t.1) > 2.0 * px {
+            canvas.draw_line(e, t, &pen([0.0, 0.0, 0.0], 0.6, 3.0 * px));
+            canvas.draw_line(e, t, &pen(hue, 1.0, 1.2 * px));
+        }
+        [
+            (pen([0.0, 0.0, 0.0], 0.6, 3.5 * px), 7.0),
+            (pen(hue, 1.0, 1.5 * px), 7.0),
+        ]
+        .iter()
+        .for_each(|(paint, r)| {
+            canvas.draw_circle(t, r * px, paint);
+            canvas.draw_line((t.0 - r * 1.6 * px, t.1), (t.0 + r * 1.6 * px, t.1), paint);
+            canvas.draw_line((t.0, t.1 - r * 1.6 * px), (t.0, t.1 + r * 1.6 * px), paint);
+        });
     });
 }
 
@@ -340,6 +369,12 @@ pub fn apply(image: &skia_safe::Image, overlay: &Overlay, view: &View) -> Result
     draw_bones(
         canvas,
         &overlay.bones,
+        |p| ((p[0] - origin.0) * s, (p[1] - origin.1) * s),
+        px,
+    );
+    draw_targets(
+        canvas,
+        &overlay.targets,
         |p| ((p[0] - origin.0) * s, (p[1] - origin.1) * s),
         px,
     );

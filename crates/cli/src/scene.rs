@@ -392,7 +392,10 @@ pub fn rig(path: &Path, dir: Option<PathBuf>) -> Result<Vec<PathBuf>> {
                         let (rest, _) = local(bones, i);
                         let values: Vec<f32> = poses
                             .iter()
-                            .map(|(_, p)| rest + p.angles.get(&b.name).copied().unwrap_or(0.0).to_radians())
+                            .map(|(_, p)| {
+                                let turned = klad_core::rig::applied(bones, &owner.ik, p);
+                                rest + turned.get(&b.name).copied().unwrap_or(0.0) * (std::f32::consts::PI / 180.0)
+                            })
                             .collect();
                         format!(
                             "tracks/{i}/type = \"value\"\ntracks/{i}/imported = false\ntracks/{i}/enabled = true\ntracks/{i}/path = NodePath(\"Skeleton2D/{}:rotation\")\ntracks/{i}/interp = 0\ntracks/{i}/loop_wrap = true\ntracks/{i}/keys = {{\n\"times\": {},\n\"transitions\": {},\n\"update\": 0,\n\"values\": [{}]\n}}\n",

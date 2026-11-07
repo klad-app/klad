@@ -3340,6 +3340,201 @@ fn bones_are_drawn_weighted_and_posed_on_the_canvas() {
 }
 
 #[test]
+fn bones_are_drawn_as_a_chain_that_fans_ends_and_takes_back_its_last_bone() {
+    let path = sample("chain");
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    activate(&mut h, "lines");
+    h.key_press(Key::J);
+    h.run_steps(2);
+    let bones = |h: &Harness<'static, Editor>| h.state().scene.bundle.doc.layer("l6").unwrap().bones.clone();
+    let points = [[40.0, 40.0], [120.0, 80.0], [200.0, 90.0], [260.0, 150.0]];
+    let screen: Vec<egui::Pos2> = points.iter().map(|p| canvas_at(&h, p[0], p[1])).collect();
+    drag(&mut h, screen[0], screen[1]);
+    h.run_steps(2);
+    assert!(h.state().bones.chain.is_some(), "letting go starts the next bone");
+    click_with(&mut h, screen[2], Modifiers::NONE);
+    click_with(&mut h, screen[3], Modifiers::NONE);
+    let drawn = bones(&h);
+    assert_eq!(drawn.len(), 3, "{drawn:?}");
+    assert_eq!(drawn[1].parent.as_deref(), Some("bone 1"));
+    assert_eq!(drawn[2].parent.as_deref(), Some("bone 2"));
+    assert!(
+        drawn.windows(2).all(|w| w[1].head == w[0].tail),
+        "each bone starts on the last one's end"
+    );
+    assert_eq!(
+        h.state().bones.selected.as_deref(),
+        Some("bone 3"),
+        "the new bone is picked"
+    );
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(3);
+    assert_eq!(bones(&h).len(), 2, "cmd Z takes back the last bone");
+    let again = canvas_at(&h, 230.0, 40.0);
+    click_with(&mut h, again, Modifiers::NONE);
+    let redrawn = bones(&h);
+    assert_eq!(redrawn.len(), 3);
+    assert_eq!(
+        redrawn[2].parent.as_deref(),
+        Some("bone 2"),
+        "and the chain carries on from the one before"
+    );
+    assert_eq!(redrawn[2].head, redrawn[1].tail);
+    let joint = canvas_at(&h, redrawn[2].tail[0], redrawn[2].tail[1]);
+    click_with(&mut h, joint, Modifiers::NONE);
+    assert!(
+        h.state().bones.chain.is_none(),
+        "a click on the open end ends the chain"
+    );
+    assert_eq!(bones(&h).len(), 3);
+    let (root, hand) = (canvas_at(&h, 400.0, 300.0), canvas_at(&h, 400.0, 220.0));
+    drag(&mut h, root, hand);
+    h.run_steps(2);
+    let fingers = [[360.0, 160.0], [400.0, 150.0], [440.0, 160.0]];
+    fingers.iter().for_each(|f| {
+        let at = canvas_at(&h, f[0], f[1]);
+        click_with(&mut h, at, Modifiers::SHIFT);
+    });
+    let fanned = bones(&h);
+    let palm = fanned
+        .iter()
+        .find(|b| b.head == fanned[3].head && b.parent.is_none())
+        .unwrap()
+        .name
+        .clone();
+    let spread: Vec<_> = fanned
+        .iter()
+        .filter(|b| b.parent.as_deref() == Some(palm.as_str()))
+        .collect();
+    assert_eq!(spread.len(), 3, "shift fans siblings from one joint: {fanned:?}");
+    assert!(spread.iter().all(|b| b.head == fanned[3].tail));
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    assert!(h.state().bones.chain.is_none(), "Esc ends the chain");
+    let count = bones(&h).len();
+    let empty = canvas_at(&h, 500.0, 60.0);
+    click_with(&mut h, empty, Modifiers::NONE);
+    assert_eq!(bones(&h).len(), count, "a click with no chain adds nothing");
+    let cli = sample("chain-cli");
+    Bundle::open(&cli)
+        .unwrap()
+        .apply(
+            &parse_lines(&format!(
+                r#"{{"op":"bone","layer":"l6","chain":["bone 1","bone 2","bone 3"],"through":{}}}"#,
+                serde_json::to_string(&[drawn[0].head, drawn[0].tail, drawn[1].tail, redrawn[2].tail]).unwrap()
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+    let made = Bundle::open(&cli).unwrap().doc.layer("l6").unwrap().bones.clone();
+    assert_eq!(made[..2], redrawn[..2], "the editor's chain is klad bone --chain");
+    assert_eq!(made[2], redrawn[2]);
+    let _ = std::fs::remove_dir_all(&path);
+    let _ = std::fs::remove_dir_all(&cli);
+}
+
+#[test]
+fn a_leg_gets_its_ik_in_the_options_and_its_foot_is_dragged_and_planted_in_pose_mode() {
+    let path = sample("leg-ik");
+    Bundle::open(&path)
+        .unwrap()
+        .apply(
+            &parse_lines(
+                r#"{"op":"bone","layer":"l6","chain":["thigh","shin"],"through":[[100,60],[100,160],[110,260]]}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    activate(&mut h, "lines");
+    h.key_press(Key::J);
+    h.run_steps(2);
+    h.state_mut().pick_bone(Some("shin".into()));
+    h.run_steps(2);
+    h.get_by_label("add IK").click();
+    h.run_steps(2);
+    h.get_by_label("limb: shin and thigh").click();
+    h.run_steps(3);
+    let ik = h.state().scene.bundle.doc.layer("l6").unwrap().ik.clone();
+    assert_eq!(ik.len(), 1, "{ik:?}");
+    assert_eq!((ik[0].bone.as_str(), ik[0].chain), ("shin", 2));
+    assert!(
+        h.query_by_label_contains("IK: limb with thigh").is_some(),
+        "the options show the bone's IK"
+    );
+    h.get_by_label("pose").click();
+    h.run_steps(2);
+    let shown = |h: &Harness<'static, Editor>| {
+        let ed = h.state();
+        let layer = ed.scene.bundle.doc.layer("l6").unwrap();
+        let pose = klad_core::rig::Pose {
+            angles: ed.bones.pose.clone(),
+            root: ed.bones.root,
+            ik: ed.bones.reach.clone(),
+            ..Default::default()
+        };
+        klad_core::rig::tips(&layer.bones, &layer.ik, &pose)
+    };
+    let canvas = h.state().canvas_rect;
+    let (foot, there) = (canvas_at(&h, 110.0, 260.0), canvas_at(&h, 170.0, 220.0));
+    drag(&mut h, foot, there);
+    h.run_steps(2);
+    assert_eq!(
+        h.state().canvas_rect,
+        canvas,
+        "picking a limb keeps the canvas where it is"
+    );
+    let target = h.state().bones.reach.get("shin").map(|r| r.target).unwrap();
+    assert!(
+        (target[0] - 170.0).abs() < 1.5 && (target[1] - 220.0).abs() < 1.5,
+        "{target:?}"
+    );
+    let end = shown(&h)[1].1;
+    assert!(
+        (end[0] - target[0]).abs() < 0.01 && (end[1] - target[1]).abs() < 0.01,
+        "the foot reaches: {end:?}"
+    );
+    let (hip, moved) = (canvas_at(&h, 100.0, 60.0), canvas_at(&h, 130.0, 70.0));
+    drag(&mut h, hip, moved);
+    h.run_steps(2);
+    let root = h.state().bones.root;
+    assert!(
+        (root[0] - 30.0).abs() < 1.5 && (root[1] - 10.0).abs() < 1.5,
+        "the root's head moves it all: {root:?}"
+    );
+    let planted = shown(&h)[1].1;
+    assert!(
+        (planted[0] - target[0]).abs() < 0.01 && (planted[1] - target[1]).abs() < 0.01,
+        "the foot stays planted: {planted:?}"
+    );
+    let knee = shown(&h)[0].1;
+    let (thigh, swung) = (
+        canvas_at(&h, (130.0 + knee[0]) / 2.0, (70.0 + knee[1]) / 2.0),
+        canvas_at(&h, 60.0, 140.0),
+    );
+    h.event(egui::Event::ModifiersChanged(Modifiers::ALT));
+    drag(&mut h, thigh, swung);
+    h.event(egui::Event::ModifiersChanged(Modifiers::NONE));
+    h.run_steps(2);
+    assert!(
+        h.state().bones.reach.is_empty(),
+        "alt drag takes the limb off IK and turns it by hand"
+    );
+    let args = super::bones::pose_args(
+        &h.state().scene.bundle.root,
+        "l6",
+        0,
+        &klad_core::rig::Pose {
+            angles: h.state().bones.pose.clone(),
+            root: h.state().bones.root,
+            ..Default::default()
+        },
+    );
+    assert!(args.iter().any(|a| a == "--root"), "{args:?}");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn bones_are_picked_from_the_list_and_the_canvas_and_edited_in_place() {
     let path = sample("bone-edit");
     Bundle::open(&path)

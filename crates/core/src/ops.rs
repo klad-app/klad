@@ -149,6 +149,7 @@ pub enum Op {
     Grass(GrassSpec),
     PaintOver(PaintOverSpec),
     Bone(BoneSpec),
+    Ik(IkSpec),
     Weights(WeightsSpec),
     Pose(PoseSpec),
     Key(KeySpec),
@@ -646,6 +647,36 @@ pub struct BoneSpec {
     pub tail: Option<[f32; 2]>,
     #[serde(default)]
     pub by: Option<[f32; 2]>,
+    #[serde(default)]
+    pub chain: Option<Vec<String>>,
+    #[serde(default)]
+    pub through: Option<Vec<[f32; 2]>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BendSpec {
+    Clockwise,
+    Counterclockwise,
+    Flip,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IkSpec {
+    pub layer: String,
+    #[serde(default)]
+    pub add: Option<String>,
+    #[serde(default)]
+    pub set: Option<String>,
+    #[serde(default)]
+    pub rm: Option<String>,
+    #[serde(default)]
+    pub chain: Option<u8>,
+    #[serde(default)]
+    pub bend: Option<BendSpec>,
+    #[serde(default)]
+    pub softness: Option<f32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -681,6 +712,8 @@ pub struct PoseSpec {
     pub bones: BTreeMap<String, f32>,
     #[serde(default)]
     pub root: [f32; 2],
+    #[serde(default)]
+    pub ik: BTreeMap<String, crate::rig::Reach>,
     #[serde(default)]
     pub hold: Option<u32>,
     #[serde(skip)]
@@ -1503,6 +1536,7 @@ impl Op {
                 })
             }
             "bone" => Op::Bone(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
+            "ik" => Op::Ik(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "weights" => Op::Weights(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "pose" => Op::Pose(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "grass" => Op::Grass(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
@@ -1516,7 +1550,7 @@ impl Op {
             },
             other => {
                 bail!(
-                    "unknown op {other:?}: use add, set, rm, mv, stroke, fill, palette, transform, path, lasso, copy, timeline, frames, cel, clip, retime, inbetween, duplicate, ink, light, hatch, scatter or export"
+                    "unknown op {other:?}: use add, set, rm, mv, stroke, fill, palette, transform, path, lasso, copy, timeline, frames, cel, clip, retime, inbetween, duplicate, ink, light, hatch, scatter, paint, foliage, grass, paintover, part, key, bone, ik, weights, pose or export"
                 )
             }
         };
@@ -1675,6 +1709,52 @@ fn bone(doc: &mut Document, spec: &BoneSpec, out: &mut Applied) -> Result<()> {
             )
         })
     };
+    let before = bones.clone();
+    let mut ik = doc.layer_at(&path).ik.clone();
+    if let Some(names) = &spec.chain {
+        if spec.add.is_some()
+            || spec.rm.is_some()
+            || spec.rename.is_some()
+            || spec.moved.is_some()
+            || spec.reparent.is_some()
+        {
+            bail!("a bone op takes one of add, chain, rm, rename, move or reparent");
+        }
+        let Some(through) = &spec.through else {
+            bail!("a chain needs \"through\": its points, one more than its bones");
+        };
+        if names.is_empty() || through.len() != names.len() + 1 {
+            bail!(
+                "a chain of {} bones goes through {} points, not {}",
+                names.len(),
+                names.len() + 1,
+                through.len()
+            );
+        }
+        if let Some(p) = &spec.parent {
+            find(&bones, p)?;
+        }
+        names.iter().enumerate().try_for_each(|(i, name)| {
+            if bones.iter().any(|b| &b.name == name) {
+                bail!("there is already a bone {name} on {}", spec.layer);
+            }
+            bones.push(crate::rig::Bone {
+                name: name.clone(),
+                parent: match i {
+                    0 => spec.parent.clone(),
+                    _ => Some(names[i - 1].clone()),
+                },
+                head: through[i],
+                tail: through[i + 1],
+            });
+            Ok(())
+        })?;
+        out.notes.push(format!("chain {} on {}", names.join(", "), spec.layer));
+        crate::rig::check(&bones)?;
+        doc.layer_at_mut(&path).bones = bones;
+        out.changed.push(id);
+        return Ok(());
+    }
     match (&spec.add, &spec.rm, &spec.rename, &spec.moved, &spec.reparent) {
         (Some(name), None, None, None, None) => {
             let (Some(head), Some(tail)) = (spec.head, spec.tail) else {
@@ -1704,8 +1784,18 @@ fn bone(doc: &mut Document, spec: &BoneSpec, out: &mut Applied) -> Result<()> {
             {
                 gone.push(next);
             }
+            let held: Vec<String> = ik
+                .iter()
+                .filter(|c| gone.contains(&c.bone))
+                .map(|c| c.bone.clone())
+                .collect();
+            bake(doc, &path, &bones, &ik, &held);
+            ik.retain(|c| !held.contains(&c.bone));
             bones.retain(|b| !gone.contains(&b.name));
-            out.notes.push(format!("removed {}", gone.join(", ")));
+            out.notes.push(match held.is_empty() {
+                true => format!("removed {}", gone.join(", ")),
+                false => format!("removed {} and the IK on {}", gone.join(", "), held.join(", ")),
+            });
         }
         (None, None, Some(name), None, None) => {
             let Some(to) = &spec.to_name else {
@@ -1720,12 +1810,18 @@ fn bone(doc: &mut Document, spec: &BoneSpec, out: &mut Applied) -> Result<()> {
                 .iter_mut()
                 .filter(|b| b.parent.as_ref() == Some(name))
                 .for_each(|b| b.parent = Some(to.clone()));
+            ik.iter_mut()
+                .filter(|c| &c.bone == name)
+                .for_each(|c| c.bone = to.clone());
             let rigged: Vec<Vec<usize>> = crate::doc::family_paths(doc, &path);
             rigged.iter().for_each(|p| {
                 if let Some(cels) = doc.layer_at_mut(p).cels_mut() {
                     cels.iter_mut().filter_map(|c| c.pose.as_mut()).for_each(|pose| {
                         if let Some(v) = pose.angles.remove(name) {
                             pose.angles.insert(to.clone(), v);
+                        }
+                        if let Some(r) = pose.ik.remove(name) {
+                            pose.ik.insert(to.clone(), r);
                         }
                     });
                 }
@@ -1760,10 +1856,166 @@ fn bone(doc: &mut Document, spec: &BoneSpec, out: &mut Applied) -> Result<()> {
             }
             bones = sorted;
         }
-        _ => bail!("a bone op takes one of add, rm, rename, move or reparent"),
+        _ => bail!("a bone op takes one of add, chain, rm, rename, move or reparent"),
     }
     crate::rig::check(&bones)?;
-    doc.layer_at_mut(&path).bones = bones;
+    let broken: Vec<String> = ik
+        .iter()
+        .filter(|c| crate::rig::check_ik(&bones, std::slice::from_ref(c)).is_err())
+        .map(|c| c.bone.clone())
+        .collect();
+    if !broken.is_empty() {
+        bake(doc, &path, &before, &ik, &broken);
+        ik.retain(|c| !broken.contains(&c.bone));
+        out.notes.push(format!(
+            "removed the IK on {}: its limb no longer has a parent to turn (its poses keep their look as turns)",
+            broken.join(", ")
+        ));
+    }
+    crate::rig::check_ik(&bones, &ik)?;
+    let layer = doc.layer_at_mut(&path);
+    layer.bones = bones;
+    layer.ik = ik;
+    out.changed.push(id);
+    Ok(())
+}
+
+fn bake(doc: &mut Document, path: &[usize], bones: &[crate::rig::Bone], ik: &[crate::rig::Ik], held: &[String]) {
+    if held.is_empty() {
+        return;
+    }
+    let driven: Vec<String> = ik
+        .iter()
+        .filter(|c| held.contains(&c.bone))
+        .flat_map(|c| {
+            let parent = bones
+                .iter()
+                .find(|b| b.name == c.bone)
+                .and_then(|b| b.parent.clone())
+                .filter(|_| c.chain == 2);
+            std::iter::once(c.bone.clone()).chain(parent)
+        })
+        .collect();
+    crate::doc::family_paths(doc, path).iter().for_each(|p| {
+        if let Some(cels) = doc.layer_at_mut(p).cels_mut() {
+            cels.iter_mut()
+                .filter_map(|c| c.pose.as_mut())
+                .filter(|pose| held.iter().any(|h| pose.ik.contains_key(h)))
+                .for_each(|pose| {
+                    let solved = crate::rig::applied(bones, ik, pose);
+                    driven.iter().for_each(|b| {
+                        if let Some(v) = solved.get(b) {
+                            pose.angles.insert(b.clone(), *v);
+                        }
+                    });
+                    held.iter().for_each(|h| {
+                        pose.ik.remove(h);
+                    });
+                });
+        }
+    });
+}
+
+fn ik(doc: &mut Document, spec: &IkSpec, out: &mut Applied) -> Result<()> {
+    use crate::rig::{Bend, Ik};
+    let id = rig_owner(doc, &spec.layer)?.id.clone();
+    let path = layer_path(doc, &id)?;
+    let bones = doc.layer_at(&path).bones.clone();
+    let mut ik = doc.layer_at(&path).ik.clone();
+    let has = |name: &str| -> Result<()> {
+        match bones.iter().any(|b| b.name == name) {
+            true => Ok(()),
+            false => bail!(
+                "no bone {name} on {}: {}",
+                spec.layer,
+                bones.iter().map(|b| b.name.as_str()).collect::<Vec<_>>().join(", ")
+            ),
+        }
+    };
+    let find = |ik: &[Ik], name: &str| -> Result<usize> {
+        ik.iter().position(|c| c.bone == name).ok_or_else(|| {
+            anyhow!(
+                "no IK on {name}: {}",
+                match ik.is_empty() {
+                    true => "add one with klad ik --add".to_string(),
+                    false => format!(
+                        "the IKs end on {}",
+                        ik.iter().map(|c| c.bone.as_str()).collect::<Vec<_>>().join(", ")
+                    ),
+                }
+            )
+        })
+    };
+    let bend = |was: Bend, rest: Bend| match spec.bend {
+        None => was,
+        Some(BendSpec::Clockwise) => Bend::Clockwise,
+        Some(BendSpec::Counterclockwise) => Bend::Counterclockwise,
+        Some(BendSpec::Flip) => match spec.add.is_some() {
+            true => rest.flipped(),
+            false => was.flipped(),
+        },
+    };
+    let said = |c: &Ik| {
+        let parent = bones.iter().find(|b| b.name == c.bone).and_then(|b| b.parent.clone());
+        match (c.chain, parent) {
+            (2, Some(p)) => format!(
+                "IK on {}: a limb with {p}, bending {}{}",
+                c.bone,
+                match c.bend {
+                    Bend::Clockwise => "clockwise",
+                    Bend::Counterclockwise => "counterclockwise",
+                },
+                match c.softness > 0.0 {
+                    true => format!(", softness {} px", c.softness),
+                    false => String::new(),
+                }
+            ),
+            _ => format!("IK on {}: an aim", c.bone),
+        }
+    };
+    match (&spec.add, &spec.set, &spec.rm) {
+        (Some(name), None, None) => {
+            has(name)?;
+            if ik.iter().any(|c| &c.bone == name) {
+                bail!("{name} has an IK already: change it with set");
+            }
+            let parent = bones.iter().find(|b| &b.name == name).and_then(|b| b.parent.clone());
+            let rest = crate::rig::rest_bend(&bones, name);
+            let made = Ik {
+                bone: name.clone(),
+                chain: spec.chain.unwrap_or(if parent.is_some() { 2 } else { 1 }),
+                bend: bend(rest, rest),
+                softness: spec.softness.unwrap_or(0.0),
+            };
+            out.notes.push(said(&made));
+            ik.push(made);
+        }
+        (None, Some(name), None) => {
+            let at = find(&ik, name)?;
+            if spec.chain.is_none() && spec.bend.is_none() && spec.softness.is_none() {
+                bail!("say what to set: chain, bend or softness");
+            }
+            let rest = crate::rig::rest_bend(&bones, name);
+            let c = &mut ik[at];
+            c.chain = spec.chain.unwrap_or(c.chain);
+            c.bend = bend(c.bend, rest);
+            c.softness = spec.softness.unwrap_or(c.softness);
+            out.notes.push(said(c));
+        }
+        (None, None, Some(name)) => {
+            find(&ik, name)?;
+            if spec.chain.is_some() || spec.bend.is_some() || spec.softness.is_some() {
+                bail!("rm takes no chain, bend or softness");
+            }
+            bake(doc, &path, &bones, &ik, std::slice::from_ref(name));
+            ik.retain(|c| &c.bone != name);
+            out.notes
+                .push(format!("removed the IK on {name}; its poses keep their look as turns"));
+        }
+        _ => bail!("an ik op takes one of add, set or rm"),
+    }
+    crate::rig::check_ik(&bones, &ik)?;
+    doc.layer_at_mut(&path).ik = ik;
     out.changed.push(id);
     Ok(())
 }
@@ -3020,6 +3272,7 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
             );
         }
         Op::Bone(spec) => bone(doc, spec, out)?,
+        Op::Ik(spec) => ik(doc, spec, out)?,
         Op::Key(spec) => key(doc, spec, out)?,
         Op::Weights(spec) => {
             let Some(made) = &spec.resolved else {
@@ -3192,6 +3445,129 @@ mod tests {
         .unwrap();
         doc = doc2;
         doc
+    }
+
+    #[test]
+    fn chains_and_iks_follow_renames_and_go_without_changing_a_pose() {
+        use crate::rig::{Bend, Ik, Pose, Reach, applied, tips};
+        let doc = base();
+        let ink = doc.find_layer("ink").unwrap().id.clone();
+        let (doc, applied_ops) = apply_all(
+            &doc,
+            &ops(&[json!({"op":"bone","layer":ink,"chain":["thigh","shin","foot"],"through":[[100,100],[100,200],[90,300],[140,300]]})]),
+        )
+        .unwrap();
+        assert!(applied_ops.notes.iter().any(|n| n.contains("chain thigh, shin, foot")));
+        let bones = doc.layer(&ink).unwrap().bones.clone();
+        assert_eq!(
+            bones.iter().map(|b| b.name.as_str()).collect::<Vec<_>>(),
+            ["thigh", "shin", "foot"]
+        );
+        assert_eq!(bones[0].parent, None);
+        assert_eq!(bones[1].parent.as_deref(), Some("thigh"));
+        assert_eq!(bones[2].parent.as_deref(), Some("shin"));
+        assert!(
+            bones.windows(2).all(|w| w[1].head == w[0].tail),
+            "each starts where the one before ends"
+        );
+        let short = apply_all(
+            &doc,
+            &ops(&[json!({"op":"bone","layer":ink,"chain":["a","b"],"through":[[0,0],[9,9]]})]),
+        )
+        .map(|_| ())
+        .unwrap_err();
+        let short = format!("{short:#}");
+        assert!(short.contains("goes through 3 points"), "{short}");
+        let (doc, made) = apply_all(&doc, &ops(&[json!({"op":"ik","layer":ink,"add":"shin"})])).unwrap();
+        assert_eq!(
+            doc.layer(&ink).unwrap().ik,
+            [Ik {
+                bone: "shin".into(),
+                chain: 2,
+                bend: Bend::Clockwise,
+                softness: 0.0
+            }],
+            "a limb by default, bending as drawn: the shin turns clockwise off the thigh"
+        );
+        assert!(
+            made.notes.iter().any(|n| n.contains("a limb with thigh")),
+            "{:?}",
+            made.notes
+        );
+        let (doc, _) = apply_all(
+            &doc,
+            &ops(&[json!({"op":"ik","layer":ink,"set":"shin","bend":"flip","softness":6})]),
+        )
+        .unwrap();
+        let ik = doc.layer(&ink).unwrap().ik.clone();
+        assert_eq!((ik[0].bend, ik[0].softness), (Bend::Counterclockwise, 6.0));
+        let again = apply_all(&doc, &ops(&[json!({"op":"ik","layer":ink,"add":"shin"})]));
+        assert!(format!("{:#}", again.map(|_| ()).unwrap_err()).contains("has an IK already"));
+        let mut doc = doc;
+        let path = layer_path(&doc, &ink).unwrap();
+        let pose = Pose {
+            rest: "c0".into(),
+            angles: BTreeMap::from([("thigh".to_string(), 10.0)]),
+            ik: BTreeMap::from([(
+                "shin".to_string(),
+                Reach {
+                    target: [160.0, 250.0],
+                    mix: 1.0,
+                },
+            )]),
+            ..Pose::default()
+        };
+        doc.layer_at_mut(&path).cels_mut().unwrap()[0].pose = Some(pose.clone());
+        let looked = tips(&bones, &ik, &pose);
+        let (doc, _) = apply_all(
+            &doc,
+            &ops(&[json!({"op":"bone","layer":ink,"rename":"shin","as":"calf"})]),
+        )
+        .unwrap();
+        let layer = doc.layer(&ink).unwrap();
+        assert_eq!(layer.ik[0].bone, "calf", "the IK follows its bone's new name");
+        let kept = layer.cels()[0].pose.clone().unwrap();
+        assert!(kept.ik.contains_key("calf") && !kept.ik.contains_key("shin"));
+        let (doc, gone) = apply_all(&doc, &ops(&[json!({"op":"ik","layer":ink,"rm":"calf"})])).unwrap();
+        assert!(gone.notes.iter().any(|n| n.contains("keep their look")));
+        let layer = doc.layer(&ink).unwrap();
+        let baked = layer.cels()[0].pose.clone().unwrap();
+        assert!(layer.ik.is_empty() && baked.ik.is_empty());
+        let now = tips(&layer.bones, &[], &baked);
+        assert!(
+            now.iter()
+                .zip(&looked)
+                .all(|(a, b)| (a.1[0] - b.1[0]).abs() < 1e-3 && (a.1[1] - b.1[1]).abs() < 1e-3),
+            "the pose looks as it did, now as turns: {now:?} {looked:?}"
+        );
+        let (doc, _) = apply_all(
+            &doc,
+            &ops(&[
+                json!({"op":"ik","layer":ink,"add":"foot","chain":2}),
+                json!({"op":"bone","layer":ink,"reparent":"foot"}),
+            ]),
+        )
+        .unwrap();
+        assert!(
+            doc.layer(&ink).unwrap().ik.is_empty(),
+            "a limb whose bone loses its parent goes"
+        );
+        let (doc, _) = apply_all(
+            &doc,
+            &ops(&[
+                json!({"op":"bone","layer":ink,"reparent":"foot","parent":"calf"}),
+                json!({"op":"ik","layer":ink,"add":"foot"}),
+                json!({"op":"bone","layer":ink,"rm":"calf"}),
+            ]),
+        )
+        .unwrap();
+        let layer = doc.layer(&ink).unwrap();
+        assert!(
+            layer.ik.is_empty() && layer.bones.len() == 1,
+            "removing a bone takes its children and their IK"
+        );
+        let solved = applied(&layer.bones, &layer.ik, &baked);
+        assert_eq!(solved["thigh"], baked.angles["thigh"]);
     }
 
     #[test]

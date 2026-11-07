@@ -25,15 +25,83 @@ impl Bone {
     }
 
     pub fn length(&self) -> f32 {
-        (self.tail[0] - self.head[0]).hypot(self.tail[1] - self.head[1])
+        libm::hypotf(self.tail[0] - self.head[0], self.tail[1] - self.head[1])
     }
 
     fn distance(&self, p: [f32; 2]) -> f32 {
         let (a, b) = (self.head, self.tail);
         let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
         let t = (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy).max(1e-6)).clamp(0.0, 1.0);
-        (a[0] + dx * t - p[0]).hypot(a[1] + dy * t - p[1])
+        libm::hypotf(a[0] + dx * t - p[0], a[1] + dy * t - p[1])
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Bend {
+    #[default]
+    Clockwise,
+    Counterclockwise,
+}
+
+impl Bend {
+    pub fn flipped(self) -> Bend {
+        match self {
+            Bend::Clockwise => Bend::Counterclockwise,
+            Bend::Counterclockwise => Bend::Clockwise,
+        }
+    }
+
+    fn sign(self) -> f64 {
+        match self {
+            Bend::Clockwise => 1.0,
+            Bend::Counterclockwise => -1.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Ik {
+    pub bone: String,
+    #[serde(default = "limb", skip_serializing_if = "is_limb")]
+    pub chain: u8,
+    #[serde(default, skip_serializing_if = "is_clockwise")]
+    pub bend: Bend,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub softness: f32,
+}
+
+fn limb() -> u8 {
+    2
+}
+
+fn is_limb(n: &u8) -> bool {
+    *n == 2
+}
+
+fn is_clockwise(b: &Bend) -> bool {
+    *b == Bend::Clockwise
+}
+
+fn is_zero(v: &f32) -> bool {
+    *v == 0.0
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Reach {
+    pub target: [f32; 2],
+    #[serde(default = "full", skip_serializing_if = "is_full")]
+    pub mix: f32,
+}
+
+fn full() -> f32 {
+    1.0
+}
+
+fn is_full(v: &f32) -> bool {
+    *v == 1.0
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -44,32 +112,64 @@ pub struct Pose {
     pub angles: BTreeMap<String, f32>,
     #[serde(default, skip_serializing_if = "is_origin")]
     pub root: [f32; 2],
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub ik: BTreeMap<String, Reach>,
 }
 
 fn is_origin(p: &[f32; 2]) -> bool {
     p[0] == 0.0 && p[1] == 0.0
 }
 
-impl Pose {
-    pub fn mix(&self, other: &Pose, t: f32) -> Pose {
-        let names: std::collections::BTreeSet<&String> = self.angles.keys().chain(other.angles.keys()).collect();
-        Pose {
-            rest: self.rest.clone(),
-            angles: names
-                .into_iter()
-                .map(|n| {
-                    let (a, b) = (
-                        self.angles.get(n).copied().unwrap_or(0.0),
-                        other.angles.get(n).copied().unwrap_or(0.0),
-                    );
-                    (n.clone(), a + (b - a) * t)
-                })
-                .collect(),
-            root: [
-                self.root[0] + (other.root[0] - self.root[0]) * t,
-                self.root[1] + (other.root[1] - self.root[1]) * t,
-            ],
-        }
+pub fn between(bones: &[Bone], ik: &[Ik], a: &Pose, b: &Pose, t: f32) -> Pose {
+    let lerp = |x: f32, y: f32| x + (y - x) * t;
+    let names: std::collections::BTreeSet<&String> = a.angles.keys().chain(b.angles.keys()).collect();
+    let end = |pose: &Pose, bone: &str| {
+        bones
+            .iter()
+            .position(|o| o.name == bone)
+            .map_or([0.0, 0.0], |i| tips(bones, ik, pose)[i].1)
+    };
+    let reaches = ik
+        .iter()
+        .filter_map(|c| {
+            let (x, y) = match (a.ik.get(&c.bone), b.ik.get(&c.bone)) {
+                (None, None) => return None,
+                (Some(x), Some(y)) => (x.clone(), y.clone()),
+                (Some(x), None) => (
+                    x.clone(),
+                    Reach {
+                        target: end(b, &c.bone),
+                        mix: 0.0,
+                    },
+                ),
+                (None, Some(y)) => (
+                    Reach {
+                        target: end(a, &c.bone),
+                        mix: 0.0,
+                    },
+                    y.clone(),
+                ),
+            };
+            Some((
+                c.bone.clone(),
+                Reach {
+                    target: [lerp(x.target[0], y.target[0]), lerp(x.target[1], y.target[1])],
+                    mix: lerp(x.mix, y.mix),
+                },
+            ))
+        })
+        .collect();
+    Pose {
+        rest: a.rest.clone(),
+        angles: names
+            .into_iter()
+            .map(|n| {
+                let at = |p: &Pose| p.angles.get(n).copied().unwrap_or(0.0);
+                (n.clone(), lerp(at(a), at(b)))
+            })
+            .collect(),
+        root: [lerp(a.root[0], b.root[0]), lerp(a.root[1], b.root[1])],
+        ik: reaches,
     }
 }
 
@@ -91,6 +191,58 @@ pub fn check(bones: &[Bone]) -> Result<()> {
         }
         Ok(())
     })
+}
+
+pub fn check_ik(bones: &[Bone], ik: &[Ik]) -> Result<()> {
+    ik.iter().enumerate().try_for_each(|(i, c)| {
+        let Some(at) = bones.iter().position(|b| b.name == c.bone) else {
+            bail!("IK on {}: there is no bone {}", c.bone, c.bone);
+        };
+        if ik[..i].iter().any(|o| o.bone == c.bone) {
+            bail!("two IKs end on {}", c.bone);
+        }
+        match c.chain {
+            1 => {}
+            2 => {
+                let Some(p) = parent_of(bones, at) else {
+                    bail!(
+                        "IK on {}: a limb (chain 2) turns the bone and its parent, and {} has none: make it an aim (chain 1)",
+                        c.bone,
+                        c.bone
+                    );
+                };
+                let (h, q) = (bones[at].head, bones[p].head);
+                if libm::hypotf(h[0] - q[0], h[1] - q[1]) < 1e-3 {
+                    bail!(
+                        "IK on {}: it starts where its parent {} starts, so turning {} cannot carry it to a target: make it an aim (chain 1)",
+                        c.bone,
+                        bones[p].name,
+                        bones[p].name
+                    );
+                }
+            }
+            n => bail!("IK on {}: chain is 1 (an aim) or 2 (a limb), not {n}", c.bone),
+        }
+        if !(c.softness.is_finite() && c.softness >= 0.0) {
+            bail!("IK on {}: softness is a distance in px, 0 or more", c.bone);
+        }
+        Ok(())
+    })
+}
+
+pub fn rest_bend(bones: &[Bone], bone: &str) -> Bend {
+    let Some(at) = bones.iter().position(|b| b.name == bone) else {
+        return Bend::Clockwise;
+    };
+    let Some(p) = parent_of(bones, at) else {
+        return Bend::Clockwise;
+    };
+    let (b, a) = (&bones[at], &bones[p]);
+    let along = libm::atan2((b.head[1] - a.head[1]) as f64, (b.head[0] - a.head[0]) as f64);
+    match wrap(rest_angle(b) - along) < -RAD {
+        true => Bend::Counterclockwise,
+        false => Bend::Clockwise,
+    }
 }
 
 pub fn subtree(bones: &[Bone], name: &str) -> Vec<String> {
@@ -174,15 +326,181 @@ fn apply(m: Mat, p: [f32; 2]) -> [f32; 2] {
     [m[0] * p[0] + m[2] * p[1] + m[4], m[1] * p[0] + m[3] * p[1] + m[5]]
 }
 
-pub fn skinning(bones: &[Bone], pose: &Pose) -> Vec<Mat> {
+fn parent_of(bones: &[Bone], i: usize) -> Option<usize> {
+    let p = bones[i].parent.as_ref()?;
+    bones[..i].iter().position(|o| &o.name == p)
+}
+
+const RAD: f64 = std::f64::consts::PI / 180.0;
+const NEAR: f64 = 1e-4;
+
+fn rest_angle(b: &Bone) -> f64 {
+    libm::atan2((b.tail[1] - b.head[1]) as f64, (b.tail[0] - b.head[0]) as f64)
+}
+
+fn wrap(a: f64) -> f64 {
+    (a + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU) - std::f64::consts::PI
+}
+
+struct Frame {
+    head: [f64; 2],
+    turn: f64,
+}
+
+fn frames(bones: &[Bone], turns: &[f64], root: [f32; 2]) -> Vec<Frame> {
+    let mut out: Vec<Frame> = Vec::with_capacity(bones.len());
+    bones.iter().enumerate().for_each(|(i, b)| {
+        let frame = match parent_of(bones, i) {
+            Some(p) => {
+                let (dx, dy) = (
+                    (b.head[0] - bones[p].head[0]) as f64,
+                    (b.head[1] - bones[p].head[1]) as f64,
+                );
+                let (s, c) = (libm::sin(out[p].turn), libm::cos(out[p].turn));
+                Frame {
+                    head: [out[p].head[0] + c * dx - s * dy, out[p].head[1] + s * dx + c * dy],
+                    turn: out[p].turn + turns[i],
+                }
+            }
+            None => Frame {
+                head: [(b.head[0] + root[0]) as f64, (b.head[1] + root[1]) as f64],
+                turn: turns[i],
+            },
+        };
+        out.push(frame);
+    });
+    out
+}
+
+fn soft(d: f64, reach: f64, softness: f64) -> f64 {
+    match softness > 0.0 {
+        false => d,
+        true if d <= reach - softness => d,
+        true if d >= reach + softness => reach,
+        true => {
+            let over = d - reach + softness;
+            d - over * over / (4.0 * softness)
+        }
+    }
+}
+
+fn aim(bones: &[Bone], end: usize, world: &[Frame], target: [f64; 2]) -> Vec<(usize, f64)> {
+    let head = world[end].head;
+    let (vx, vy) = (target[0] - head[0], target[1] - head[1]);
+    if libm::hypot(vx, vy) < NEAR {
+        return Vec::new();
+    }
+    let above = parent_of(bones, end).map_or(0.0, |p| world[p].turn);
+    vec![(end, libm::atan2(vy, vx) - rest_angle(&bones[end]) - above)]
+}
+
+fn solve(bones: &[Bone], c: &Ik, end: usize, world: &[Frame], target: [f64; 2]) -> Vec<(usize, f64)> {
+    let Some(a) = parent_of(bones, end).filter(|_| c.chain == 2) else {
+        return aim(bones, end, world, target);
+    };
+    let (upper, lower) = (&bones[a], &bones[end]);
+    let (jx, jy) = (
+        (lower.head[0] - upper.head[0]) as f64,
+        (lower.head[1] - upper.head[1]) as f64,
+    );
+    let l1 = libm::hypot(jx, jy);
+    if l1 < NEAR {
+        return aim(bones, end, world, target);
+    }
+    let along = libm::atan2(jy, jx);
+    let l2 = libm::hypot(
+        (lower.tail[0] - lower.head[0]) as f64,
+        (lower.tail[1] - lower.head[1]) as f64,
+    );
+    let s = world[a].head;
+    let (dx, dy) = (target[0] - s[0], target[1] - s[1]);
+    let d = libm::hypot(dx, dy);
+    let u = match d < NEAR {
+        true => {
+            let fk = along + world[a].turn;
+            [libm::cos(fk), libm::sin(fk)]
+        }
+        false => [dx / d, dy / d],
+    };
+    let n = [-u[1], u[0]];
+    let reach = l1 + l2;
+    let r = soft(d, reach, c.softness as f64).clamp((l1 - l2).abs().max(NEAR), reach);
+    let a_len = (r * r + l1 * l1 - l2 * l2) / (2.0 * r);
+    let h = (l1 * l1 - a_len * a_len).max(0.0).sqrt();
+    let sign = c.bend.sign();
+    let elbow = [
+        s[0] + a_len * u[0] - sign * h * n[0],
+        s[1] + a_len * u[1] - sign * h * n[1],
+    ];
+    let tip = [s[0] + r * u[0], s[1] + r * u[1]];
+    let first = libm::atan2(elbow[1] - s[1], elbow[0] - s[0]);
+    let second = libm::atan2(tip[1] - elbow[1], tip[0] - elbow[0]);
+    let above = parent_of(bones, a).map_or(0.0, |p| world[p].turn);
+    vec![
+        (a, first - along - above),
+        (end, second - first - (rest_angle(lower) - along)),
+    ]
+}
+
+fn order<'a>(bones: &[Bone], ik: &'a [Ik]) -> Vec<(usize, &'a Ik)> {
+    let mut found: Vec<(usize, usize, &Ik)> = ik
+        .iter()
+        .filter_map(|c| {
+            let end = bones.iter().position(|b| b.name == c.bone)?;
+            let top = match c.chain {
+                2 => parent_of(bones, end).unwrap_or(end),
+                _ => end,
+            };
+            Some((top, end, c))
+        })
+        .collect();
+    found.sort_by_key(|(top, end, _)| (*top, *end));
+    found.into_iter().map(|(_, end, c)| (end, c)).collect()
+}
+
+pub fn applied(bones: &[Bone], ik: &[Ik], pose: &Pose) -> BTreeMap<String, f32> {
+    let mut angles = pose.angles.clone();
+    if pose.ik.is_empty() || ik.is_empty() {
+        return angles;
+    }
+    let mut turns: Vec<f64> = bones
+        .iter()
+        .map(|b| angles.get(&b.name).map_or(0.0, |a| *a as f64 * RAD))
+        .collect();
+    let mut touched = std::collections::BTreeSet::new();
+    order(bones, ik).into_iter().for_each(|(end, c)| {
+        let Some(reach) = pose.ik.get(&c.bone) else {
+            return;
+        };
+        let mix = if reach.mix.is_finite() {
+            reach.mix.clamp(0.0, 1.0) as f64
+        } else {
+            0.0
+        };
+        let target = [reach.target[0] as f64, reach.target[1] as f64];
+        if mix <= 0.0 || !target.iter().all(|v| v.is_finite()) {
+            return;
+        }
+        let world = frames(bones, &turns, pose.root);
+        solve(bones, c, end, &world, target).into_iter().for_each(|(i, turn)| {
+            turns[i] += mix * wrap(turn - turns[i]);
+            touched.insert(i);
+        });
+    });
+    touched.into_iter().for_each(|i| {
+        angles.insert(bones[i].name.clone(), (turns[i] / RAD) as f32);
+    });
+    angles
+}
+
+pub fn skinning(bones: &[Bone], ik: &[Ik], pose: &Pose) -> Vec<Mat> {
+    let angles = applied(bones, ik, pose);
     let rest: Vec<Mat> = bones.iter().map(|b| placed(b.head, b.angle())).collect();
     let mut posed: Vec<Mat> = Vec::with_capacity(bones.len());
     bones.iter().enumerate().for_each(|(i, b)| {
-        let turn = placed(
-            [0.0, 0.0],
-            pose.angles.get(&b.name).copied().unwrap_or(0.0).to_radians(),
-        );
-        let world = match b.parent.as_ref().and_then(|p| bones.iter().position(|o| &o.name == p)) {
+        let degrees = angles.get(&b.name).copied().unwrap_or(0.0);
+        let turn = placed([0.0, 0.0], degrees * (std::f32::consts::PI / 180.0));
+        let world = match parent_of(bones, i) {
             Some(p) => mul(posed[p], mul(mul(invert(rest[p]), rest[i]), turn)),
             None => mul([1.0, 0.0, 0.0, 1.0, pose.root[0], pose.root[1]], mul(rest[i], turn)),
         };
@@ -191,8 +509,8 @@ pub fn skinning(bones: &[Bone], pose: &Pose) -> Vec<Mat> {
     posed.iter().zip(&rest).map(|(p, r)| mul(*p, invert(*r))).collect()
 }
 
-pub fn tips(bones: &[Bone], pose: &Pose) -> Vec<([f32; 2], [f32; 2])> {
-    let mats = skinning(bones, pose);
+pub fn tips(bones: &[Bone], ik: &[Ik], pose: &Pose) -> Vec<([f32; 2], [f32; 2])> {
+    let mats = skinning(bones, ik, pose);
     bones
         .iter()
         .zip(&mats)
@@ -368,11 +686,11 @@ pub struct Rig<'a> {
 }
 
 impl<'a> Rig<'a> {
-    pub fn new(bones: &'a [Bone], weights: &'a Weights, pose: &Pose) -> Self {
+    pub fn new(bones: &'a [Bone], ik: &[Ik], weights: &'a Weights, pose: &Pose) -> Self {
         Self {
             bones,
             weights,
-            mats: skinning(bones, pose),
+            mats: skinning(bones, ik, pose),
         }
     }
 
@@ -623,6 +941,8 @@ mod tests {
     use super::*;
     use crate::stroke::Stroke;
 
+    const GOLDEN: [u32; 3] = [1101004800, 3257723871, 1097306278];
+
     fn leg() -> Vec<Bone> {
         vec![
             Bone {
@@ -638,6 +958,332 @@ mod tests {
                 tail: [100.0, 300.0],
             },
         ]
+    }
+
+    fn bone(name: &str, parent: Option<&str>, head: [f32; 2], tail: [f32; 2]) -> Bone {
+        Bone {
+            name: name.into(),
+            parent: parent.map(str::to_string),
+            head,
+            tail,
+        }
+    }
+
+    fn limb_on(bone: &str, bend: Bend, softness: f32) -> Ik {
+        Ik {
+            bone: bone.into(),
+            chain: 2,
+            bend,
+            softness,
+        }
+    }
+
+    fn reaching(targets: &[(&str, [f32; 2], f32)]) -> Pose {
+        Pose {
+            ik: targets
+                .iter()
+                .map(|(b, t, m)| (b.to_string(), Reach { target: *t, mix: *m }))
+                .collect(),
+            ..Pose::default()
+        }
+    }
+
+    fn end_of(bones: &[Bone], ik: &[Ik], pose: &Pose, name: &str) -> [f32; 2] {
+        let i = bones.iter().position(|b| b.name == name).unwrap();
+        tips(bones, ik, pose)[i].1
+    }
+
+    fn apart(a: [f32; 2], b: [f32; 2]) -> f32 {
+        (a[0] - b[0]).hypot(a[1] - b[1])
+    }
+
+    fn cross(o: [f32; 2], a: [f32; 2], b: [f32; 2]) -> f32 {
+        (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    }
+
+    #[test]
+    fn a_limb_reaches_its_target_with_an_offset_joint_a_turned_parent_and_a_root_move() {
+        let bones = vec![
+            bone("pelvis", None, [200.0, 100.0], [200.0, 150.0]),
+            bone("thigh", Some("pelvis"), [215.0, 155.0], [220.0, 255.0]),
+            bone("shin", Some("thigh"), [222.0, 258.0], [230.0, 360.0]),
+        ];
+        let target = [300.0, 330.0];
+        [Bend::Clockwise, Bend::Counterclockwise].into_iter().for_each(|bend| {
+            let ik = vec![limb_on("shin", bend, 0.0)];
+            let mut pose = reaching(&[("shin", target, 1.0)]);
+            pose.angles.insert("pelvis".into(), 20.0);
+            pose.root = [15.0, -10.0];
+            let shown = tips(&bones, &ik, &pose);
+            assert!(apart(shown[2].1, target) < 0.01, "{bend:?}: {:?}", shown[2].1);
+            let side = cross(shown[1].0, target, shown[2].0);
+            match bend {
+                Bend::Clockwise => assert!(side < 0.0, "a clockwise knee sits on its side: {side}"),
+                Bend::Counterclockwise => assert!(side > 0.0, "a counterclockwise knee sits on the other: {side}"),
+            }
+            let fk = tips(&bones, &[], &pose);
+            assert_eq!(shown[0], fk[0], "the pelvis is not part of the limb");
+        });
+    }
+
+    #[test]
+    fn out_of_reach_the_limb_points_straight_at_the_target_and_too_close_it_folds() {
+        let bones = vec![
+            bone("thigh", None, [100.0, 100.0], [100.0, 200.0]),
+            bone("shin", Some("thigh"), [100.0, 200.0], [100.0, 260.0]),
+        ];
+        let ik = vec![limb_on("shin", Bend::Clockwise, 0.0)];
+        let far = end_of(&bones, &ik, &reaching(&[("shin", [500.0, 100.0], 1.0)]), "shin");
+        assert!(apart(far, [260.0, 100.0]) < 0.01, "straight at full reach: {far:?}");
+        let near = end_of(&bones, &ik, &reaching(&[("shin", [110.0, 100.0], 1.0)]), "shin");
+        assert!(apart(near, [140.0, 100.0]) < 0.01, "folded as far as it goes: {near:?}");
+        let on = tips(&bones, &ik, &reaching(&[("shin", [100.0, 100.0], 1.0)]));
+        assert!(on.iter().all(|(h, t)| h.iter().chain(t).all(|v| v.is_finite())));
+        let aim = vec![Ik {
+            bone: "shin".into(),
+            chain: 1,
+            bend: Bend::Clockwise,
+            softness: 0.0,
+        }];
+        let pointed = end_of(&bones, &aim, &reaching(&[("shin", [400.0, 200.0], 1.0)]), "shin");
+        assert!(
+            apart(pointed, [160.0, 200.0]) < 0.01,
+            "an aim turns the bone alone: {pointed:?}"
+        );
+        let still = tips(&bones, &aim, &reaching(&[("shin", [100.0, 200.0], 1.0)]));
+        assert_eq!(
+            still,
+            tips(&bones, &[], &Pose::default()),
+            "a target on its head keeps the turn"
+        );
+    }
+
+    #[test]
+    fn softness_eases_the_limb_into_full_reach() {
+        let bones = vec![
+            bone("thigh", None, [0.0, 0.0], [0.0, 100.0]),
+            bone("shin", Some("thigh"), [0.0, 100.0], [0.0, 200.0]),
+        ];
+        let sweep = |softness: f32| -> (Vec<f32>, Vec<f32>) {
+            let ik = vec![limb_on("shin", Bend::Clockwise, softness)];
+            (0..=240)
+                .map(|i| {
+                    let d = 140.0 + i as f32 * 0.5;
+                    let pose = reaching(&[("shin", [0.0, d], 1.0)]);
+                    let reach = end_of(&bones, &ik, &pose, "shin")[1];
+                    (reach, applied(&bones, &ik, &pose)["thigh"])
+                })
+                .unzip()
+        };
+        let (hard, hard_turn) = sweep(0.0);
+        let (soft, soft_turn) = sweep(20.0);
+        assert!(soft.windows(2).all(|w| w[1] >= w[0] - 1e-3), "it never pulls back");
+        assert!(
+            (soft[0] - 140.0).abs() < 0.01,
+            "reaches the target well inside full reach"
+        );
+        assert!(
+            (soft[240] - 200.0).abs() < 0.01,
+            "straight once the target is softness past full reach"
+        );
+        assert!(
+            (soft[120] - 195.0).abs() < 0.01 && hard[120] == 200.0,
+            "at full reach a soft limb is still a quarter of its softness short: {}",
+            soft[120]
+        );
+        let step = |turns: &[f32]| turns.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
+        assert!(
+            step(&hard_turn) > 2.0,
+            "without softness the knee snaps: {}",
+            step(&hard_turn)
+        );
+        assert!(step(&soft_turn) < 0.6, "with softness it eases: {}", step(&soft_turn));
+    }
+
+    #[test]
+    fn mix_blends_from_the_turns_to_the_target_the_short_way() {
+        let bones = vec![
+            bone("upper", None, [0.0, 0.0], [100.0, 0.0]),
+            bone("fore", Some("upper"), [100.0, 0.0], [200.0, 0.0]),
+        ];
+        let ik = vec![Ik {
+            bone: "fore".into(),
+            chain: 1,
+            bend: Bend::Clockwise,
+            softness: 0.0,
+        }];
+        let at = |mix: f32| {
+            let mut pose = reaching(&[("fore", [100.0, 100.0], mix)]);
+            pose.angles.insert("fore".into(), -170.0);
+            applied(&bones, &ik, &pose)["fore"]
+        };
+        let same = |a: f32, b: f32| ((a - b + 540.0).rem_euclid(360.0) - 180.0).abs() < 1e-3;
+        assert_eq!(at(0.0), -170.0, "mix 0 is the turns");
+        assert!(same(at(1.0), 90.0), "{}", at(1.0));
+        assert!(
+            same(at(0.5), 140.0) && (at(0.5) + 170.0).abs() < 90.0,
+            "half way the short way round, through 180: {}",
+            at(0.5)
+        );
+    }
+
+    #[test]
+    fn constraints_are_solved_parent_first_whatever_their_order() {
+        let bones = vec![
+            bone("thigh", None, [0.0, 0.0], [0.0, 100.0]),
+            bone("shin", Some("thigh"), [0.0, 100.0], [0.0, 200.0]),
+            bone("foot", Some("shin"), [0.0, 200.0], [30.0, 200.0]),
+        ];
+        let ik = vec![
+            Ik {
+                bone: "foot".into(),
+                chain: 1,
+                bend: Bend::Clockwise,
+                softness: 0.0,
+            },
+            limb_on("shin", Bend::Clockwise, 0.0),
+        ];
+        let pose = reaching(&[("shin", [60.0, 150.0], 1.0), ("foot", [200.0, 150.0], 1.0)]);
+        let shown = tips(&bones, &ik, &pose);
+        assert!(
+            apart(shown[1].1, [60.0, 150.0]) < 0.01,
+            "the leg reaches: {:?}",
+            shown[1].1
+        );
+        let (h, t) = shown[2];
+        let pointing = libm::atan2f(t[1] - h[1], t[0] - h[0]);
+        let wanted = libm::atan2f(150.0 - h[1], 200.0 - h[0]);
+        assert!(
+            (pointing - wanted).abs() < 1e-4,
+            "the foot aims from where the leg put it"
+        );
+    }
+
+    #[test]
+    fn in_betweens_mix_the_targets_so_a_planted_foot_stays_planted() {
+        let bones = vec![
+            bone("thigh", None, [0.0, 0.0], [0.0, 100.0]),
+            bone("shin", Some("thigh"), [0.0, 100.0], [0.0, 200.0]),
+        ];
+        let ik = vec![limb_on("shin", Bend::Clockwise, 0.0)];
+        let key = |x: f32| Pose {
+            root: [x, 0.0],
+            ..reaching(&[("shin", [0.0, 180.0], 1.0)])
+        };
+        let (a, b) = (key(-60.0), key(60.0));
+        (0..=10).map(|i| i as f32 / 10.0).for_each(|t| {
+            let foot = end_of(&bones, &ik, &between(&bones, &ik, &a, &b, t), "shin");
+            assert!(apart(foot, [0.0, 180.0]) < 1e-3, "t {t}: {foot:?}");
+        });
+        let turned = |p: &Pose| Pose {
+            angles: applied(&bones, &ik, p),
+            root: p.root,
+            ..Pose::default()
+        };
+        let slid = end_of(
+            &bones,
+            &[],
+            &between(&bones, &[], &turned(&a), &turned(&b), 0.5),
+            "shin",
+        );
+        assert!(
+            (slid[1] - 189.74).abs() < 0.05,
+            "mixing the solved turns instead pushes the foot through the floor: {slid:?}"
+        );
+    }
+
+    #[test]
+    fn a_limb_on_ik_in_one_key_only_hands_over_without_a_jump() {
+        let bones = vec![
+            bone("upper", None, [0.0, 0.0], [100.0, 0.0]),
+            bone("fore", Some("upper"), [100.0, 0.0], [200.0, 0.0]),
+        ];
+        let ik = vec![limb_on("fore", Bend::Clockwise, 0.0)];
+        let a = reaching(&[("fore", [120.0, 80.0], 1.0)]);
+        let mut b = Pose::default();
+        b.angles.insert("upper".into(), 60.0);
+        let at = |t: f32| end_of(&bones, &ik, &between(&bones, &ik, &a, &b, t), "fore");
+        assert!(apart(at(0.0), [120.0, 80.0]) < 0.01);
+        assert!(apart(at(1.0), end_of(&bones, &[], &b, "fore")) < 0.01);
+        let path: Vec<[f32; 2]> = (0..=20).map(|i| at(i as f32 / 20.0)).collect();
+        assert!(
+            path.windows(2).all(|w| apart(w[0], w[1]) < 25.0),
+            "no jump on the way: {path:?}"
+        );
+    }
+
+    #[test]
+    fn bad_constraints_are_refused_and_the_rest_bend_is_read_from_the_drawing() {
+        let bones = vec![
+            bone("thigh", None, [0.0, 0.0], [0.0, 100.0]),
+            bone("shin", Some("thigh"), [0.0, 100.0], [-30.0, 190.0]),
+            bone("spur", Some("thigh"), [0.0, 0.0], [20.0, 10.0]),
+        ];
+        let refused = |ik: Vec<Ik>| check_ik(&bones, &ik).unwrap_err().to_string();
+        assert!(refused(vec![limb_on("calf", Bend::Clockwise, 0.0)]).contains("no bone calf"));
+        assert!(refused(vec![limb_on("thigh", Bend::Clockwise, 0.0)]).contains("has none"));
+        assert!(refused(vec![limb_on("spur", Bend::Clockwise, 0.0)]).contains("starts where its parent"));
+        assert!(
+            refused(vec![Ik {
+                chain: 3,
+                ..limb_on("shin", Bend::Clockwise, 0.0)
+            }])
+            .contains("not 3")
+        );
+        assert!(refused(vec![limb_on("shin", Bend::Clockwise, -1.0)]).contains("softness"));
+        assert!(
+            refused(vec![
+                limb_on("shin", Bend::Clockwise, 0.0),
+                limb_on("shin", Bend::Counterclockwise, 0.0)
+            ])
+            .contains("two IKs")
+        );
+        assert!(check_ik(&bones, &[limb_on("shin", Bend::Clockwise, 4.0)]).is_ok());
+        assert_eq!(
+            rest_bend(&bones, "shin"),
+            Bend::Clockwise,
+            "the shin turns clockwise off the thigh"
+        );
+        let mirrored = vec![
+            bones[0].clone(),
+            bone("shin", Some("thigh"), [0.0, 100.0], [30.0, 190.0]),
+        ];
+        assert_eq!(rest_bend(&mirrored, "shin"), Bend::Counterclockwise);
+        let straight = vec![
+            bones[0].clone(),
+            bone("shin", Some("thigh"), [0.0, 100.0], [0.0, 200.0]),
+        ];
+        assert_eq!(rest_bend(&straight, "shin"), Bend::Clockwise);
+        let ik = vec![limb_on("shin", rest_bend(&bones, "shin"), 0.0)];
+        let rest_tip = end_of(&bones, &[], &Pose::default(), "shin");
+        let at_rest = tips(&bones, &ik, &reaching(&[("shin", rest_tip, 1.0)]));
+        assert!(
+            at_rest
+                .iter()
+                .zip(tips(&bones, &[], &Pose::default()))
+                .all(|(a, b)| apart(a.0, b.0) < 1e-3 && apart(a.1, b.1) < 1e-3),
+            "a target on the limb's end at rest moves nothing"
+        );
+    }
+
+    #[test]
+    fn the_solver_gives_the_same_numbers_everywhere() {
+        let bones = vec![
+            bone("pelvis", None, [200.0, 100.0], [200.0, 150.0]),
+            bone("thigh", Some("pelvis"), [215.0, 155.0], [220.0, 255.0]),
+            bone("shin", Some("thigh"), [222.0, 258.0], [230.0, 360.0]),
+        ];
+        let ik = vec![limb_on("shin", Bend::Clockwise, 6.0)];
+        let mut pose = reaching(&[("shin", [300.0, 330.0], 0.8)]);
+        pose.angles.insert("pelvis".into(), 20.0);
+        pose.angles.insert("thigh".into(), -12.5);
+        pose.root = [15.0, -10.0];
+        let solved = applied(&bones, &ik, &pose);
+        let bits: Vec<u32> = ["pelvis", "thigh", "shin"]
+            .iter()
+            .map(|b| solved[*b].to_bits())
+            .collect();
+        assert_eq!(bits, GOLDEN, "{solved:?}");
     }
 
     #[test]
@@ -709,11 +1355,11 @@ mod tests {
         let line: Mark = Stroke::new(1, "ink", [0.0, 0.0, 0.0, 1.0], 6.0, 1)
             .with_points(&points, 8.0)
             .into();
-        let rest = Rig::new(&bones, &weights, &Pose::default());
+        let rest = Rig::new(&bones, &[], &weights, &Pose::default());
         assert_eq!(rest.pose(std::slice::from_ref(&line), (200, 400)), vec![line.clone()]);
         let mut bent = Pose::default();
         bent.angles.insert("shin".into(), 60.0);
-        let posed = Rig::new(&bones, &weights, &bent).pose(std::slice::from_ref(&line), (200, 400));
+        let posed = Rig::new(&bones, &[], &weights, &bent).pose(std::slice::from_ref(&line), (200, 400));
         let pts: Vec<(f32, f32)> = posed[0].as_stroke().unwrap().samples.iter().map(|q| q.pos()).collect();
         assert!((pts[0].0 - 100.0).abs() < 0.5 && (pts[0].1 - 100.0).abs() < 0.5);
         let end = pts[pts.len() - 1];
@@ -746,7 +1392,7 @@ mod tests {
         );
         let mut swing = Pose::default();
         swing.angles.insert("thigh".into(), 90.0);
-        let moved = Rig::new(&bones, &rigid, &swing).pose(std::slice::from_ref(&line), (200, 400));
+        let moved = Rig::new(&bones, &[], &rigid, &swing).pose(std::slice::from_ref(&line), (200, 400));
         let s = moved[0].as_stroke().unwrap();
         let (a, b) = (s.samples[0].pos(), s.samples[s.samples.len() - 1].pos());
         assert!(
