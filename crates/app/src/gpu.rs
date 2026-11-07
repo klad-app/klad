@@ -1,4 +1,4 @@
-use crate::composite::{FrameImage, Mix};
+use crate::composite::FrameImage;
 use crate::stats::{Stats, lock};
 use egui_wgpu::wgpu;
 use half::f16;
@@ -45,16 +45,9 @@ pub fn mip_chain(tile: &[f16]) -> Vec<Vec<f16>> {
 
 pub struct CanvasGpu {
     canvas_pipeline: wgpu::RenderPipeline,
-    over: wgpu::RenderPipeline,
-    multiply: wgpu::RenderPipeline,
-    screen: wgpu::RenderPipeline,
-    add: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     canvas: Plane,
-    base: Plane,
-    tops: Vec<Plane>,
-    lift: Plane,
     frames: BTreeMap<u64, Plane>,
 }
 
@@ -222,32 +215,9 @@ impl CanvasGpu {
             mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
-        let part = |src_factor, dst_factor| wgpu::BlendComponent {
-            src_factor,
-            dst_factor,
-            operation: wgpu::BlendOperation::Add,
-        };
-        use wgpu::BlendFactor as F;
-        let over_alpha = part(F::One, F::OneMinusSrcAlpha);
-        let quad = |color, alpha| {
-            pipeline(
-                device,
-                &layout,
-                format,
-                include_str!("quad.wgsl"),
-                Some(wgpu::BlendState { color, alpha }),
-            )
-        };
         Self {
             canvas_pipeline: pipeline(device, &layout, format, include_str!("canvas.wgsl"), None),
-            over: quad(part(F::One, F::OneMinusSrcAlpha), over_alpha),
-            multiply: quad(part(F::Zero, F::Src), part(F::Zero, F::One)),
-            screen: quad(part(F::One, F::OneMinusSrc), over_alpha),
-            add: quad(part(F::One, F::One), part(F::One, F::One)),
             canvas: plane(device, &layout, &sampler, size, 48, levels_for(size)),
-            base: plane(device, &layout, &sampler, size, 48, levels_for(size)),
-            tops: Vec::new(),
-            lift: plane(device, &layout, &sampler, (1, 1), 80, 1),
             frames: BTreeMap::new(),
             layout,
             sampler,
@@ -299,51 +269,14 @@ impl CanvasGpu {
         );
     }
 
-    fn resize(&mut self, device: &wgpu::Device, which: Which, size: (u32, u32)) {
-        let target = match which {
-            Which::Canvas => &mut self.canvas,
-            Which::Base => &mut self.base,
-            Which::Top(i) => &mut self.tops[i],
-            Which::Lift => &mut self.lift,
-        };
-        let levels = match which {
-            Which::Lift => 1,
-            _ => levels_for(size),
-        };
+    fn resize(&mut self, device: &wgpu::Device, size: (u32, u32)) {
+        let levels = levels_for(size);
+        let target = &mut self.canvas;
         target.texture = texture(device, size, levels);
         target.bind_group = bind(device, &self.layout, &target.uniform, &target.texture, &self.sampler);
         target.size = size;
         target.levels = levels;
     }
-
-    fn ensure_tops(&mut self, device: &wgpu::Device, count: usize, size: (u32, u32)) {
-        while self.tops.len() < count {
-            let plane = plane(device, &self.layout, &self.sampler, size, 80, levels_for(size));
-            self.tops.push(plane);
-        }
-        (0..self.tops.len()).for_each(|i| {
-            if self.tops[i].size != size {
-                self.resize(device, Which::Top(i), size);
-            }
-        });
-    }
-
-    fn pipeline_for(&self, mix: Mix) -> &wgpu::RenderPipeline {
-        match mix {
-            Mix::Over => &self.over,
-            Mix::Multiply => &self.multiply,
-            Mix::Screen => &self.screen,
-            Mix::Add => &self.add,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-enum Which {
-    Canvas,
-    Base,
-    Top(usize),
-    Lift,
 }
 
 type Upload = (usize, Vec<f16>);
@@ -395,42 +328,6 @@ fn upload_tiles(queue: &wgpu::Queue, plane: &Plane, cols: usize, tiles: &[Upload
     });
 }
 
-fn upload_image(queue: &wgpu::Queue, plane: &Plane, (width, height): (u32, u32), pixels: &[f16]) {
-    queue.write_texture(
-        wgpu::TexelCopyTextureInfo {
-            texture: &plane.texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        bytemuck::cast_slice(pixels),
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(width * 8),
-            rows_per_image: None,
-        },
-        wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-    );
-}
-
-pub struct QuadDraw {
-    pub uniform: [f32; 20],
-    pub tiles: Mutex<Vec<(usize, Vec<f16>)>>,
-    pub image: Mutex<Option<(u32, u32, Vec<f16>)>>,
-}
-
-pub fn quad_uniform(view: &[f32; 12], affine: [f32; 6], opacity: f32, rect: [f32; 4]) -> [f32; 20] {
-    let [a, b, c, d, e, f] = affine;
-    [
-        view[0], view[1], view[2], view[3], view[4], view[5], view[6], view[7], a, b, c, d, e, f, opacity, 0.0,
-        rect[0], rect[1], rect[2], rect[3],
-    ]
-}
-
 pub struct CanvasPaint {
     pub uniform: [f32; 12],
     pub uploads: Mutex<Vec<(usize, Vec<f16>)>>,
@@ -438,10 +335,6 @@ pub struct CanvasPaint {
     pub cols: usize,
     pub pending: Option<Instant>,
     pub stats: Arc<Mutex<Stats>>,
-    pub base: Mutex<Vec<(usize, Vec<f16>)>>,
-    pub tops: Vec<(Mix, QuadDraw)>,
-    pub lift: Option<QuadDraw>,
-    pub lifting: bool,
     pub show: Option<u64>,
     pub frame_uploads: Mutex<Vec<FrameImage>>,
     pub frame_drops: Vec<u64>,
@@ -460,34 +353,12 @@ impl egui_wgpu::CallbackTrait for CanvasPaint {
             return Vec::new();
         };
         if gpu.canvas.size != self.size {
-            gpu.resize(device, Which::Canvas, self.size);
-        }
-        if gpu.base.size != self.size {
-            gpu.resize(device, Which::Base, self.size);
-        }
-        queue.write_buffer(&gpu.base.uniform, 0, bytemuck::cast_slice(&self.uniform));
-        upload_tiles(queue, &gpu.base, self.cols, &std::mem::take(&mut *lock(&self.base)));
-        if !self.tops.is_empty() {
-            gpu.ensure_tops(device, self.tops.len(), self.size);
+            gpu.resize(device, self.size);
         }
         queue.write_buffer(&gpu.canvas.uniform, 0, bytemuck::cast_slice(&self.uniform));
         let uploads = std::mem::take(&mut *lock(&self.uploads));
         let start = Instant::now();
         upload_tiles(queue, &gpu.canvas, self.cols, &uploads);
-        self.tops.iter().enumerate().for_each(|(k, (_, top))| {
-            let plane = &gpu.tops[k];
-            queue.write_buffer(&plane.uniform, 0, bytemuck::cast_slice(&top.uniform));
-            upload_tiles(queue, plane, self.cols, &std::mem::take(&mut *lock(&top.tiles)));
-        });
-        if let Some(lift) = &self.lift {
-            if let Some((w, h, pixels)) = lock(&lift.image).take() {
-                if gpu.lift.size != (w, h) {
-                    gpu.resize(device, Which::Lift, (w, h));
-                }
-                upload_image(queue, &gpu.lift, (w, h), &pixels);
-            }
-            queue.write_buffer(&gpu.lift.uniform, 0, bytemuck::cast_slice(&lift.uniform));
-        }
         self.frame_drops.iter().for_each(|key| {
             gpu.frames.remove(key);
         });
@@ -520,29 +391,9 @@ impl egui_wgpu::CallbackTrait for CanvasPaint {
             return;
         };
         pass.set_pipeline(&gpu.canvas_pipeline);
-        let cached = self.show.filter(|_| !self.lifting).and_then(|key| gpu.frames.get(&key));
-        let under = match (self.lifting, cached) {
-            (true, _) => &gpu.base,
-            (false, Some(plane)) => plane,
-            (false, None) => &gpu.canvas,
-        };
+        let under = self.show.and_then(|key| gpu.frames.get(&key)).unwrap_or(&gpu.canvas);
         pass.set_bind_group(0, &under.bind_group, &[]);
         pass.draw(0..6, 0..1);
-        if !self.lifting {
-            return;
-        }
-        if self.lift.is_some() {
-            pass.set_pipeline(&gpu.over);
-            pass.set_bind_group(0, &gpu.lift.bind_group, &[]);
-            pass.draw(0..6, 0..1);
-        }
-        self.tops.iter().enumerate().for_each(|(k, (mix, _))| {
-            if let Some(plane) = gpu.tops.get(k) {
-                pass.set_pipeline(gpu.pipeline_for(*mix));
-                pass.set_bind_group(0, &plane.bind_group, &[]);
-                pass.draw(0..6, 0..1);
-            }
-        });
     }
 }
 

@@ -28,6 +28,9 @@ The first builds, and klad's licences.
 - `klad paintover` (and "paint over" in the layers panel): brushwork from any picture, strokes that follow its forms and stop at its colour edges, big to small, detail where the picture has it; `--like` and `--frames` carry it through an animation without boiling.
 - `klad compare` (and "compare with the reference" in the editor): a drawing against a reference picture in numbers and words, with a heat map.
 - Large stills render several times faster: strokes land only where they painted, and the CLI replays a drawing's tiles on every core (same pixels).
+- Dragging in a large drawing: shapes and strokes move under the pointer from the first move, wherever they are (in groups with effects, clipped, masked, under any blend), drawn in the background tile by tile; the layers above and the rest of the dragged layer stay in place (dragging a shape on the topmost layer no longer hid the shapes above it), and letting go redraws only the tiles the move touched.
+- Edits on vector layers redraw only the tiles their shapes covered before and after, not the whole layer.
+- Noise and haze no longer make every edit redraw the tiles around it.
 
 ## 0.1.0 (2026-11-04)
 

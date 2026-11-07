@@ -15,6 +15,7 @@ mod pen;
 mod picker;
 mod places;
 mod planes;
+mod preview;
 pub mod report;
 mod settings;
 mod start;

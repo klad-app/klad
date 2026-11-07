@@ -710,8 +710,13 @@ impl Editor {
     fn internal_work(&self, now: Instant) -> Vec<String> {
         let slow = Duration::from_millis(600);
         let mut work = Vec::new();
-        if self.lift.as_ref().is_some_and(|l| l.job.is_some()) && now.duration_since(self.lift_since) > slow {
-            work.push("preparing the selection".to_string());
+        if self
+            .preview
+            .as_ref()
+            .and_then(|p| p.finish.as_ref())
+            .is_some_and(|f| now.duration_since(f.since) > slow)
+        {
+            work.push("drawing the move".to_string());
         }
         if self.path_commit.is_some() {
             work.push("drawing the edited path".to_string());

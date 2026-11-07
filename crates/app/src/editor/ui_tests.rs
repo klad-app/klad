@@ -1062,7 +1062,7 @@ fn drag(h: &mut Harness<'static, Editor>, from: egui::Pos2, to: egui::Pos2) {
 }
 
 #[test]
-fn a_shape_drag_started_while_the_last_one_is_written_still_happens() {
+fn a_shape_previews_only_its_tiles_while_dragged_and_two_drags_in_a_row_both_land() {
     let path = sample("held");
     let mut h = harness(editor(&path), vec2(1440.0, 900.0));
     activate(&mut h, "shapes");
@@ -1074,32 +1074,38 @@ fn a_shape_drag_started_while_the_last_one_is_written_still_happens() {
     };
     let before = h.state().node_transform(&id).unwrap();
     h.state_mut().tool = Tool::Select;
-    h.state_mut().selection = Some(id.clone());
-    settle(&mut h, |ed| {
-        ed.lift
-            .as_ref()
-            .is_some_and(|l| l.ready.as_ref().is_some_and(|(_, p)| l.stage >= p.runs.len() + 2))
-    });
     let view = h.state().view.unwrap();
     let rect = h.state().canvas_rect;
-    let middle = rect.min + view.to_screen(egui::Vec2::new(80.0, 60.0), rect.size());
-    drag(&mut h, middle, middle + vec2(40.0, 0.0));
-    let writing = h.state().writing();
+    let middle = rect.min + view.to_screen(egui::Vec2::new(120.0, 30.0), rect.size());
+    h.hover_at(middle);
+    h.run_steps(1);
+    h.drag_at(middle);
+    h.run_steps(1);
+    (1..=5).for_each(|i| {
+        h.hover_at(middle + vec2(8.0 * i as f32, 0.0));
+        h.run_steps(1);
+    });
+    settle(&mut h, |ed| ed.preview.as_ref().is_some_and(|p| p.done.is_some()));
+    let (shown, all) = {
+        let ed = h.state();
+        (ed.preview.as_ref().unwrap().shown.clone(), ed.scene.all_tiles().len())
+    };
     assert!(
-        writing,
-        "the first move was already written; the test would not cover a press during a write"
+        !shown.is_empty() && shown.len() < all,
+        "a press-and-drag previews the tiles under the shape: {shown:?} of {all}"
     );
+    h.drop_at(middle + vec2(40.0, 0.0));
+    h.run_steps(1);
     drag(&mut h, middle + vec2(40.0, 0.0), middle + vec2(40.0, 50.0));
-    settle(&mut h, |ed| !ed.writing() && ed.drag.is_none() && ed.held.len() == 0);
-    h.run_steps(3);
-    settle(&mut h, |ed| !ed.writing() && ed.drag.is_none());
+    settle(&mut h, |ed| {
+        ed.preview.is_none() && ed.drag.is_none() && ed.dirty.is_empty()
+    });
     let after = h.state().node_transform(&id).unwrap();
     let moved = (after.x - before.x, after.y - before.y);
     let expect = (40.0 / view.zoom, 50.0 / view.zoom);
     assert!(
         (moved.0 - expect.0).abs() < 2.0 && (moved.1 - expect.1).abs() < 2.0,
-        "moved {moved:?}, expected {expect:?} (the first drag was {}being written when the second began)",
-        if writing { "" } else { "not " }
+        "moved {moved:?}, expected {expect:?}"
     );
     let _ = std::fs::remove_dir_all(&path);
 }

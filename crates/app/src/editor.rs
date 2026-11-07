@@ -32,13 +32,14 @@ mod ui_tests;
 
 use crate::color::{self, Hsva};
 use crate::commands::Cmd;
-use crate::composite::{Planes, Preview, Scene};
+use crate::composite::{Preview, Scene, Tiles};
 use crate::frames::FrameCache;
-use crate::gpu::{CanvasPaint, QuadDraw, quad_uniform};
+use crate::gpu::CanvasPaint;
 use crate::jobs::Jobs;
-use crate::lift::{self, Prepared};
+use crate::lift;
 use crate::messages::{Messages, Tone};
 use crate::pen::{self, Pen, PenEvent, Phase, device_key};
+use crate::preview;
 use crate::settings::{self, Settings};
 use crate::stats::{Stats, lock};
 use crate::sync::{Watch, watch};
@@ -67,12 +68,13 @@ use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const HANDLE: f32 = 12.0;
 const REFILL_MS: f64 = 8.0;
+const FINISH_WAIT: Duration = Duration::from_secs(2);
 const KNOB: f32 = 30.0;
 const IDENTITY: [f32; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
 
@@ -422,19 +424,20 @@ impl Drag {
     }
 }
 
-struct Commit {
-    job: Receiver<Result<(u64, Raster)>>,
+struct Finish {
     ops: Vec<Op>,
-    affine: [f32; 6],
+    rev: u64,
+    dirty: BTreeSet<usize>,
+    since: Instant,
 }
 
-struct LiftState {
-    key: String,
-    rev: u64,
-    job: Option<Receiver<Result<Prepared>>>,
-    ready: Option<(Prepared, Planes)>,
-    stage: usize,
-    commit: Option<Commit>,
+struct PreviewState {
+    snap: Arc<preview::Snapshot>,
+    asked: Option<Vec<Op>>,
+    job: Option<Receiver<Result<preview::Done>>>,
+    shown: BTreeSet<usize>,
+    done: Option<(Vec<Op>, bool, BTreeSet<usize>)>,
+    finish: Option<Finish>,
 }
 
 struct Live {
@@ -583,7 +586,6 @@ pub(crate) struct Editor {
     queued: Vec<Cmd>,
     tabs: Vec<bool>,
     themed: bool,
-    lift_since: Instant,
     key_shift: bool,
     held: selection::Held,
     sizing: Option<(f32, f32, Pos2)>,
@@ -644,7 +646,7 @@ pub(crate) struct Editor {
     shared: (Option<String>, Vec<String>, u32),
     ctx: egui::Context,
     sel_box: Option<(String, u64, [Vec2; 4])>,
-    lift: Option<LiftState>,
+    preview: Option<PreviewState>,
     zoom_px: f32,
     picked: Option<Picked>,
     also: Vec<String>,
@@ -758,7 +760,6 @@ impl Editor {
             queued: Vec::new(),
             tabs: Vec::new(),
             themed: false,
-            lift_since: Instant::now(),
             key_shift: false,
             held: selection::Held::default(),
             sizing: None,
@@ -819,7 +820,7 @@ impl Editor {
             shared: (None, Vec::new(), 0),
             ctx,
             sel_box: None,
-            lift: None,
+            preview: None,
             zoom_px: 1.0,
             picked: None,
             also: Vec::new(),
@@ -944,7 +945,7 @@ impl Editor {
             self.external.get_or_insert(first);
             self.pins = notes::read(&self.scene.bundle);
         }
-        let committing = self.lift.as_ref().is_some_and(|l| l.commit.is_some()) || self.path_commit.is_some();
+        let committing = self.path_commit.is_some();
         if self.live.is_some()
             || self.drag.is_some()
             || self.point_drag.is_some()
@@ -1044,10 +1045,16 @@ impl Editor {
     }
 
     fn apply(&mut self, ops: Vec<Op>) -> Result<()> {
+        let dirty = self.commit(ops)?;
+        self.dirty.extend(dirty);
+        Ok(())
+    }
+
+    fn commit(&mut self, ops: Vec<Op>) -> Result<Vec<usize>> {
         self.checks.gaps = None;
         self.checks.arcs = None;
         if ops.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
         self.end_look_preview()?;
         self.end_typing_preview()?;
@@ -1057,9 +1064,8 @@ impl Editor {
             "edit",
             format!("edit applied, {} tiles refreshed in {:.0} ms", dirty.len(), ms(start)),
         );
-        self.dirty.extend(dirty);
         self.forget_missing_selection();
-        Ok(())
+        Ok(dirty)
     }
 
     fn set(&mut self, id: &str, props: Vec<(String, Value)>) -> Result<()> {
@@ -1326,143 +1332,208 @@ impl Editor {
         }
     }
 
-    fn lift_key(&self) -> Option<String> {
-        match self.tool {
-            Tool::Direct => None,
-            _ if self.on_marks() => self.picked.as_ref().map(Picked::key),
-            _ => self.selection.clone(),
+    fn node_ops(&self, drag: &Drag) -> Result<Option<Vec<Op>>> {
+        let node = match self.scene.bundle.doc.item(&drag.node) {
+            Some(Item::Node(_, _, node)) => node.clone(),
+            _ => return Ok(None),
+        };
+        let affine = drag.affine();
+        let t = match drag.stretch() {
+            Some((axis, _, k)) => lift::stretched(&node, affine, axis, k)?,
+            None => lift::committed(&node, affine, drag.scale(), drag.angle().to_degrees())?,
+        };
+        let props: Map<String, Value> = [
+            ("transform.x", json!(t.x)),
+            ("transform.y", json!(t.y)),
+            ("transform.rotate", json!(t.rotate)),
+            ("transform.sx", json!(t.sx)),
+            ("transform.sy", json!(t.sy)),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+        Ok(Some(vec![Op::Set {
+            id: drag.node.clone(),
+            props,
+        }]))
+    }
+
+    fn drag_ops(&self) -> Option<Vec<Op>> {
+        let drag = self.drag.as_ref().filter(|d| d.moved() && !d.copy)?;
+        match drag.strokes {
+            true => self
+                .picked_ops(LassoAction::Transform(drag.mark_transform()))
+                .map(|(ops, _)| ops),
+            false => self.node_ops(drag).ok().flatten(),
         }
     }
 
-    fn lift_job(&self, key: String, rev: u64) -> Option<lift::Job> {
-        let canvas = self.scene.size();
-        let scale = self.zoom_px.clamp(0.25, 1.0);
-        if self.on_marks() {
-            let picked = self.picked.as_ref().filter(|p| p.more.is_empty())?;
-            let (replay, raster) = self.scene.active_replay()?;
-            let (marks, ids) = match &picked.cut {
-                Some(_) => {
-                    let view = self.cut_view.as_ref().filter(|v| v.key == key)?;
-                    (Some(view.marks.clone()), view.chosen.clone())
-                }
-                None => (None, picked.ids.clone()),
-            };
-            let order = marks.as_deref().unwrap_or(replay.marks());
-            let first = order.iter().position(|m| ids.contains(&m.id()))?;
-            if order[first..].iter().any(Mark::locked) {
-                return None;
+    fn preview_cels(&self) -> Vec<String> {
+        match self.drag.as_ref().is_some_and(|d| d.strokes) {
+            true => self
+                .picked
+                .iter()
+                .flat_map(|p| std::iter::once(p.cel.clone()).chain(p.more.iter().map(|m| m.cel.clone())))
+                .collect(),
+            false => Vec::new(),
+        }
+    }
+
+    fn drop_preview(&mut self) {
+        if let Some(state) = self.preview.take() {
+            self.dirty.extend(state.shown);
+            if let Some(finish) = state.finish {
+                self.dirty.extend(finish.dirty);
             }
-            return Some(lift::Job {
-                key,
-                rev,
-                cel: picked.cel.clone(),
-                layer: self.scene.active.clone(),
-                source: lift::Source::Marks {
-                    ids,
-                    marks,
-                    replay: Box::new(replay.clone()),
-                    raster: raster.clone(),
-                    brushes: Box::new(self.brushes.clone()),
-                },
-                canvas,
-                scale,
-            });
         }
-        let (layer, cel, index, nodes) = self.scene.node_slot(&key)?;
-        Some(lift::Job {
-            key,
-            rev,
-            cel,
-            layer,
-            source: lift::Source::Node { index, nodes },
-            canvas,
-            scale,
-        })
     }
 
-    fn drop_lift(&mut self) {
-        self.lift = None;
+    fn finish_preview(&mut self, ops: Vec<Op>, dirty: Vec<usize>) {
+        let Some(mut state) = self.preview.take() else {
+            self.dirty.extend(dirty);
+            return;
+        };
+        match state.done.take() {
+            Some((done, exact, composed)) if state.job.is_none() && done == ops => {
+                let settled = |i: &usize| exact && composed.contains(i);
+                self.dirty.retain(|i| !settled(i));
+                self.dirty
+                    .extend(dirty.into_iter().chain(state.shown).filter(|i| !settled(i)));
+            }
+            done => {
+                state.done = done;
+                state.finish = Some(Finish {
+                    ops,
+                    rev: self.scene.bundle.doc.rev,
+                    dirty: dirty.into_iter().collect(),
+                    since: Instant::now(),
+                });
+                self.preview = Some(state);
+            }
+        }
     }
 
-    fn tend_lift(&mut self) -> Result<()> {
+    fn tend_preview(&mut self, visible: BTreeSet<usize>) -> Result<Tiles> {
+        let mut uploads = Vec::new();
         let rev = self.scene.bundle.doc.rev;
-        let busy = self.drag.is_some() || self.lift.as_ref().is_some_and(|l| l.commit.is_some());
-        let key = self.lift_key();
-        let stale = self
-            .lift
-            .as_ref()
-            .is_some_and(|l| Some(&l.key) != key.as_ref() || l.rev != rev);
-        if stale && !busy {
-            self.drop_lift();
+        if let Some(mut state) = self.preview.take() {
+            let mut keep = true;
+            match state.job.as_ref().and_then(|rx| rx.try_recv().ok()) {
+                Some(Ok(done)) => {
+                    state.job = None;
+                    let composed: BTreeSet<usize> = done.tiles.iter().map(|(i, _)| *i).collect();
+                    let earlier = std::mem::replace(
+                        &mut state.shown,
+                        done.changed.intersection(&composed).copied().collect(),
+                    );
+                    let current = state.finish.as_ref().map_or(state.snap.rev, |f| f.rev) == rev;
+                    let last = state.finish.as_ref().is_some_and(|f| f.ops == done.ops);
+                    if current {
+                        uploads = done.tiles;
+                    }
+                    if last || !current {
+                        keep = false;
+                        let settled: BTreeSet<usize> = match current && done.exact {
+                            true => composed,
+                            false => BTreeSet::new(),
+                        };
+                        self.dirty.retain(|i| !settled.contains(i));
+                        let finished = state.finish.take().map(|f| f.dirty).unwrap_or_default();
+                        self.dirty.extend(
+                            finished
+                                .into_iter()
+                                .chain(earlier)
+                                .chain(state.shown.iter().copied())
+                                .chain(done.hidden)
+                                .filter(|i| !settled.contains(i)),
+                        );
+                    } else {
+                        state.done = Some((done.ops, done.exact, composed));
+                    }
+                }
+                Some(Err(e)) => {
+                    keep = false;
+                    self.dirty.extend(state.shown.iter().copied());
+                    self.dirty
+                        .extend(state.finish.iter().flat_map(|f| f.dirty.iter().copied()));
+                    self.failed(e.context("the moved picture could not be drawn"));
+                }
+                None => {}
+            }
+            let abandoned = state.finish.is_none() && self.drag.is_none();
+            if keep && (abandoned || state.finish.as_ref().is_some_and(|f| f.since.elapsed() > FINISH_WAIT)) {
+                keep = false;
+                self.dirty.extend(state.shown.iter().copied());
+                self.dirty
+                    .extend(state.finish.iter().flat_map(|f| f.dirty.iter().copied()));
+            }
+            if keep {
+                self.preview = Some(state);
+            }
         }
-        if self.lift.is_none()
-            && !busy
-            && let Some(key) = key.clone()
-            && let Some(job) = self.lift_job(key.clone(), rev)
+        if self.preview.is_none()
+            && self.live.is_none()
+            && self.drag.as_ref().is_some_and(|d| d.moved() && !d.copy)
+            && self.canvas_current()
         {
-            self.lift_since = Instant::now();
-            self.lift = Some(LiftState {
-                key,
-                rev,
-                job: Some(lift::prepare(job, self.ctx.clone())),
-                ready: None,
-                stage: 0,
-                commit: None,
-            });
+            let cels = self.preview_cels();
+            self.preview = self
+                .scene
+                .preview_snapshot(&cels, &self.brushes)
+                .map(|snap| PreviewState {
+                    snap: Arc::new(snap),
+                    asked: None,
+                    job: None,
+                    shown: BTreeSet::new(),
+                    done: None,
+                    finish: None,
+                });
         }
-        let prepared = self
-            .lift
-            .as_mut()
-            .and_then(|l| l.job.as_ref().and_then(|rx| rx.try_recv().ok()));
-        if let Some(result) = prepared {
-            match result {
-                Ok(p) if p.rev == rev && Some(&p.key) == key.as_ref() => {
-                    let planes = self.scene.lift_planes(&p.layer, &p.lower, &p.upper)?;
-                    if let Some(l) = self.lift.as_mut() {
-                        l.job = None;
-                        l.ready = planes.map(|planes| (p, planes));
-                    }
-                }
-                Ok(_) => self.lift = None,
-                Err(e) => {
-                    self.failed(e.context("the selection could not be prepared"));
-                    if let Some(l) = self.lift.as_mut() {
-                        l.job = None;
-                    }
-                }
-            }
-        }
-        let finished = self
-            .lift
-            .as_mut()
-            .and_then(|l| l.commit.as_ref().and_then(|c| c.job.try_recv().ok()));
-        if let Some(result) = finished {
-            let Some(mut state) = self.lift.take() else {
-                return Ok(());
+        let wanted = match self.preview.as_ref().map(|p| p.finish.as_ref()) {
+            Some(Some(finish)) => Some(finish.ops.clone()),
+            Some(None) => self.drag_ops(),
+            None => None,
+        };
+        if let (Some(state), Some(ops)) = (self.preview.as_mut(), wanted)
+            && state.job.is_none()
+            && state.asked.as_ref() != Some(&ops)
+        {
+            let job = preview::Job {
+                ops: ops.clone(),
+                snap: state.snap.clone(),
+                shown: state.shown.clone(),
+                visible,
             };
-            let commit = state
-                .commit
-                .take()
-                .ok_or_else(|| crate::report::bug("a shape edit lost what it was writing"))?;
-            let start = Instant::now();
-            match (result, state.ready.as_ref()) {
-                (Ok((hash, raster)), Some((p, _))) => {
-                    self.scene
-                        .apply_rendered(&commit.ops, (p.cel.clone(), hash, raster), &self.brushes)?;
-                }
-                _ => {
-                    self.scene.apply(&commit.ops, &self.brushes)?;
-                }
-            }
-            self.measure("transform", format!("transform written in {:.0} ms", ms(start)));
-            self.dirty.extend(self.scene.all_tiles());
-            self.forget_missing_selection();
+            state.asked = Some(ops);
+            let (tx, rx) = channel();
+            let ctx = self.ctx.clone();
+            crate::background().spawn(move || {
+                let _ = tx.send(job.run());
+                ctx.request_repaint();
+            });
+            state.job = Some(rx);
         }
-        Ok(())
+        Ok(uploads)
     }
 
     fn screen(&self, view: View, rect: Rect, c: Vec2) -> Pos2 {
         rect.min + view.to_screen(c, rect.size())
+    }
+
+    fn visible_tiles(&self, view: View, rect: Rect) -> BTreeSet<usize> {
+        let size = rect.size();
+        let corners = [vec2(0.0, 0.0), vec2(size.x, 0.0), vec2(0.0, size.y), size].map(|p| view.to_canvas(p, size));
+        let range = |lo: f32, hi: f32, count: usize| {
+            let at = |v: f32| ((v / klad_brush::TILE as f32).floor() as i64).clamp(0, count as i64 - 1) as usize;
+            at(lo).saturating_sub(1)..=(at(hi) + 1).min(count - 1)
+        };
+        let (xs, ys) = (corners.map(|c| c.x), corners.map(|c| c.y));
+        let low = |v: [f32; 4]| v.into_iter().fold(f32::MAX, f32::min);
+        let high = |v: [f32; 4]| v.into_iter().fold(f32::MIN, f32::max);
+        let cols = self.scene.cols();
+        range(low(ys), high(ys), self.scene.rows())
+            .flat_map(|ty| range(low(xs), high(xs), cols).map(move |tx| ty * cols + tx))
+            .collect()
     }
 
     fn edges(&self) -> bool {
@@ -1487,6 +1558,7 @@ impl Editor {
     }
 
     fn start_drag(&mut self, id: String, grab: Grab, corners: [Vec2; 4], at: Vec2, fresh: bool) {
+        self.drop_preview();
         let strokes = self.on_marks();
         if !strokes && !matches!(self.scene.bundle.doc.item(&id), Some(Item::Node(..))) {
             return;
@@ -1561,43 +1633,13 @@ impl Editor {
             }
             return Ok(());
         }
-        let affine = drag.affine();
-        let node = match self.scene.bundle.doc.item(&drag.node) {
-            Some(Item::Node(_, _, node)) => node.clone(),
-            _ => return Ok(()),
+        let Some(ops) = self.node_ops(&drag)? else {
+            self.drop_preview();
+            return Ok(());
         };
-        let t = match drag.stretch() {
-            Some((axis, _, k)) => lift::stretched(&node, affine, axis, k)?,
-            None => lift::committed(&node, affine, drag.scale(), drag.angle().to_degrees())?,
-        };
-        let props: Map<String, Value> = [
-            ("transform.x", json!(t.x)),
-            ("transform.y", json!(t.y)),
-            ("transform.rotate", json!(t.rotate)),
-            ("transform.sx", json!(t.sx)),
-            ("transform.sy", json!(t.sy)),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v))
-        .collect();
-        let ops = vec![Op::Set {
-            id: drag.node.clone(),
-            props,
-        }];
-        let canvas = self.scene.size();
-        let staged = |l: &LiftState| l.ready.as_ref().is_some_and(|(_, p)| l.stage >= p.runs.len() + 2);
-        match self.lift.as_mut().filter(|l| staged(l) && l.key == drag.node) {
-            Some(state) => {
-                let (p, _) = state
-                    .ready
-                    .as_ref()
-                    .ok_or_else(|| crate::report::bug("a drag started before its picture was ready"))?;
-                let job = lift::finish(p.nodes.clone(), p.index, t, canvas, self.ctx.clone());
-                state.commit = Some(Commit { job, ops, affine });
-                Ok(())
-            }
-            None => self.apply(ops),
-        }
+        let dirty = self.commit(ops.clone())?;
+        self.finish_preview(ops, dirty);
+        Ok(())
     }
 
     fn grab_under(&mut self, c: Vec2, pos: Pos2) -> Result<()> {
@@ -1682,7 +1724,7 @@ impl Editor {
         };
         drag.copy = false;
         let strokes = drag.strokes;
-        self.drop_lift();
+        self.drop_preview();
         self.duplicate_in_place()?;
         if !strokes && let (Some(drag), Some(id)) = (self.drag.as_mut(), self.selection.clone()) {
             drag.node = id;
@@ -1706,7 +1748,15 @@ impl Editor {
             return self.finish_pick();
         }
         let start = Instant::now();
-        self.edit_picked(LassoAction::Transform(drag.mark_transform()))?;
+        match self.picked_ops(LassoAction::Transform(drag.mark_transform())) {
+            Some((ops, after)) => {
+                let dirty = self.commit(ops.clone())?;
+                self.picked = after;
+                self.forget_missing_selection();
+                self.finish_preview(ops, dirty);
+            }
+            None => self.drop_preview(),
+        }
         let text = format!(
             "{} strokes and fills {} and redrawn in {:.0} ms",
             self.picked.as_ref().map_or(0, Picked::count),
@@ -2434,7 +2484,6 @@ impl Editor {
                     });
                 }
             }
-            (Tool::Strokes, Phase::Down) if self.lift.as_ref().is_some_and(|l| l.commit.is_some()) => {}
             (Tool::Strokes, Phase::Down) => match self.grab_at(view, rect, e.pos) {
                 Some((id, grab, corners)) => self.start_drag(id, grab, corners, c, false),
                 None => {
@@ -2493,7 +2542,6 @@ impl Editor {
                 }
             }
             (Tool::Brush, Phase::Up) => self.finish()?,
-            (Tool::Select, Phase::Down) if self.lift.as_ref().is_some_and(|l| l.commit.is_some()) => {}
             (Tool::Select, Phase::Down) => match self.grab_at(view, rect, e.pos) {
                 Some((id, grab, corners)) => self.start_drag(id, grab, corners, c, false),
                 None => self.grab_under(c, e.pos)?,
@@ -2859,7 +2907,6 @@ impl Editor {
         self.refresh_box();
         self.refresh_cut();
         self.refresh_shape();
-        self.tend_lift()?;
         self.tend_path()?;
         let level = match self.zoom_px >= 1.0 {
             true => 0,
@@ -2869,50 +2916,14 @@ impl Editor {
         let show = self.tend_frames()?;
         let view_uniform = view.uniform(area, ctx.pixels_per_point(), canvas);
         let (w, h) = self.scene.size();
-        let moving = self.drag.as_ref().filter(|d| d.moved()).map(Drag::affine);
-        let mut base = Vec::new();
-        let mut tops = Vec::new();
-        let mut lifted = None;
-        let mut lifting = false;
-        if let Some(state) = self.lift.as_mut()
-            && let Some((p, planes)) = state.ready.as_ref()
-        {
-            let stages = planes.runs.len() + 2;
-            if state.stage == 0 {
-                base = planes.base.clone();
-            }
-            tops = planes
-                .runs
-                .iter()
-                .enumerate()
-                .map(|(k, (mix, tiles))| {
-                    let draw = QuadDraw {
-                        uniform: quad_uniform(&view_uniform, IDENTITY, 1.0, [0.0, 0.0, w as f32, h as f32]),
-                        tiles: Mutex::new(if state.stage == k + 1 {
-                            tiles.clone()
-                        } else {
-                            Vec::new()
-                        }),
-                        image: Mutex::new(None),
-                    };
-                    (*mix, draw)
-                })
-                .collect();
-            let affine = state.commit.as_ref().map_or(moving.unwrap_or(IDENTITY), |c| c.affine);
-            lifted = Some(QuadDraw {
-                uniform: quad_uniform(&view_uniform, affine, planes.opacity, p.lifted.rect),
-                tiles: Mutex::new(Vec::new()),
-                image: Mutex::new(
-                    (state.stage == stages - 1).then(|| (p.lifted.width, p.lifted.height, p.lifted.pixels.clone())),
-                ),
-            });
-            if state.stage < stages {
-                state.stage += 1;
-                ctx.request_repaint();
-            }
-            lifting = state.stage >= stages && (moving.is_some() || state.commit.is_some());
-        }
+        let visible = self.visible_tiles(view, rect);
+        let previewed = self.tend_preview(visible)?;
         let mut tiles = std::mem::take(&mut self.dirty);
+        if let Some(state) = self.preview.as_ref() {
+            let held: BTreeSet<usize> = tiles.intersection(&state.shown).copied().collect();
+            tiles.retain(|i| !held.contains(i));
+            self.dirty.extend(held);
+        }
         let mut stroke: Vec<usize> = self.buffer.take_dirty();
         stroke.extend(self.mirror_buffer.take_dirty());
         if !self.canvas_current() {
@@ -2934,7 +2945,7 @@ impl Editor {
             opacity: l.stroke.opacity,
             blend: stroke_blend(&l.brush, l.stroke.lock).unwrap_or(l.brush.blend),
         });
-        let uploads = if tiles.is_empty() && stroke.is_empty() {
+        let mut uploads = if tiles.is_empty() && stroke.is_empty() {
             Vec::new()
         } else {
             self.scene.compose_painting(&stroke, &tiles, preview.as_ref())?
@@ -2948,11 +2959,12 @@ impl Editor {
             stats.compose_ms.push(spent as f32);
             stats.tiles.push(uploads.len() as f32);
         }
+        uploads.extend(previewed);
         let (frame_uploads, frame_drops) = self.frames.take();
         ui.painter().add(egui_wgpu::Callback::new_paint_callback(
             rect,
             CanvasPaint {
-                show: show.filter(|_| !lifting),
+                show: show.filter(|_| self.preview.is_none()),
                 frame_uploads: Mutex::new(frame_uploads),
                 frame_drops,
                 uniform: view_uniform,
@@ -2961,10 +2973,6 @@ impl Editor {
                 cols: self.scene.cols(),
                 pending: self.pending.take(),
                 stats: self.stats.clone(),
-                base: Mutex::new(base),
-                tops,
-                lift: lifted,
-                lifting,
             },
         ));
         self.parallax(ui, view, rect);
@@ -2982,9 +2990,9 @@ impl Editor {
             || self.point_drag.is_some()
             || self.path_commit.is_some()
             || self
-                .lift
+                .preview
                 .as_ref()
-                .is_some_and(|l| l.job.is_some() || l.commit.is_some())
+                .is_some_and(|p| p.job.is_some() || p.finish.is_some())
         {
             ctx.request_repaint();
         }
@@ -3057,14 +3065,9 @@ impl Editor {
             self.decorate_pen(&painter, path, hover, view, rect, accent, dark);
         }
         if let Some((_, corners)) = self.handles() {
-            let committing = self.lift.as_ref().and_then(|l| l.commit.as_ref()).map(|c| c.affine);
-            let corners = match (&self.drag, committing) {
-                (Some(drag), _) => drag.preview(),
-                (None, Some(a)) => corners.map(|c| {
-                    let (x, y) = lift::affine_apply(a, (c.x, c.y));
-                    vec2(x, y)
-                }),
-                _ => corners,
+            let corners = match &self.drag {
+                Some(drag) => drag.preview(),
+                None => corners,
             };
             let screen: Vec<Pos2> = corners.iter().map(|c| self.screen(view, rect, *c)).collect();
             painter.add(egui::Shape::closed_line(screen.clone(), dark));

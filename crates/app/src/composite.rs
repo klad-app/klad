@@ -28,40 +28,7 @@ const CACHE_BYTES: usize = 1 << 30;
 
 pub type Tiles = Vec<(usize, Vec<f16>)>;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mix {
-    Over,
-    Multiply,
-    Screen,
-    Add,
-}
-
-impl Mix {
-    fn of(blend: Blend) -> Option<Self> {
-        match blend {
-            Blend::Normal => Some(Mix::Over),
-            Blend::Multiply => Some(Mix::Multiply),
-            Blend::Screen => Some(Mix::Screen),
-            Blend::Add => Some(Mix::Add),
-            _ => None,
-        }
-    }
-}
-
-pub struct Planes {
-    pub base: Tiles,
-    pub runs: Vec<(Mix, Tiles)>,
-    pub opacity: f32,
-}
-
-fn pure(doc: &Document, layer: &Layer) -> bool {
-    layer.blend == Blend::Normal
-        && doc.effects_of(layer).is_empty()
-        && !layer.reads_under()
-        && layer.children().iter().all(|c| pure(doc, c))
-}
-
-fn effect_reach(doc: &Document, layers: &[Layer]) -> i32 {
+pub(crate) fn effect_reach(doc: &Document, layers: &[Layer]) -> i32 {
     layers
         .iter()
         .filter(|l| l.visible)
@@ -70,7 +37,7 @@ fn effect_reach(doc: &Document, layers: &[Layer]) -> i32 {
         .unwrap_or(0)
 }
 
-fn dilate(tiles: &[usize], reach: i32, cols: usize, rows: usize) -> Vec<usize> {
+pub(crate) fn dilate(tiles: &[usize], reach: i32, cols: usize, rows: usize) -> Vec<usize> {
     let n = (reach.max(0) as usize).div_ceil(TILE) as i64;
     if n == 0 {
         return tiles.to_vec();
@@ -732,7 +699,7 @@ impl CanvasRequest {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn compose_items(
+pub(crate) fn compose_items(
     doc: &Document,
     frame: u32,
     rasters: &Rasters,
@@ -1190,11 +1157,6 @@ impl Scene {
         self.rasters.get(&self.active_cel()?)
     }
 
-    pub fn active_replay(&self) -> Option<(&CelReplay, &Raster)> {
-        let cel = self.active_cel()?;
-        Some((&self.cels.get(&cel)?.replay, self.rasters.get(&cel)?))
-    }
-
     fn seen_at(&self, path: &[usize], at: (f32, f32)) -> Option<f32> {
         let doc = &self.bundle.doc;
         let alpha_of = |layer: &Layer| -> Option<f32> {
@@ -1395,10 +1357,6 @@ impl Scene {
 
     fn onion_map(&self) -> Option<&Onions> {
         (!self.onions.is_empty()).then_some(&self.onions)
-    }
-
-    fn onion_tile(&self, layer: &str, index: usize) -> Option<&[f16]> {
-        self.onions.get(layer).and_then(|r| r.at(index))
     }
 
     pub fn rebuild_caches(&mut self, tiles: Option<&[usize]>) -> Result<()> {
@@ -2333,20 +2291,6 @@ impl Scene {
         Ok(extra.into_iter().collect())
     }
 
-    pub fn node_slot(&self, node: &str) -> Option<(Vec<usize>, String, usize, Vec<Node>)> {
-        match self.bundle.doc.locate(node)? {
-            Loc::Node(path, c, nodes) if nodes.len() == 1 => {
-                let layer = self.bundle.doc.layer_at(&path);
-                if layer.kind() != Kind::Vector || layer.locked {
-                    return None;
-                }
-                let cel = &layer.cels()[c];
-                Some((path, cel.id.clone(), nodes[0], cel.nodes.clone()))
-            }
-            _ => None,
-        }
-    }
-
     fn compose_with(
         &self,
         items: &[TileItem],
@@ -2368,116 +2312,26 @@ impl Scene {
         compose_tile(items, &job)
     }
 
-    pub fn lift_planes(&self, layer: &[usize], lower: &Raster, upper: &Raster) -> Result<Option<Planes>> {
-        if self.slimmed() {
-            return Ok(None);
+    pub fn preview_snapshot(&self, cels: &[String], brushes: &BrushSet) -> Option<crate::preview::Snapshot> {
+        if self.slimmed() || self.stale || (self.tint_mask && self.active_is_mask()) {
+            return None;
         }
-        let doc = &self.bundle.doc;
-        let Some((below, above, through)) = split(doc, &doc.layers, layer) else {
-            return Ok(None);
-        };
-        let owner = doc.layer_at(layer);
-        if !through || owner.blend != Blend::Normal || !doc.effects_of(owner).is_empty() {
-            return Ok(None);
-        }
-        let units = above.into_iter().fold(Vec::<Vec<&Layer>>::new(), |mut out, l| {
-            match out.last_mut() {
-                Some(unit) if l.clip => unit.push(l),
-                _ => out.push(vec![l]),
-            }
-            out
-        });
-        let mut runs: Vec<(Mix, Vec<Vec<&Layer>>)> = Vec::new();
-        for unit in units.into_iter().filter(|u| u[0].visible) {
-            let Some(mix) = Mix::of(unit[0].blend) else {
-                return Ok(None);
-            };
-            if !unit
-                .iter()
-                .all(|l| doc.effects_of(l).is_empty() && !l.reads_under() && l.children().iter().all(|c| pure(doc, c)))
-            {
-                return Ok(None);
-            }
-            match runs.last_mut() {
-                Some((last, group)) if *last == mix => group.push(unit),
-                _ => runs.push((mix, vec![unit])),
-            }
-        }
-        fn own<'a>(raster: &'a Raster, index: usize, owner: &Layer) -> Option<TileItem<'a>> {
-            raster.at(index).filter(|_| owner.visible).map(|tile| TileItem::Pixels {
-                tile,
-                opacity: owner.opacity,
-                blend: Blend::Normal,
-            })
-        }
-        let background = doc.canvas.background.as_deref();
-        let tiles = self.all_tiles();
-        let base = tiles
-            .par_iter()
-            .map(|&i| {
-                let ghost = self.onion_tile(&owner.id, i).map(|tile| TileItem::Pixels {
-                    tile,
-                    opacity: 1.0,
-                    blend: Blend::Normal,
-                });
-                let items: Vec<TileItem> = below
-                    .iter()
-                    .filter(|l| l.visible)
-                    .map(|l| TileItem::Layer(l))
-                    .chain(ghost)
-                    .chain(own(lower, i, owner))
-                    .collect();
-                Ok((i, self.compose_with(&items, i, background, true)?))
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let planes = runs
+        let replays = cels
             .iter()
-            .enumerate()
-            .map(|(k, (mix, units))| {
-                let tiles = tiles
-                    .par_iter()
-                    .map(|&i| {
-                        let tile = match mix {
-                            Mix::Multiply => {
-                                let mut factor = vec![f16::ONE; TILE_PX * 4];
-                                units.iter().try_for_each(|unit| {
-                                    let items: Vec<TileItem> = unit.iter().map(|l| TileItem::Layer(l)).collect();
-                                    let t = self.compose_with(&items, i, None, true)?;
-                                    factor
-                                        .as_chunks_mut::<4>()
-                                        .0
-                                        .iter_mut()
-                                        .zip(t.as_chunks::<4>().0)
-                                        .for_each(|(f, s)| {
-                                            let a = s[3].to_f32();
-                                            (0..3).for_each(|c| {
-                                                f[c] = f16::from_f32(f[c].to_f32() * (1.0 - a + s[c].to_f32()));
-                                            });
-                                        });
-                                    Ok::<_, anyhow::Error>(())
-                                })?;
-                                factor
-                            }
-                            _ => {
-                                let first = (k == 0).then(|| own(upper, i, owner)).flatten();
-                                let items: Vec<TileItem> = first
-                                    .into_iter()
-                                    .chain(units.iter().flatten().map(|l| TileItem::Layer(l)))
-                                    .collect();
-                                self.compose_with(&items, i, None, true)?
-                            }
-                        };
-                        Ok((i, tile))
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                Ok((*mix, tiles))
-            })
-            .collect::<Result<Vec<_>>>()?;
-        Ok(Some(Planes {
-            base,
-            runs: planes,
-            opacity: if owner.visible { owner.opacity } else { 0.0 },
-        }))
+            .map(|c| self.cels.get(c).map(|d| (c.clone(), d.replay.clone())))
+            .collect::<Option<BTreeMap<_, _>>>()?;
+        Some(crate::preview::Snapshot {
+            rev: self.bundle.doc.rev,
+            bundle: Bundle {
+                root: self.bundle.root.clone(),
+                doc: self.bundle.doc.clone(),
+            },
+            frame: self.frame,
+            rasters: self.rasters.clone(),
+            cels: replays,
+            onions: self.onion_map().cloned(),
+            brushes: brushes.clone(),
+        })
     }
 
     fn vector_cels_since(&self, old: &Document) -> Vec<(String, u64)> {
@@ -3419,73 +3273,29 @@ mod tests {
             .split(',')
             .filter(|n| !n.is_empty())
         {
-            let Some((layer, _, index, nodes)) = scene.node_slot(node) else {
+            let Some(Loc::Node(layer, c, at)) = scene.bundle.doc.locate(node) else {
                 continue;
             };
+            let nodes = scene.bundle.doc.layer_at(&layer).cels()[c].nodes.clone();
+            let index = at[0];
             let (w, h) = scene.size();
-            let start = std::time::Instant::now();
-            klad_render::rasterize_region(
-                &nodes[index..=index],
-                klad_render::vector::node_box(&nodes[index]).unwrap().unwrap(),
-                4096,
-                0.5,
-            )
-            .unwrap();
-            println!(
-                "lift {node}: lifted at half scale {:.0} ms",
-                start.elapsed().as_secs_f64() * 1000.0
-            );
-            let t = std::time::Instant::now();
-            let lower = rasterize_nodes(&nodes[..index], w, h).unwrap();
-            let lower_ms = t.elapsed().as_secs_f64() * 1000.0;
-            let t = std::time::Instant::now();
-            let upper = rasterize_nodes(&nodes[index + 1..], w, h).unwrap();
-            println!(
-                "lift {node}: index {index} of {}, lower {lower_ms:.0} ms, upper {:.0} ms",
-                nodes.len(),
-                t.elapsed().as_secs_f64() * 1000.0
-            );
-            let start = std::time::Instant::now();
-            let [x, y, bw, bh] = klad_render::vector::node_box(&nodes[index]).unwrap().unwrap();
-            let lifted = klad_render::rasterize_region(&nodes[index..=index], [x, y, bw, bh], 4096, 1.0).unwrap();
-            let prepare = start.elapsed().as_secs_f64() * 1000.0;
-            let start = std::time::Instant::now();
-            let planes = scene.lift_planes(&layer, &lower, &upper).unwrap();
-            let compose = start.elapsed().as_secs_f64() * 1000.0;
-            if let Some(planes) = &planes {
-                let worst = [(300usize, 900usize), (1000, 1100), (1700, 800), (600, 1250), (100, 300)]
-                    .iter()
-                    .map(|&(x, y)| {
-                        let px = rebuilt(&scene, planes, &lifted, x, y);
-                        let i = (y / 256) * scene.cols() + x / 256;
-                        let reference = &scene.compose(&[i], None).unwrap()[0].1;
-                        let o = ((y % 256) * 256 + x % 256) * 4;
-                        (0..3)
-                            .map(|c| (px[c] - reference[o + c].to_f32()).abs())
-                            .fold(0.0f32, f32::max)
-                    })
-                    .fold(0.0f32, f32::max);
-                println!(
-                    "lift {node}: {} planes {:?}, worst channel error {worst:.4}",
-                    planes.runs.len(),
-                    planes.runs.iter().map(|(m, _)| *m).collect::<Vec<_>>()
-                );
-            }
-            let mut moved = nodes.clone();
-            moved[index].transform.x += 25.0;
-            let raster = rasterize_nodes(&moved, w, h).unwrap();
-            let hash = fnv(FNV_OFFSET, &serde_json::to_vec(&moved).unwrap());
-            let cel = scene.node_slot(node).unwrap().1;
-            let mut editing = Scene::open(Path::new(&path)).unwrap();
             let op = klad_core::ops::parse_lines(&format!(
                 r#"{{"op":"set","id":"{node}","transform.x":{}}}"#,
-                moved[index].transform.x
+                nodes[index].transform.x + 25.0
             ))
             .unwrap();
+            let mut editing = Scene::open(Path::new(&path)).unwrap();
             let start = std::time::Instant::now();
-            let dirty = editing.apply_rendered(&op, (cel, hash, raster), &brushes).unwrap();
+            let done = previewed(&editing, op.clone(), &[], &brushes);
             println!(
-                "commit {node}: apply_rendered {:.0} ms, {} tiles",
+                "preview {node} ({layer:?}, {w}x{h}): {:.0} ms, {} tiles composed",
+                start.elapsed().as_secs_f64() * 1000.0,
+                done.tiles.len()
+            );
+            let start = std::time::Instant::now();
+            let dirty = editing.apply(&op, &brushes).unwrap();
+            println!(
+                "commit {node}: apply {:.0} ms, {} tiles",
                 start.elapsed().as_secs_f64() * 1000.0,
                 dirty.len()
             );
@@ -3514,87 +3324,55 @@ mod tests {
                 "redo {node}: editor redo total {:.0} ms ({step:?} tiles)",
                 start.elapsed().as_secs_f64() * 1000.0
             );
-            println!(
-                "lift {node}: background prepare {prepare:.0} ms ({}x{}), compose base and top {compose:.0} ms, live {}",
-                lifted.width,
-                lifted.height,
-                planes.is_some()
-            );
         }
     }
 
-    fn rebuilt(scene: &Scene, planes: &Planes, lifted: &klad_render::Lifted, x: usize, y: usize) -> [f32; 4] {
-        let i = (y / 256) * scene.cols() + x / 256;
-        let o = ((y % 256) * 256 + x % 256) * 4;
-        let pick = |tiles: &Tiles| -> [f32; 4] {
-            let t = &tiles.iter().find(|(k, _)| *k == i).unwrap().1;
-            [t[o].to_f32(), t[o + 1].to_f32(), t[o + 2].to_f32(), t[o + 3].to_f32()]
-        };
-        let [rx, ry, rw, rh] = lifted.rect;
-        let lx = ((x as f32 + 0.5 - rx) / rw * lifted.width as f32) as usize;
-        let ly = ((y as f32 + 0.5 - ry) / rh * lifted.height as f32) as usize;
-        let l: [f32; 4] = if lx < lifted.width as usize && ly < lifted.height as usize {
-            let at = (ly * lifted.width as usize + lx) * 4;
-            [0, 1, 2, 3].map(|c| lifted.pixels[at + c].to_f32() * planes.opacity)
-        } else {
-            [0.0; 4]
-        };
-        let base = pick(&planes.base);
-        let mut px: [f32; 4] = [0, 1, 2, 3].map(|c| l[c] + base[c] * (1.0 - l[3]));
-        planes.runs.iter().for_each(|(mix, tiles)| {
-            let t = pick(tiles);
-            px = match mix {
-                Mix::Over => [0, 1, 2, 3].map(|c| t[c] + px[c] * (1.0 - t[3])),
-                Mix::Multiply => [px[0] * t[0], px[1] * t[1], px[2] * t[2], px[3]],
-                Mix::Screen => [0, 1, 2, 3].map(|c| t[c] + px[c] * (1.0 - t[c])),
-                Mix::Add => [0, 1, 2, 3].map(|c| t[c] + px[c]),
-            };
+    fn previewed(scene: &Scene, ops: Vec<Op>, cels: &[String], brushes: &BrushSet) -> crate::preview::Done {
+        crate::preview::Job {
+            ops,
+            snap: std::sync::Arc::new(scene.preview_snapshot(cels, brushes).unwrap()),
+            shown: BTreeSet::new(),
+            visible: scene.all_tiles().into_iter().collect(),
+        }
+        .run()
+        .unwrap()
+    }
+
+    fn preview_agrees(scene: &mut Scene, ops: Vec<Op>, cels: &[String], brushes: &BrushSet) -> usize {
+        let done = previewed(scene, ops.clone(), cels, brushes);
+        let dirty = scene.apply(&ops, brushes).unwrap();
+        assert!(
+            dirty.iter().all(|i| done.changed.contains(i)),
+            "the commit changed {dirty:?}, the preview {:?}",
+            done.changed
+        );
+        let indices: Vec<usize> = done.tiles.iter().map(|(i, _)| *i).collect();
+        let committed = scene.compose(&indices, None).unwrap();
+        done.tiles.iter().zip(&committed).for_each(|((i, shown), (j, after))| {
+            assert_eq!(i, j);
+            let worst = shown
+                .iter()
+                .zip(after)
+                .map(|(a, b)| (a.to_f32() - b.to_f32()).abs())
+                .fold(0.0f32, f32::max);
+            assert!(worst <= 2.0 / 255.0, "tile {i} previewed {:.2}/255 off", worst * 255.0);
         });
-        px
+        done.tiles.len()
     }
 
     #[test]
-    fn lifted_planes_rebuild_the_same_picture_under_blend_modes() {
-        [Blend::Normal, Blend::Multiply, Blend::Screen]
+    fn previews_compose_what_the_edit_will_show_under_every_blend() {
+        let brushes = BrushSet::presets();
+        [Blend::Normal, Blend::Multiply, Blend::Screen, Blend::Overlay]
             .iter()
             .for_each(|&blend| {
-                let dir = bundle(&format!("lift-{blend:?}"), blend);
-                let scene = Scene::open(&dir).unwrap();
-                let (path, _, index, nodes) = scene.node_slot("n1").unwrap();
-                let (w, h) = scene.size();
-                let lower = rasterize_nodes(&nodes[..index], w, h).unwrap();
-                let upper = rasterize_nodes(&nodes[index + 1..], w, h).unwrap();
-                let planes = scene.lift_planes(&path, &lower, &upper).unwrap().unwrap();
-                let lifted =
-                    klad_render::rasterize_region(&nodes[index..=index], [48.0, 48.0, 404.0, 154.0], 4096, 1.0)
-                        .unwrap();
-                let paint: Rasters = scene
-                    .rasters
-                    .iter()
-                    .filter(|(k, _)| scene.cels.contains_key(*k))
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-                let full = compose(&scene.bundle.doc, scene.frame, &paint, View::scaled(1.0)).unwrap();
-                [(100usize, 100usize), (300, 60), (520, 250), (60, 190)]
-                    .iter()
-                    .for_each(|&(x, y)| {
-                        let px = rebuilt(&scene, &planes, &lifted, x, y);
-                        let got = [0, 1, 2].map(|c| (px[c] / px[3].max(1e-6) * 255.0).round() as i32);
-                        let want = full.pixel(x as u32, y as u32);
-                        assert!(
-                            got.iter().zip(&want[..3]).all(|(a, b)| (a - *b as i32).abs() <= 3),
-                            "{blend:?} at ({x},{y}): {got:?} vs {want:?}"
-                        );
-                    });
-                assert_eq!(planes.runs.len(), if blend == Blend::Normal { 1 } else { 2 });
+                let dir = bundle(&format!("preview-{blend:?}"), blend);
+                let mut scene = Scene::open(&dir).unwrap();
+                let moved = klad_core::ops::parse_lines(r#"{"op":"set","id":"n1","transform.x":120,"transform.y":40}"#)
+                    .unwrap();
+                let tiles = preview_agrees(&mut scene, moved, &[], &brushes);
+                assert!(tiles > 0 && tiles < scene.all_tiles().len(), "{blend:?}: {tiles} tiles");
             });
-        let dir = bundle("lift-overlay", Blend::Overlay);
-        let scene = Scene::open(&dir).unwrap();
-        let (path, _, _, _) = scene.node_slot("n1").unwrap();
-        let (w, h) = scene.size();
-        let empty = Raster::new(w, h);
-        assert!(scene.lift_planes(&path, &empty, &empty).unwrap().is_none());
-        assert!(scene.node_slot("cv").is_none());
     }
 
     #[test]
@@ -3930,7 +3708,7 @@ mod tests {
     }
 
     #[test]
-    fn clips_and_masks_compose_right_from_every_active_layer_and_lift_only_when_exact() {
+    fn clips_and_masks_compose_right_from_every_active_layer_and_preview_too() {
         let brushes = BrushSet::presets();
         let dir = bundle("clipmask", Blend::Normal);
         let mut scene = Scene::open(&dir).unwrap();
@@ -3976,35 +3754,25 @@ mod tests {
         scene.apply(&reclip, &brushes).unwrap();
         assert!(!scene.fast);
         agrees(&scene);
-        let (w, h) = scene.size();
-        let empty = Raster::new(w, h);
-        [vec![2], vec![1, 0], vec![1]].iter().for_each(|path| {
-            assert!(scene.lift_planes(path, &empty, &empty).unwrap().is_none(), "{path:?}");
-        });
-        let (path, _, index, nodes) = scene.node_slot("n1").unwrap();
-        let lower = rasterize_nodes(&nodes[..index], w, h).unwrap();
-        let upper = rasterize_nodes(&nodes[index + 1..], w, h).unwrap();
-        let planes = scene.lift_planes(&path, &lower, &upper).unwrap().unwrap();
-        let lifted =
-            klad_render::rasterize_region(&nodes[index..=index], [48.0, 48.0, 404.0, 154.0], 4096, 1.0).unwrap();
-        let paint: Rasters = scene
-            .rasters
+        let moved =
+            klad_core::ops::parse_lines(r#"{"op":"set","id":"n1","transform.x":-60,"transform.y":70}"#).unwrap();
+        preview_agrees(&mut scene, moved, &[], &brushes);
+        let painted = scene.bundle.doc.layer("a").unwrap().cels()[0].id.clone();
+        let ids: Vec<String> = scene.cels[&painted]
+            .marks()
             .iter()
-            .filter(|(k, _)| scene.cels.contains_key(*k))
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .map(|m| format!("{painted}:s{}", m.id()))
             .collect();
-        let full = compose(&scene.bundle.doc, scene.frame, &paint, View::scaled(1.0)).unwrap();
-        [(100usize, 100usize), (300, 60), (300, 150), (520, 250)]
-            .iter()
-            .for_each(|&(x, y)| {
-                let px = rebuilt(&scene, &planes, &lifted, x, y);
-                let got = [0, 1, 2].map(|c| (px[c] / px[3].max(1e-6) * 255.0).round() as i32);
-                let want = full.pixel(x as u32, y as u32);
-                assert!(
-                    got.iter().zip(&want[..3]).all(|(a, b)| (a - *b as i32).abs() <= 3),
-                    "({x},{y}): {got:?} vs {want:?}"
-                );
-            });
+        let shifted = vec![Op::Transform {
+            ids,
+            transform: klad_core::markedit::MarkTransform {
+                x: 40.0,
+                y: -25.0,
+                ..Default::default()
+            },
+        }];
+        scene.set_active(vec![1, 0]).unwrap();
+        preview_agrees(&mut scene, shifted, &[painted], &brushes);
     }
 
     #[test]

@@ -72,7 +72,7 @@ impl Editor {
     }
 
     pub(super) fn writing(&self) -> bool {
-        self.lift.as_ref().is_some_and(|l| l.commit.is_some()) || self.path_commit.is_some()
+        self.path_commit.is_some()
     }
 
     fn middle_of_picked(&self) -> Option<[f32; 2]> {

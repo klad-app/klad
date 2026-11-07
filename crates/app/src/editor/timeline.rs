@@ -291,11 +291,7 @@ fn exposed(layer: &Layer, frame: u32) -> Option<(Cel, u32)> {
 
 impl Editor {
     pub(super) fn busy(&self) -> bool {
-        self.live.is_some()
-            || self.drag.is_some()
-            || self.point_drag.is_some()
-            || self.path_commit.is_some()
-            || self.lift.as_ref().is_some_and(|l| l.commit.is_some())
+        self.live.is_some() || self.drag.is_some() || self.point_drag.is_some() || self.path_commit.is_some()
     }
 
     pub(crate) fn canvas_current(&self) -> bool {
@@ -325,7 +321,7 @@ impl Editor {
         self.direct = None;
         self.cut_view = None;
         self.lasso = None;
-        self.drop_lift();
+        self.drop_preview();
         Ok(())
     }
 
