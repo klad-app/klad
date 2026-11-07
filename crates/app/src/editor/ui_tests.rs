@@ -457,6 +457,10 @@ fn every_control_is_pen_sized_and_has_a_hover_hint() {
     h.state_mut().windows.brush = true;
     h.state_mut().say(Tone::Error, "a test error with a close button");
     h.run_steps(3);
+    assert!(
+        h.query_by_label_contains("canvas       median").is_some(),
+        "the numbers show the canvas work"
+    );
     checked += audit(&h, "windows open");
     super::prefs::Section::ALL.into_iter().for_each(|section| {
         h.state_mut().settings_section = section;

@@ -33,6 +33,7 @@ The first builds, and klad's licences.
 - Noise and haze no longer make every edit redraw the tiles around it.
 - Drawings with many clipped layers and groups redraw several times faster: each tile skips the stacks that have nothing in it.
 - A tap that wobbles selects a shape or strokes without nudging them: a drag starts once the pointer has moved 3 points on screen.
+- The numbers panel shows how long the canvas takes each frame, next to the rest of the interface.
 - Switching layers no longer redraws the whole canvas when nothing on it changes.
 - Fixed tiles that could stay blank or out of date when a panel or popup was laid out for the first time while the canvas was being redrawn.
 

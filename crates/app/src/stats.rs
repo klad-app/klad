@@ -65,6 +65,7 @@ pub struct Stats {
     pub step_ms: Rolling,
     pub frame_upload_ms: Rolling,
     pub ui_ms: Rolling,
+    pub canvas_ms: Rolling,
 }
 
 pub fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {

@@ -133,7 +133,9 @@ impl Editor {
                 .show(ui, |ui| self.check(|e| e.tool_options(ui)));
         }
         let panels = ms(start);
+        let drawing = Instant::now();
         egui::CentralPanel::no_frame().show(ui, |ui| self.check(|e| e.canvas(ui)));
+        lock(&self.stats).canvas_ms.push(ms(drawing) as f32);
         let after = Instant::now();
         self.windows(&ctx);
         self.first_steps_window(&ctx);
@@ -999,6 +1001,7 @@ impl Editor {
                 ),
                 format!("pen to GPU   {}", s.latency_ms.summary()),
                 format!("ui           {}", s.ui_ms.spread()),
+                format!("canvas       {}", s.canvas_ms.spread()),
                 format!("compose      {}", s.compose_ms.summary()),
                 format!("tiles        {}", s.tiles.summary()),
                 format!("upload       {}", s.upload_ms.summary()),
