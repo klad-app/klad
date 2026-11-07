@@ -97,6 +97,16 @@ impl Editor {
             Cmd::SelectAll => (!self.active_paint() || self.scene.active_marks().is_empty())
                 .then(|| "the active layer has no strokes on this frame".to_string()),
             Cmd::Recolour | Cmd::Thinner | Cmd::Thicker => need_strokes().or(editing),
+            Cmd::FillShape | Cmd::OutlineShape => self
+                .recolourable()
+                .is_none()
+                .then(|| "select a rectangle, ellipse, path or text with V first".to_string())
+                .or(editing),
+            Cmd::SoloLayer => match layer {
+                None => pick_layer(),
+                Some(_) if self.scene.active_is_mask() => Some("this is a mask: pick the layer it masks".to_string()),
+                Some(_) => editing,
+            },
             Cmd::FlipH | Cmd::FlipV | Cmd::TurnLeft90 | Cmd::TurnRight90 | Cmd::DuplicateInPlace => {
                 match self.selected() {
                     Some(Selected::Strokes | Selected::Shape(_)) => editing,
@@ -365,6 +375,11 @@ impl Editor {
             Cmd::NotesPane => layout.dock && layout.is_open(Pane::Notes),
             Cmd::HistoryPane => layout.dock && layout.is_open(Pane::History),
             Cmd::Timeline => layout.timeline,
+            Cmd::PickAllLayers => self.settings.pick_all_layers,
+            Cmd::SoloLayer => self
+                .soloed
+                .as_ref()
+                .is_some_and(|(id, _)| Some(id) == self.scene.active_id().as_ref()),
             Cmd::FirstSteps => self.first.open,
             Cmd::Numbers => layout.numbers,
             Cmd::Settings => self.windows.settings,
@@ -539,6 +554,17 @@ impl Editor {
             Cmd::SelectAll => self.select_all_strokes(),
             Cmd::CutLasso => self.cut_lasso = !self.cut_lasso,
             Cmd::Recolour => self.recolour_picked()?,
+            Cmd::FillShape => self.recolour_shape(false)?,
+            Cmd::OutlineShape => self.recolour_shape(true)?,
+            Cmd::SoloLayer => {
+                if let Some(id) = self.scene.active_id() {
+                    self.solo(&id)?;
+                }
+            }
+            Cmd::PickAllLayers => {
+                self.settings.pick_all_layers = !self.settings.pick_all_layers;
+                self.settings_dirty = true;
+            }
             Cmd::Thinner => self.size_picked(0.8)?,
             Cmd::Thicker => self.size_picked(1.25)?,
             Cmd::FlipH => self.flip(true)?,

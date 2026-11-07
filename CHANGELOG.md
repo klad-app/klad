@@ -19,6 +19,9 @@ The first builds, and klad's licences.
 - Messages say what happened and what to do next; when klad itself goes wrong it says so, and that your work is saved.
 - Bones: a layer or group gets a skeleton (`klad bone`, the bone tool J), weights from the bones or painted (`klad weights`), and poses that bend the drawing (`klad pose`, pose mode); in-betweens of two poses turn the bones. The bone tool lists the skeleton, picks a bone in every mode, and moves ends, joints and whole bones with their children (`klad bone --move` with `--by`).
 - A first start: the start window welcomes, offers first steps (draw a shape, fill it, hand the drawing to an agent, ticked off as you go; Help > First steps opens them again) and six sample drawings that open as copies (`klad samples` lists and copies them).
+- Picking strokes takes what you see: the topmost layer that shows paint under the pen and the mark covering the point, on all layers or this layer only (the S and V options).
+- A selected shape takes the colour as its fill or its outline (the shape's bar, Edit > Shape).
+- Alt click on a layer's eye shows only that layer, and again the rest as it was (`klad solo`).
 - Menus: a menu bar (the Mac's own, an in-window one on Windows and Linux) holds every command in File, Edit, Tools, Layer, Frame, Animation, View, Window and Help, with short labels, its keys, ticks for what is on and greyed items for what cannot run now; File has close (cmd W) and recent drawings.
 - Keys: layers, groups and shapes move, turn, scale and fade between frames with eases (`klad key`, the keys section of layer settings).
 - Godot: `--godot-rig` exports a Skeleton2D with Polygon2D parts and the poses as animations; `--godot-scene` a parallax scene with a Parallax2D per depth plane.

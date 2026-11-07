@@ -1628,6 +1628,32 @@ fn parse_inbetween(map: &mut Map<String, Value>) -> Result<InbetweenSpec> {
     Ok(spec)
 }
 
+pub fn solo(doc: &Document, id: &str) -> Result<Vec<Op>> {
+    let mask = |path: &[usize]| path.last() == Some(&crate::doc::MASK);
+    let path = match doc.locate(id) {
+        Some(crate::doc::Loc::Layer(path)) if !mask(&path) => path,
+        Some(crate::doc::Loc::Layer(_)) => bail!("{id} is a mask: show only the layer it masks"),
+        _ => bail!("no layer {id}"),
+    };
+    let keep: Vec<String> = (1..=path.len()).map(|n| doc.layer_at(&path[..n]).id.clone()).collect();
+    let mut inside = Vec::new();
+    crate::doc::walk_children(doc.layer_at(&path), &mut inside);
+    let inside: Vec<&str> = inside.iter().map(|l| l.id.as_str()).collect();
+    Ok(doc
+        .all_layers()
+        .into_iter()
+        .filter(|l| !inside.contains(&l.id.as_str()))
+        .filter(|l| matches!(doc.locate(&l.id), Some(crate::doc::Loc::Layer(p)) if !mask(&p)))
+        .filter_map(|l| {
+            let visible = keep.contains(&l.id);
+            (l.visible != visible).then(|| Op::Set {
+                id: l.id.clone(),
+                props: Map::from_iter([("visible".to_string(), Value::Bool(visible))]),
+            })
+        })
+        .collect())
+}
+
 pub fn rig_owner<'a>(doc: &'a Document, id: &str) -> Result<&'a Layer> {
     let layer = doc.find_layer(id)?;
     match layer.kind() {
@@ -3214,6 +3240,35 @@ mod tests {
             panic!()
         };
         assert!(sun.stroke.is_none());
+    }
+
+    #[test]
+    fn solo_hides_every_other_layer_but_keeps_its_groups_and_its_own_layers() {
+        let doc = |lines: &str| {
+            let (doc, _) = apply_all(&crate::doc::Document::new(64, 64), &parse_lines(lines).unwrap()).unwrap();
+            doc
+        };
+        let d = doc(r#"{"op":"add","layer":{"id":"sky","kind":"paint","name":"sky"}}
+{"op":"add","layer":{"id":"figure","kind":"group","name":"figure"}}
+{"op":"add","layer":{"id":"body","kind":"paint","name":"body"},"in":"figure"}
+{"op":"add","layer":{"id":"arm","kind":"group","name":"arm"},"in":"figure"}
+{"op":"add","layer":{"id":"hand","kind":"paint","name":"hand"},"in":"arm"}
+{"op":"add","layer":{"id":"glove","kind":"paint","name":"glove","visible":false},"in":"arm"}"#);
+        let id = |name: &str| d.find_layer(name).unwrap().id.clone();
+        let (solo_doc, _) = apply_all(&d, &solo(&d, &id("arm")).unwrap()).unwrap();
+        let shown: Vec<&str> = solo_doc
+            .all_layers()
+            .into_iter()
+            .filter(|l| l.visible)
+            .map(|l| l.name.as_str())
+            .collect();
+        assert_eq!(
+            shown,
+            ["figure", "arm", "hand"],
+            "its group stays, its own layers keep theirs"
+        );
+        assert!(solo(&solo_doc, &id("arm")).unwrap().is_empty(), "already alone");
+        assert!(solo(&d, "l99").is_err());
     }
 
     #[test]

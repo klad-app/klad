@@ -85,6 +85,8 @@ pub struct Settings {
     pub updates_checked: u64,
     #[serde(default)]
     pub welcomed: bool,
+    #[serde(default = "yes", rename = "pickAllLayers")]
+    pub pick_all_layers: bool,
 }
 
 fn yes() -> bool {
@@ -107,6 +109,7 @@ impl Default for Settings {
             check_updates: true,
             updates_checked: 0,
             welcomed: false,
+            pick_all_layers: true,
         }
     }
 }

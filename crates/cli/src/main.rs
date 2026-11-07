@@ -1191,6 +1191,16 @@ enum Command {
         #[command(flatten)]
         flags: EditFlags,
     },
+    #[command(
+        about = "Show only one layer: hide every other layer (its groups stay shown, its own layers as they are)",
+        long_about = "Show only one layer: every other layer is hidden, the groups it is in stay shown and the layers inside it keep their own visibility, in one step that klad undo takes back. The editor's alt click on a layer's eye does the same.\n\n  klad solo art.klad lines"
+    )]
+    Solo {
+        bundle: PathBuf,
+        layer: String,
+        #[command(flatten)]
+        flags: EditFlags,
+    },
     #[command(about = "List the skeletons, their bones and weights, and the posed drawings")]
     Bones {
         bundle: PathBuf,
@@ -2851,6 +2861,15 @@ fn run() -> Result<()> {
             agent::edit(&bundle, &[Op::Bone(spec)], &output(&flags, 0))?;
         }
         Command::Bones { bundle, json } => rig::list(&Bundle::open(&bundle)?, json)?,
+        Command::Solo { bundle, layer, flags } => {
+            let opened = Bundle::open(&bundle)?;
+            let id = opened.doc.find_layer(&layer)?.id.clone();
+            let ops = klad_core::ops::solo(&opened.doc, &id)?;
+            match ops.is_empty() {
+                true => println!("{layer} already shows alone"),
+                false => agent::edit(&bundle, &ops, &output(&flags, 0))?,
+            }
+        }
         Command::Key {
             bundle,
             id,

@@ -44,6 +44,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad scatter`](#klad-scatter): Scatter copies of a small mark over a shape: grass, cracks, dots
 - [`klad foliage`](#klad-foliage): Paint closed shapes as clumps of leaves, lit as forms
 - [`klad bone`](#klad-bone): Add, remove, rename, move or reparent a bone of a layer's or group's skeleton
+- [`klad solo`](#klad-solo): Show only one layer: hide every other layer (its groups stay shown, its own layers as they are)
 - [`klad bones`](#klad-bones): List the skeletons, their bones and weights, and the posed drawings
 - [`klad weights`](#klad-weights): Set how much each bone moves each part of the drawing: automatic, painted dabs, a whole part, smoothed
 - [`klad pose`](#klad-pose): Pose a drawing with its bones: a new drawing at --to, bent from the rest drawing at --from
@@ -2161,6 +2162,39 @@ Options:
       --by <BY>
           dx,dy in px: with --move, the bone and its children
 
+      --render
+          Render a preview after the edit and print its path
+
+      --scale <SCALE>
+          Preview scale (default: longest side 1024 px)
+
+      --json
+          Print the result as JSON
+
+      --overlay <OVERLAY>
+          Draw on the preview: ids, bbox, grid or all (comma separated)
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## klad solo
+
+```text
+Show only one layer: every other layer is hidden, the groups it is in stay shown and the layers inside it keep their own visibility, in one step that klad undo takes back. The editor's alt click on a layer's eye does the same.
+
+  klad solo art.klad lines
+
+Usage: klad solo [OPTIONS] <BUNDLE> <LAYER>
+
+Arguments:
+  <BUNDLE>
+
+
+  <LAYER>
+
+
+Options:
       --render
           Render a preview after the edit and print its path
 

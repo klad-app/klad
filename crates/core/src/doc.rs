@@ -715,6 +715,10 @@ pub fn family_paths(doc: &Document, path: &[usize]) -> Vec<Vec<usize>> {
         .collect()
 }
 
+pub fn walk_children<'a>(layer: &'a Layer, out: &mut Vec<&'a Layer>) {
+    walk_layers(layer.children(), out);
+}
+
 fn walk_layers<'a>(layers: &'a [Layer], out: &mut Vec<&'a Layer>) {
     layers.iter().for_each(|l| {
         out.push(l);

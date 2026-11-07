@@ -592,6 +592,7 @@ pub(crate) struct Editor {
     swatch_drag: Option<usize>,
     renaming: Option<layers::Rename>,
     queued_activate: Option<Vec<usize>>,
+    solo_later: Option<String>,
     layer_drag: Option<(layers::LayerRow, layers::Where)>,
     canvas_wait: Option<timeline::CanvasWait>,
     canvas_gen: u64,
@@ -623,6 +624,7 @@ pub(crate) struct Editor {
     first: first::FirstSteps,
     settings_section: prefs::Section,
     report_drawing: bool,
+    soloed: Option<(String, Vec<(String, bool)>)>,
     strip_tools: [f32; 2],
     strip_foot: [f32; 2],
     key_ease: klad_core::keys::Ease,
@@ -765,6 +767,7 @@ impl Editor {
             swatch_drag: None,
             renaming: None,
             queued_activate: None,
+            solo_later: None,
             layer_drag: None,
             canvas_wait: None,
             canvas_gen: 0,
@@ -796,6 +799,7 @@ impl Editor {
             first: first::FirstSteps::default(),
             settings_section: prefs::Section::default(),
             report_drawing: false,
+            soloed: None,
             strip_tools: [570.0, 480.0],
             strip_foot: [186.0, 166.0],
             key_ease: klad_core::keys::Ease::Linear,
@@ -1501,8 +1505,36 @@ impl Editor {
         });
     }
 
+    fn erased(&self) -> impl Fn(&Mark) -> bool + Copy + '_ {
+        let brushes = &self.brushes;
+        move |m: &Mark| {
+            m.as_stroke().is_some_and(|s| {
+                brushes
+                    .get(&s.brush)
+                    .is_ok_and(|b| b.blend == klad_brush::brush::StrokeBlend::Erase)
+            })
+        }
+    }
+
+    fn layer_rank(&self, id: &str) -> Option<usize> {
+        self.scene.bundle.doc.all_layers().iter().position(|l| l.id == id)
+    }
+
+    fn shape_hits(&self, at: Vec2) -> Result<Vec<(String, String)>> {
+        let active = self.scene.active_id();
+        Ok(overlay::hits(&self.scene.bundle.doc, self.scene.frame, (at.x, at.y))?
+            .into_iter()
+            .filter(|(_, layer)| self.settings.pick_all_layers || active.as_deref() == Some(layer.as_str()))
+            .collect())
+    }
+
+    pub(super) fn mark_at(&self, at: Vec2, slack: f32) -> Option<(Vec<usize>, u32)> {
+        self.scene
+            .marks_at((at.x, at.y), slack, self.settings.pick_all_layers, self.erased())
+    }
+
     fn select_at(&mut self, at: Vec2, cycle: bool) -> Result<()> {
-        let hits = overlay::hits(&self.scene.bundle.doc, self.scene.frame, (at.x, at.y))?;
+        let hits = self.shape_hits(at)?;
         let current = self
             .selection
             .as_ref()
@@ -1581,11 +1613,23 @@ impl Editor {
             self.start_drag(key, Grab::Move, corners, c, true);
             return Ok(());
         }
-        let on_active = self
-            .scene
-            .active_cel()
-            .filter(|_| markedit::hit(self.scene.active_marks(), (c.x, c.y), slack).is_some());
-        if on_active.is_none() {
+        let stroke = self.mark_at(c, slack);
+        let shape = self
+            .shape_hits(c)?
+            .first()
+            .and_then(|(_, layer)| self.layer_rank(layer));
+        let stroke_first = match (&stroke, shape) {
+            (Some((path, _)), Some(shape)) => self
+                .scene
+                .bundle
+                .doc
+                .locate_path(path)
+                .and_then(|l| self.layer_rank(&l.id))
+                .is_some_and(|rank| rank > shape),
+            (_, None) => true,
+            (None, Some(_)) => false,
+        };
+        if !stroke_first {
             self.select_at(c, false)?;
             if let Some((id, corners)) = self.selection_corners() {
                 self.picked = None;
@@ -1594,7 +1638,7 @@ impl Editor {
             }
         }
         self.selection = None;
-        let Some((path, id)) = self.scene.marks_at((c.x, c.y), slack) else {
+        let Some((path, id)) = stroke else {
             self.lasso = Some(Lasso {
                 points: vec![c],
                 start: pos,
@@ -1687,12 +1731,21 @@ impl Editor {
         let Some(lasso) = self.lasso.take() else {
             return Ok(());
         };
+        let zoom = self.view.map_or(1.0, |v| v.zoom);
+        let click = !lasso.far || lasso.points.len() < 3;
+        if click
+            && !self.modifiers.shift
+            && let Some((path, _)) = self.mark_at(lasso.points[0], 5.0 / zoom)
+            && path != self.scene.active
+        {
+            self.activate(path)?;
+        }
         let Some(cel) = self.scene.active_cel() else {
             self.say(Tone::Refused, "make a paint layer active to select its strokes");
             return Ok(());
         };
-        let zoom = self.view.map_or(1.0, |v| v.zoom);
         let at = lasso.points[0];
+        let erased = self.erased();
         let polygon: Option<Vec<[f32; 2]>> =
             (lasso.far && lasso.points.len() >= 3).then(|| lasso.points.iter().map(|p| [p.x, p.y]).collect());
         let pick = |marks: &[Mark]| -> (Vec<u32>, bool) {
@@ -1708,7 +1761,9 @@ impl Editor {
                     (inside, crossing)
                 }
                 None => (
-                    markedit::hit(marks, (at.x, at.y), 5.0 / zoom).into_iter().collect(),
+                    markedit::pick(marks, (at.x, at.y), 5.0 / zoom, erased)
+                        .into_iter()
+                        .collect(),
                     false,
                 ),
             }
@@ -1896,7 +1951,7 @@ impl Editor {
                 let zoom = self.view.map_or(1.0, |v| v.zoom);
                 let mut on_stroke = false;
                 if self.under.is_empty()
-                    && let Some((path, mark)) = self.scene.marks_at((c.x, c.y), 5.0 / zoom)
+                    && let Some((path, mark)) = self.mark_at(c, 5.0 / zoom)
                 {
                     if path != self.scene.active {
                         self.activate(path)?;
@@ -3183,6 +3238,78 @@ impl Editor {
         self.forget_missing_selection();
         self.measure("stroke edit", format!("stroke edit redrawn in {:.0} ms", ms(start)));
         Ok(())
+    }
+
+    pub(super) fn recolourable(&self) -> Option<String> {
+        let id = self
+            .selection
+            .clone()
+            .or_else(|| self.direct.as_ref().map(|d| d.node.clone()))?;
+        match self.scene.bundle.doc.item(&id) {
+            Some(Item::Node(_, _, node))
+                if matches!(
+                    node.shape,
+                    Shape::Rect { .. } | Shape::Ellipse { .. } | Shape::Path { .. } | Shape::Text(_)
+                ) =>
+            {
+                Some(id)
+            }
+            _ => None,
+        }
+    }
+
+    fn recolour_shape(&mut self, outline: bool) -> Result<()> {
+        let Some(id) = self.recolourable() else {
+            return Ok(());
+        };
+        let hex = color::hex(self.color);
+        let has_outline = matches!(
+            self.scene.bundle.doc.item(&id),
+            Some(Item::Node(_, _, node)) if node.stroke.is_some()
+        );
+        let props = match (outline, has_outline) {
+            (false, _) => json!({"fill": hex}),
+            (true, true) => json!({"stroke.paint": hex}),
+            (true, false) => json!({"stroke": {"paint": hex, "width": self.pen_width}}),
+        };
+        let props = props.as_object().cloned().unwrap_or_default();
+        self.apply(vec![Op::Set { id, props }])
+    }
+
+    pub(super) fn solo(&mut self, id: &str) -> Result<()> {
+        let ops = match self.soloed.take() {
+            Some((was, before)) if was == id => before
+                .into_iter()
+                .filter(|(layer, visible)| {
+                    self.scene
+                        .bundle
+                        .doc
+                        .layer(layer)
+                        .is_some_and(|l| l.visible != *visible)
+                })
+                .map(|(layer, visible)| Op::Set {
+                    id: layer,
+                    props: Map::from_iter([("visible".to_string(), json!(visible))]),
+                })
+                .collect(),
+            _ => {
+                let before = self
+                    .scene
+                    .bundle
+                    .doc
+                    .all_layers()
+                    .iter()
+                    .map(|l| (l.id.clone(), l.visible))
+                    .collect();
+                let ops = klad_core::ops::solo(&self.scene.bundle.doc, id)?;
+                self.soloed = Some((id.to_string(), before));
+                ops
+            }
+        };
+        if ops.is_empty() {
+            return Ok(());
+        }
+        self.apply(ops)
     }
 
     fn recolour_picked(&mut self) -> Result<()> {

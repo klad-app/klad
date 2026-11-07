@@ -126,6 +126,15 @@ impl Raster {
         }
     }
 
+    pub fn alpha_at(&self, x: f32, y: f32) -> f32 {
+        if x < 0.0 || y < 0.0 || x >= self.width as f32 || y >= self.height as f32 {
+            return 0.0;
+        }
+        let (x, y) = (x as usize, y as usize);
+        self.get(x / TILE, y / TILE)
+            .map_or(0.0, |t| f32::from(t[((y % TILE) * TILE + x % TILE) * 4 + 3]))
+    }
+
     pub fn heights(&self) -> Option<&Heights> {
         self.body.as_ref().filter(|h| h.count() > 0)
     }

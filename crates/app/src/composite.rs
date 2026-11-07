@@ -1179,27 +1179,87 @@ impl Scene {
         Some((&self.cels.get(&cel)?.replay, self.rasters.get(&cel)?))
     }
 
-    pub fn marks_at(&self, at: (f32, f32), slack: f32) -> Option<(Vec<usize>, u32)> {
+    fn seen_at(&self, path: &[usize], at: (f32, f32)) -> Option<f32> {
+        let doc = &self.bundle.doc;
+        let alpha_of = |layer: &Layer| -> Option<f32> {
+            let cel = layer.content_at(self.frame)?;
+            self.rasters.get(&cel.id).map(|r| r.alpha_at(at.0, at.1))
+        };
+        let layer = doc.locate_path(path)?;
+        let own = alpha_of(layer)?;
+        let opacity: f32 = (1..=path.len())
+            .map(|n| doc.locate_path(&path[..n]).map_or(1.0, |l| l.opacity))
+            .product();
+        let unmasked = layer
+            .mask
+            .as_deref()
+            .filter(|m| m.visible)
+            .and_then(alpha_of)
+            .map_or(1.0, |m| 1.0 - m);
+        let based = match (layer.clip, path.split_last()) {
+            (true, Some((&i, parent))) => {
+                let list = match parent.is_empty() {
+                    true => &doc.layers[..],
+                    false => doc.locate_path(parent).map_or(&[][..], |p| p.children()),
+                };
+                list[..i]
+                    .iter()
+                    .rev()
+                    .find(|l| !l.clip)
+                    .map_or(Some(1.0), alpha_of)
+                    .unwrap_or(1.0)
+            }
+            _ => 1.0,
+        };
+        Some(own * opacity * unmasked * based)
+    }
+
+    pub fn marks_at(
+        &self,
+        at: (f32, f32),
+        slack: f32,
+        all: bool,
+        hidden: impl Fn(&Mark) -> bool + Copy,
+    ) -> Option<(Vec<usize>, u32)> {
+        const SEEN: f32 = 0.05;
         let doc = &self.bundle.doc;
         let shown = |path: &[usize]| (1..=path.len()).all(|n| doc.locate_path(&path[..n]).is_some_and(|l| l.visible));
-        let others = doc
-            .all_layers()
+        let paths: Vec<Vec<usize>> = match all {
+            false => vec![self.active.clone()],
+            true => doc
+                .all_layers()
+                .into_iter()
+                .rev()
+                .filter_map(|l| match doc.locate(&l.id) {
+                    Some(Loc::Layer(path)) => Some(path),
+                    _ => None,
+                })
+                .collect(),
+        };
+        let layers: Vec<(Vec<usize>, &[Mark], Option<f32>)> = paths
             .into_iter()
-            .rev()
-            .filter_map(|l| match doc.locate(&l.id) {
-                Some(Loc::Layer(path)) => Some(path),
-                _ => None,
-            });
-        std::iter::once(self.active.clone())
-            .chain(others)
             .filter(|path| path.last() != Some(&MASK) && shown(path))
-            .find_map(|path| {
+            .filter_map(|path| {
                 let layer = doc.locate_path(&path)?;
                 if layer.kind() != Kind::Paint || layer.locked {
                     return None;
                 }
                 let marks = self.cels.get(&layer.content_at(self.frame)?.id)?.marks();
-                klad_core::markedit::hit(marks, at, slack).map(|id| (path, id))
+                let seen = self.seen_at(&path, at);
+                Some((path, marks, seen))
+            })
+            .collect();
+        let painted = |marks: &[Mark]| klad_core::markedit::pick(marks, at, 0.0, hidden).is_some();
+        layers
+            .iter()
+            .find(|(_, marks, seen)| seen.map_or_else(|| painted(marks), |a| a > SEEN))
+            .and_then(|(path, marks, _)| {
+                klad_core::markedit::pick(marks, at, slack, hidden).map(|id| (path.clone(), id))
+            })
+            .or_else(|| {
+                layers.iter().find_map(|(path, marks, _)| {
+                    klad_core::markedit::pick(marks, at, slack, hidden).map(|id| (path.clone(), id))
+                })
             })
     }
 

@@ -251,6 +251,167 @@ fn settings_is_a_modal_with_a_sidebar_and_esc_closes_it_unless_a_key_is_being_se
     let _ = std::fs::remove_dir_all(&path);
 }
 
+fn click_with(h: &mut Harness<'static, Editor>, at: egui::Pos2, modifiers: Modifiers) {
+    h.event(egui::Event::ModifiersChanged(modifiers));
+    h.hover_at(at);
+    h.run_steps(1);
+    [true, false].into_iter().for_each(|pressed| {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers,
+        });
+        h.run_steps(1);
+    });
+    h.event(egui::Event::ModifiersChanged(Modifiers::NONE));
+    h.run_steps(2);
+}
+
+#[test]
+fn a_click_picks_the_stroke_you_see_on_any_layer_or_only_on_this_one() {
+    let path = sample("pick-seen");
+    Bundle::open(&path)
+        .unwrap()
+        .apply(&parse_lines(r#"{"op":"stroke","layer":"l5","path":"M100 100 L250 180","size":40}"#).unwrap())
+        .unwrap();
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    ready(&mut h);
+    let cel_of = |h: &Harness<'static, Editor>, name: &str| {
+        h.state().scene.bundle.doc.find_layer(name).unwrap().cels()[0]
+            .id
+            .clone()
+    };
+    let (lines, colour) = (cel_of(&h, "lines"), cel_of(&h, "colour"));
+    [Tool::Select, Tool::Strokes].into_iter().for_each(|tool| {
+        activate(&mut h, "colour");
+        h.state_mut().tool = tool;
+        h.state_mut().picked = None;
+        h.state_mut().settings.pick_all_layers = true;
+        h.run_steps(2);
+        let seen = canvas_at(&h, 170.0, 120.0);
+        click_with(&mut h, seen, Modifiers::NONE);
+        settle(&mut h, |ed| ed.scene.active_layer().is_some_and(|l| l.name == "lines"));
+        if h.state().picked.is_none() {
+            ready(&mut h);
+            click_with(&mut h, seen, Modifiers::NONE);
+        }
+        assert_eq!(
+            h.state().picked.as_ref().map(|p| p.cel.clone()),
+            Some(lines.clone()),
+            "{tool:?}: the line on top is picked, not the colour stroke under it on the active layer"
+        );
+        activate(&mut h, "colour");
+        h.state_mut().picked = None;
+        h.state_mut().settings.pick_all_layers = false;
+        h.run_steps(2);
+        click_with(&mut h, seen, Modifiers::NONE);
+        assert_eq!(h.state().scene.active_layer().unwrap().name, "colour");
+        assert_eq!(
+            h.state().picked.as_ref().map(|p| p.cel.clone()),
+            Some(colour.clone()),
+            "{tool:?}: this layer only picks on the active layer"
+        );
+    });
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn a_selected_shape_takes_the_colour_as_its_fill_or_outline() {
+    let path = sample("shape-colour");
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    activate(&mut h, "shapes");
+    let id = h.state().scene.bundle.doc.find_layer("shapes").unwrap().cels()[0].nodes[0]
+        .id
+        .clone();
+    h.state_mut().tool = Tool::Select;
+    assert!(
+        h.state().can_run(Cmd::FillShape).is_some(),
+        "nothing selected greys it out"
+    );
+    h.state_mut().selection = Some(id.clone());
+    h.state_mut().color = [0.0, 0.5, 1.0, 1.0];
+    h.run_steps(2);
+    let node = |h: &Harness<'static, Editor>| match h.state().scene.bundle.doc.item(&id) {
+        Some(klad_core::doc::Item::Node(_, _, n)) => n.clone(),
+        _ => panic!("the shape is gone"),
+    };
+    assert!(node(&h).stroke.is_none());
+    h.state_mut().invoke(Cmd::FillShape).unwrap();
+    h.run_steps(2);
+    assert_eq!(
+        serde_json::to_value(&node(&h).fill).unwrap(),
+        serde_json::json!("#0080ff")
+    );
+    h.state_mut().color = [1.0, 0.0, 0.0, 1.0];
+    h.state_mut().invoke(Cmd::OutlineShape).unwrap();
+    h.run_steps(2);
+    let outline = serde_json::to_value(node(&h).stroke.unwrap()).unwrap();
+    assert_eq!(outline["paint"], "#ff0000", "{outline}");
+    assert_eq!(
+        serde_json::to_value(&node(&h).fill).unwrap(),
+        serde_json::json!("#0080ff")
+    );
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn alt_click_on_an_eye_shows_only_that_layer_and_again_brings_the_rest_back() {
+    let path = sample("solo");
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    [Pane::Tool, Pane::Inspector, Pane::Notes, Pane::History]
+        .into_iter()
+        .for_each(|pane| {
+            if let Some(p) = h.state_mut().settings.layout.pane_mut(pane) {
+                p.collapsed = true;
+            }
+        });
+    h.state_mut().settings.layout.timeline = false;
+    h.run_steps(3);
+    let eye_of = |h: &Harness<'static, Editor>, name: &str| {
+        let row = h
+            .query_all_by_label(name)
+            .map(|n| n.rect())
+            .max_by(|a, b| a.left().total_cmp(&b.left()))
+            .unwrap();
+        h.query_all_by_label(theme::icon::EYE)
+            .chain(h.query_all_by_label(theme::icon::EYE_OFF))
+            .map(|n| n.rect())
+            .find(|r| (r.center().y - row.center().y).abs() < 8.0 && r.right() <= row.left())
+            .unwrap()
+            .center()
+    };
+    let visible = |h: &Harness<'static, Editor>| -> Vec<String> {
+        h.state()
+            .scene
+            .bundle
+            .doc
+            .layers
+            .iter()
+            .filter(|l| l.visible)
+            .map(|l| l.name.clone())
+            .collect()
+    };
+    let before = visible(&h);
+    let eye = eye_of(&h, "colour");
+    click_with(&mut h, eye, Modifiers::ALT);
+    assert_eq!(visible(&h), ["colour"], "only colour shows");
+    assert_eq!(
+        h.state().is_on(Cmd::SoloLayer),
+        Some(false),
+        "it is not the active layer"
+    );
+    let eye = eye_of(&h, "colour");
+    click_with(&mut h, eye, Modifiers::ALT);
+    assert_eq!(visible(&h), before, "again: the rest comes back as it was");
+    let eye = eye_of(&h, "colour");
+    click_with(&mut h, eye, Modifiers::ALT);
+    h.state_mut().invoke(Cmd::Undo).unwrap();
+    h.run_steps(3);
+    assert_eq!(visible(&h), before, "one undo takes it back too");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
 #[test]
 fn every_control_is_pen_sized_and_has_a_hover_hint() {
     let path = sample("audit");

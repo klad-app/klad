@@ -331,16 +331,16 @@ impl Editor {
                 }
                 Tool::Fill => self.fill_panel(ui),
                 Tool::Strokes => {
+                    self.pick_scope(ui);
                     self.command_check(ui, Cmd::CutLasso, "a lasso cuts strokes at its edge");
                     self.command_button(ui, Cmd::SelectAll, Some("select all"));
                     ui.label(RichText::new("click or lasso strokes; the bar under them edits them").color(theme::WEAK));
                 }
                 Tool::Select => {
+                    self.pick_scope(ui);
                     ui.label(
-                        RichText::new(
-                            "click a stroke or a shape and drag it; alt drag drags a copy; drag on empty canvas to lasso strokes",
-                        )
-                        .color(theme::WEAK),
+                        RichText::new("click what you see and drag it; alt drag: a copy; drag on empty canvas: a lasso")
+                            .color(theme::WEAK),
                     );
                 }
                 Tool::Direct => {
@@ -432,6 +432,25 @@ impl Editor {
             }
         });
         Ok(())
+    }
+
+    fn pick_scope(&mut self, ui: &mut egui::Ui) {
+        let all = self.settings.pick_all_layers;
+        [
+            (false, "this layer", "a click picks strokes on the active layer only"),
+            (
+                true,
+                "all layers",
+                "a click picks what you see, on any layer, and makes its layer active",
+            ),
+        ]
+        .into_iter()
+        .for_each(|(scope, label, hint)| {
+            if ui.selectable_label(all == scope, label).hint(hint).clicked() && all != scope {
+                self.queued.push(Cmd::PickAllLayers);
+            }
+        });
+        ui.separator();
     }
 
     pub(super) fn brush_tiles(&mut self, ui: &mut egui::Ui) {

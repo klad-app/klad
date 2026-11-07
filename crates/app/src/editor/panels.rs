@@ -143,6 +143,9 @@ impl Editor {
         if let Some(path) = self.queued_activate.take() {
             self.check(|e| e.activate(path));
         }
+        if let Some(id) = self.solo_later.take() {
+            self.check(|e| e.solo(&id));
+        }
         self.check(|e| e.tend_pick());
         self.check(|e| e.pin_popover(&ctx));
         self.check(|e| e.run_queued());

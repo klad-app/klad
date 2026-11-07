@@ -163,6 +163,10 @@ pub enum Cmd {
     CloseDocument,
     Quit,
     FirstSteps,
+    PickAllLayers,
+    FillShape,
+    OutlineShape,
+    SoloLayer,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -486,7 +490,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 159] = [
+    pub const ALL: [Cmd; 163] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -631,6 +635,10 @@ impl Cmd {
         Cmd::CloseDocument,
         Cmd::Quit,
         Cmd::FirstSteps,
+        Cmd::PickAllLayers,
+        Cmd::FillShape,
+        Cmd::OutlineShape,
+        Cmd::SoloLayer,
         Cmd::OpenDocument,
         Cmd::OpenRecent,
         Cmd::CopyPath,
@@ -1901,6 +1909,42 @@ impl Cmd {
                 R::No,
                 "name, loop, own fps, first and last frame, delete, export to Godot",
             ),
+            Cmd::PickAllLayers => spec(
+                "edit.pick-all",
+                "pick from all layers",
+                icon::LAYERS,
+                G::Edit,
+                T::None,
+                R::No,
+                "a click with S or V picks what you see on any layer; off, it picks on the active layer only",
+            ),
+            Cmd::FillShape => spec(
+                "shape.fill",
+                "fill the shape with the colour",
+                icon::FILL,
+                G::Edit,
+                T::None,
+                R::No,
+                "the selected shape's fill becomes the current colour",
+            ),
+            Cmd::OutlineShape => spec(
+                "shape.outline",
+                "outline the shape in the colour",
+                icon::PEN,
+                G::Edit,
+                T::None,
+                R::No,
+                "the selected shape's outline becomes the current colour (an outline is added at the pen's width when it has none)",
+            ),
+            Cmd::SoloLayer => spec(
+                "layer.solo",
+                "show only this layer",
+                icon::EYE,
+                G::Layers,
+                T::None,
+                R::No,
+                "hide every other layer (alt click an eye does the same); again shows them as they were",
+            ),
             Cmd::FirstSteps => spec(
                 "help.first-steps",
                 "first steps",
@@ -2238,6 +2282,10 @@ impl Cmd {
             Cmd::CloseDocument => "Close",
             Cmd::Quit => "Quit klad",
             Cmd::FirstSteps => "First steps",
+            Cmd::PickAllLayers => "Pick from all layers",
+            Cmd::FillShape => "Fill with colour",
+            Cmd::OutlineShape => "Outline with colour",
+            Cmd::SoloLayer => "Show only this",
             Cmd::Parallax | Cmd::Eyedropper | Cmd::Pan | Cmd::Zoom | Cmd::FlipFrames | Cmd::Roll | Cmd::SizeDrag => {
                 self.spec().name
             }
@@ -2304,6 +2352,7 @@ pub const MENUS: [Menu; 9] = [
             Run(Cmd::SelectAll),
             Run(Cmd::Deselect),
             Run(Cmd::CutLasso),
+            Run(Cmd::PickAllLayers),
             Line,
             Sub(
                 "Transform",
@@ -2320,6 +2369,7 @@ pub const MENUS: [Menu; 9] = [
                 ],
             ),
             Sub("Strokes", &[Run(Cmd::Recolour), Run(Cmd::Thinner), Run(Cmd::Thicker)]),
+            Sub("Shape", &[Run(Cmd::FillShape), Run(Cmd::OutlineShape)]),
             Sub(
                 "Points",
                 &[
@@ -2371,6 +2421,7 @@ pub const MENUS: [Menu; 9] = [
             Run(Cmd::DeleteLayer),
             Line,
             Run(Cmd::ToggleVisible),
+            Run(Cmd::SoloLayer),
             Run(Cmd::ToggleLocked),
             Run(Cmd::ToggleClip),
             Run(Cmd::ToggleLockAlpha),

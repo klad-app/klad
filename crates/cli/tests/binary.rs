@@ -224,3 +224,32 @@ fn a_report_holds_the_version_the_log_with_home_hidden_and_zips_the_drawing() {
     assert!(dir.join("drawings/rock for a report.zip").is_file());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn solo_shows_one_layer_and_undo_brings_the_rest_back() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-solo-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let bundle = dir.join("a.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    run(&["new", path, "--width", "64", "--height", "64", "--layers", "3"]);
+    let shown = || -> Vec<bool> {
+        let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(bundle.join("doc.json")).unwrap()).unwrap();
+        doc["layers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l["visible"].as_bool().unwrap_or(true))
+            .collect()
+    };
+    run(&["solo", path, "paint 2"]);
+    assert_eq!(shown(), [false, true, false]);
+    assert!(run(&["solo", path, "paint 2"]).contains("already shows alone"));
+    run(&["undo", path]);
+    assert_eq!(shown(), [true, true, true]);
+    std::fs::remove_dir_all(&dir).unwrap();
+}

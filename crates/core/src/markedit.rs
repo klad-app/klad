@@ -480,11 +480,18 @@ fn touches(mark: &Mark, at: (f32, f32), slack: f32) -> bool {
 }
 
 pub fn hit(marks: &[Mark], at: (f32, f32), slack: f32) -> Option<u32> {
-    marks
-        .iter()
-        .rev()
-        .find(|m| cut::keeps(m.cuts(), at) && touches(m, at, slack))
-        .map(Mark::id)
+    pick(marks, at, slack, |_| false)
+}
+
+pub fn pick(marks: &[Mark], at: (f32, f32), slack: f32, hidden: impl Fn(&Mark) -> bool) -> Option<u32> {
+    let found = |slack: f32| {
+        marks
+            .iter()
+            .rev()
+            .find(|m| !hidden(m) && cut::keeps(m.cuts(), at) && touches(m, at, slack))
+            .map(Mark::id)
+    };
+    found(0.0).or_else(|| (slack > 0.0).then(|| found(slack)).flatten())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -773,6 +780,38 @@ mod tests {
 
     fn props(value: Value) -> Map<String, Value> {
         value.as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn a_pick_takes_the_mark_under_the_point_before_one_merely_near_it() {
+        let wide: Mark = Stroke::new(1, "ink", [0.0, 0.0, 0.0, 1.0], 20.0, 1)
+            .with_points(&[(10.0, 50.0, 1.0), (90.0, 50.0, 1.0)], 4.0)
+            .into();
+        let thin: Mark = Stroke::new(2, "ink", [0.0, 0.0, 0.0, 1.0], 2.0, 1)
+            .with_points(&[(10.0, 46.0, 1.0), (130.0, 46.0, 1.0)], 4.0)
+            .into();
+        let marks = vec![wide, thin];
+        assert_eq!(
+            pick(&marks, (50.0, 52.0), 6.0, |_| false),
+            Some(1),
+            "under the point wins"
+        );
+        assert_eq!(
+            pick(&marks, (50.0, 46.5), 6.0, |_| false),
+            Some(2),
+            "the top one where both cover"
+        );
+        assert_eq!(
+            pick(&marks, (120.0, 49.0), 6.0, |_| false),
+            Some(2),
+            "near only the thin one: slack"
+        );
+        assert_eq!(
+            pick(&marks, (50.0, 46.5), 6.0, |m| m.id() == 2),
+            Some(1),
+            "hidden marks are skipped"
+        );
+        assert_eq!(pick(&marks, (50.0, 20.0), 6.0, |_| false), None);
     }
 
     #[test]

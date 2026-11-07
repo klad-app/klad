@@ -253,6 +253,8 @@ impl Editor {
                 Cmd::FlipV,
                 Cmd::TurnLeft90,
                 Cmd::TurnRight90,
+                Cmd::FillShape,
+                Cmd::OutlineShape,
                 Cmd::DuplicateInPlace,
                 Cmd::Delete,
                 Cmd::Deselect,

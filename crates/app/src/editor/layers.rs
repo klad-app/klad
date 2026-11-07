@@ -260,8 +260,19 @@ impl Editor {
         let mut ops: Vec<Op> = Vec::new();
         if !row.mask {
             let eye = if row.visible { icon::EYE } else { icon::EYE_OFF };
-            if Self::small_toggle(&mut child, eye, row.visible, format!("show or hide {}", row.name)) {
-                ops.push(set(&row.id, "visible", json!(!row.visible)));
+            if Self::small_toggle(
+                &mut child,
+                eye,
+                row.visible,
+                format!(
+                    "show or hide {}; alt click shows only this one, and again the others",
+                    row.name
+                ),
+            ) {
+                match self.modifiers.alt {
+                    true => self.solo_later = Some(row.id.clone()),
+                    false => ops.push(set(&row.id, "visible", json!(!row.visible))),
+                }
             }
             if Self::small_toggle(
                 &mut child,
