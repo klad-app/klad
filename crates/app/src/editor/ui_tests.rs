@@ -1110,6 +1110,43 @@ fn a_shape_previews_only_its_tiles_while_dragged_and_two_drags_in_a_row_both_lan
     let _ = std::fs::remove_dir_all(&path);
 }
 
+#[test]
+fn switching_layers_keeps_the_canvas_unless_the_picture_changes() {
+    let path = sample("switch");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    settle(&mut h, |ed| ed.canvas_current() && ed.dirty.is_empty());
+    let all = h.state().scene.all_tiles().len();
+    let switch = |h: &mut Harness<'static, Editor>, name: &str| {
+        let path = {
+            let ed = h.state();
+            let id = ed.scene.bundle.doc.find_layer(name).unwrap().id.clone();
+            match ed.scene.bundle.doc.locate(&id) {
+                Some(klad_core::doc::Loc::Layer(path)) => path,
+                _ => panic!("no layer {name}"),
+            }
+        };
+        h.state_mut().invoke(Cmd::ResetNumbers).unwrap();
+        h.state_mut().activate(path).unwrap();
+        let start = std::time::Instant::now();
+        while !h.state().canvas_current() && start.elapsed() < std::time::Duration::from_secs(20) {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        h.run_steps(2);
+        assert!(h.state().dirty.is_empty());
+        crate::stats::lock(&h.state().stats).tiles.max() as usize
+    };
+    assert_eq!(switch(&mut h, "shade"), 0, "a plain switch keeps every tile");
+    h.state_mut().invoke(Cmd::Onion).unwrap();
+    settle(&mut h, |ed| ed.canvas_current() && ed.dirty.is_empty());
+    assert_eq!(
+        switch(&mut h, "rim"),
+        all,
+        "with onion skins the picture follows the layer"
+    );
+    let _ = std::fs::remove_dir_all(&path);
+}
+
 fn top_down(h: &Harness<'static, Editor>) -> Vec<String> {
     h.state()
         .layer_rows(super::layers::Where::Panel)

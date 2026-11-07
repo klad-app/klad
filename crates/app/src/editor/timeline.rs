@@ -98,6 +98,7 @@ pub(super) struct Timeline {
     moved_at: Instant,
     step_start: Option<Instant>,
     pub canvas_frame: Option<u32>,
+    pub kept: Option<(u32, u64)>,
     pub on_screen: Option<u32>,
     shown_key: Option<u64>,
     flip: Option<Flip>,
@@ -130,6 +131,7 @@ impl Default for Timeline {
             moved_at: Instant::now(),
             step_start: None,
             canvas_frame: None,
+            kept: None,
             on_screen: None,
             shown_key: None,
             flip: None,
@@ -407,9 +409,13 @@ impl Editor {
         self.frames.heavy |= done.bytes > crate::frames::HEAVY;
         self.scene.lean = self.frames.heavy;
         let thumbs = std::mem::take(&mut done.thumbs);
+        let unchanged = self.timeline.kept.take() == Some((done.frame, self.scene.bundle.doc.rev))
+            && self.timeline.canvas_frame == Some(done.frame);
         if self.scene.adopt(done, wanted) {
             self.keep_thumbs(thumbs);
-            self.dirty.extend(self.scene.all_tiles());
+            if !unchanged {
+                self.dirty.extend(self.scene.all_tiles());
+            }
             self.timeline.canvas_frame = Some(self.scene.frame);
             self.measure(
                 "canvas",

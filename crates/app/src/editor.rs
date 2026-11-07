@@ -54,7 +54,7 @@ use klad_brush::{
 use klad_core::brushes::{BrushDef, Curve, TipDef, pick_id};
 use klad_core::bundle::now_ms;
 use klad_core::color::parse_hex;
-use klad_core::doc::{Item, Kind, Linear, Loc, Node, Paint, Radial, Shape, Stop};
+use klad_core::doc::{Item, Kind, Linear, Loc, MASK, Node, Paint, Radial, Shape, Stop};
 use klad_core::fill::{self, Fill, FillRef, FillSource, Seed};
 use klad_core::history::Stack;
 use klad_core::markedit::{self, LassoAction, MarkTransform, address, apply_affine, invert};
@@ -3897,6 +3897,9 @@ impl Editor {
             return Ok(());
         }
         let id = self.scene.bundle.doc.locate_path(&path).map(|l| l.id.clone());
+        let tinted = self.scene.tint_mask && (self.scene.active_is_mask() || path.last() == Some(&MASK));
+        self.timeline.kept = (self.canvas_current() && !self.scene.onion_on && !tinted)
+            .then_some((self.scene.frame, self.scene.bundle.doc.rev));
         self.scene.set_active_later(path);
         if self.scene.onion_on {
             self.frames_changed();

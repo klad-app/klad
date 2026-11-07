@@ -31,6 +31,7 @@ The first builds, and klad's licences.
 - Dragging in a large drawing: shapes and strokes move under the pointer from the first move, wherever they are (in groups with effects, clipped, masked, under any blend), drawn in the background tile by tile; the layers above and the rest of the dragged layer stay in place (dragging a shape on the topmost layer no longer hid the shapes above it), and letting go redraws only the tiles the move touched.
 - Edits on vector layers redraw only the tiles their shapes covered before and after, not the whole layer.
 - Noise and haze no longer make every edit redraw the tiles around it.
+- Switching layers no longer redraws the whole canvas when nothing on it changes.
 - Fixed tiles that could stay blank or out of date when a panel or popup was laid out for the first time while the canvas was being redrawn.
 
 ## 0.1.0 (2026-11-04)
