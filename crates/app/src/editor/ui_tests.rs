@@ -1182,9 +1182,12 @@ fn after_a_drag_with_a_pan_every_tile_on_the_canvas_shows_the_committed_picture(
     });
     h.drop_at(end);
     h.run_steps(1);
-    settle(&mut h, |ed| {
-        ed.preview.is_none() && ed.drag.is_none() && ed.dirty.is_empty()
-    });
+    canvas_shows_the_committed_picture(&mut h);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn canvas_shows_the_committed_picture(h: &mut Harness<'static, Editor>) {
+    settle(h, |ed| ed.preview.is_none() && ed.drag.is_none() && ed.dirty.is_empty());
     let ed = h.state();
     let outbox = crate::stats::lock(&ed.outbox);
     let tiles = ed.scene.all_tiles();
@@ -1204,8 +1207,42 @@ fn after_a_drag_with_a_pan_every_tile_on_the_canvas_shows_the_committed_picture(
             worst * 255.0
         );
     });
-    drop(outbox);
-    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn strokes_and_copies_dragged_leave_the_committed_picture_on_the_canvas() {
+    let path = sample("dragged");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    activate(&mut h, "lines");
+    let cel = h.state().scene.active_cel().unwrap();
+    let marks = h.state().scene.marks_of(&cel).to_vec();
+    h.state_mut().tool = Tool::Strokes;
+    h.state_mut().picked = Some(Picked::whole(cel.clone(), vec![marks[0].id()]));
+    h.run_steps(2);
+    let [x0, y0, x1, y1] = marks[0].bounds().unwrap();
+    let view = h.state().view.unwrap();
+    let rect = h.state().canvas_rect;
+    let at = |x: f32, y: f32| rect.min + view.to_screen(egui::Vec2::new(x, y), rect.size());
+    let middle = at((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+    drag(&mut h, middle, middle + vec2(60.0, 40.0));
+    canvas_shows_the_committed_picture(&mut h);
+    let moved = h.state().scene.marks_of(&cel)[0].bounds().unwrap();
+    assert!(moved[0] > x0 + 10.0, "the stroke moved: {moved:?} from {x0}");
+    activate(&mut h, "shapes");
+    h.state_mut().tool = Tool::Select;
+    let count = |h: &Harness<'static, Editor>| {
+        h.state().scene.bundle.doc.find_layer("shapes").unwrap().cels()[0]
+            .nodes
+            .len()
+    };
+    let shapes = count(&h);
+    let corner = at(120.0, 30.0);
+    h.event(egui::Event::ModifiersChanged(Modifiers::ALT));
+    drag(&mut h, corner, corner + vec2(0.0, 100.0));
+    h.event(egui::Event::ModifiersChanged(Modifiers::NONE));
+    canvas_shows_the_committed_picture(&mut h);
+    assert_eq!(count(&h), shapes + 1, "alt drag made a copy");
+    let _ = std::fs::remove_dir_all(&path);
 }
 
 #[test]
