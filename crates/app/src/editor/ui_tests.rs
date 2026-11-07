@@ -1279,6 +1279,38 @@ fn a_tap_that_wobbles_selects_and_a_drag_past_three_points_moves() {
 }
 
 #[test]
+fn a_layer_made_and_activated_at_once_or_mid_refill_still_draws() {
+    let path = sample("made");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    settle(&mut h, |ed| ed.canvas_current() && ed.dirty.is_empty());
+    h.state_mut()
+        .apply(parse_lines(r#"{"op":"add","layer":{"kind":"vector","name":"late"}}"#).unwrap())
+        .unwrap();
+    let late = h.state().scene.bundle.doc.find_layer("late").unwrap().id.clone();
+    h.state_mut()
+        .apply(
+            parse_lines(&format!(
+                r##"{{"op":"add","node":{{"type":"rect","x":300,"y":200,"w":150,"h":120,"fill":"#2040c0"}},"in":"{late}","frame":0}}"##
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+    let path_of = |h: &Harness<'static, Editor>, id: &str| match h.state().scene.bundle.doc.locate(id) {
+        Some(klad_core::doc::Loc::Layer(path)) => path,
+        _ => panic!("no layer {id}"),
+    };
+    let late_path = path_of(&h, &late);
+    h.state_mut().activate(late_path).unwrap();
+    canvas_shows_the_committed_picture(&mut h);
+    h.state_mut().redraw_canvas();
+    let shade = h.state().scene.bundle.doc.find_layer("shade").unwrap().id.clone();
+    let shade_path = path_of(&h, &shade);
+    h.state_mut().activate(shade_path).unwrap();
+    canvas_shows_the_committed_picture(&mut h);
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn switching_layers_keeps_the_canvas_unless_the_picture_changes() {
     let path = sample("switch");
     let mut h = harness(editor(&path), vec2(1440.0, 900.0));

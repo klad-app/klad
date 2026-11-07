@@ -2942,8 +2942,8 @@ impl Editor {
         let mut stroke: Vec<usize> = self.buffer.take_dirty();
         stroke.extend(self.mirror_buffer.take_dirty());
         if !self.canvas_current() {
-            tiles.clear();
-            stroke.clear();
+            self.dirty.extend(std::mem::take(&mut tiles));
+            self.dirty.extend(stroke.drain(..));
         }
         let refill = self.live.is_none() && tiles.len() > self.batch;
         if refill {
@@ -3911,8 +3911,13 @@ impl Editor {
         }
         let id = self.scene.bundle.doc.locate_path(&path).map(|l| l.id.clone());
         let tinted = self.scene.tint_mask && (self.scene.active_is_mask() || path.last() == Some(&MASK));
-        self.timeline.kept = (self.canvas_current() && !self.scene.onion_on && !tinted)
-            .then_some((self.scene.frame, self.scene.bundle.doc.rev));
+        if path != self.scene.active {
+            self.timeline.kept = (self.canvas_current() && !self.scene.onion_on && !tinted).then_some((
+                self.scene.frame,
+                self.scene.bundle.doc.rev,
+                self.canvas_gen,
+            ));
+        }
         self.scene.set_active_later(path);
         if self.scene.onion_on {
             self.frames_changed();

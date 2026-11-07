@@ -98,7 +98,7 @@ pub(super) struct Timeline {
     moved_at: Instant,
     step_start: Option<Instant>,
     pub canvas_frame: Option<u32>,
-    pub kept: Option<(u32, u64)>,
+    pub kept: Option<(u32, u64, u64)>,
     pub on_screen: Option<u32>,
     shown_key: Option<u64>,
     flip: Option<Flip>,
@@ -409,7 +409,7 @@ impl Editor {
         self.frames.heavy |= done.bytes > crate::frames::HEAVY;
         self.scene.lean = self.frames.heavy;
         let thumbs = std::mem::take(&mut done.thumbs);
-        let unchanged = self.timeline.kept.take() == Some((done.frame, self.scene.bundle.doc.rev))
+        let unchanged = self.timeline.kept.take() == Some((done.frame, self.scene.bundle.doc.rev, pending.asked))
             && self.timeline.canvas_frame == Some(done.frame);
         if self.scene.adopt(done, wanted) {
             self.keep_thumbs(thumbs);
