@@ -1591,13 +1591,17 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    #[command(about = "Notes the human pinned on the canvas; --done <id> marks one as handled")]
+    #[command(
+        about = "Notes the human pinned on the canvas; --done <id> marks one as handled, --clear-done removes the handled ones"
+    )]
     Notes {
         bundle: PathBuf,
         #[arg(long)]
         done: Option<u32>,
         #[arg(long, help = "Include notes already marked done")]
         all: bool,
+        #[arg(long, help = "Remove every note marked done")]
+        clear_done: bool,
         #[arg(long)]
         json: bool,
     },
@@ -3250,8 +3254,15 @@ fn run() -> Result<()> {
             bundle,
             done,
             all,
+            clear_done,
             json,
-        } => history::notes(&bundle, done, all, json)?,
+        } => match clear_done {
+            true => {
+                let removed = klad_core::notes::clear_done(&Bundle::open(&bundle)?)?;
+                println!("removed {removed} done note{}", if removed == 1 { "" } else { "s" });
+            }
+            false => history::notes(&bundle, done, all, json)?,
+        },
         Command::Diff {
             bundle,
             step,

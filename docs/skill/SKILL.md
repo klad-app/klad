@@ -21,7 +21,7 @@ Keep renders small unless detail matters: `--scale 0.5` or `--focus <id>` costs 
 
 ## What the user wants
 
-- `klad notes art.klad`: notes the user pinned on the canvas, each with a `--region` render command. Do the work, then `klad notes art.klad --done <id>`; the editor shows the pin as done at once and lists it under done in the Notes pane, so mark a note done only when it is.
+- `klad notes art.klad`: notes the user pinned on the canvas, each with a `--region` render command. Do the work, then `klad notes art.klad --done <id>`; the editor shows the pin as done at once and lists it under done in the Notes pane, so mark a note done only when it is. `--clear-done` removes the done ones, when the user asks for a clean list.
 - `klad selection art.klad`: the layer, shapes, path and strokes the user selected in the editor (strokes as `<cel>:s<id>`), with bounds and a `--focus` command.
 - `klad strokes art.klad <layer> --json`: the user's strokes with points and pressure, to trace their shapes (a ridge line and tree positions from a pen sketch, for example).
 

@@ -63,7 +63,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad redo`](#klad-redo): Redo the last undone change
 - [`klad log`](#klad-log): Recent changes, newest first
 - [`klad selection`](#klad-selection): What the human has selected in the editor (layer and shapes, with bounds)
-- [`klad notes`](#klad-notes): Notes the human pinned on the canvas; --done <id> marks one as handled
+- [`klad notes`](#klad-notes): Notes the human pinned on the canvas; --done <id> marks one as handled, --clear-done removes the handled ones
 - [`klad diff`](#klad-diff): Before and after renders of a change, side by side (default: the last one)
 - [`klad info`](#klad-info): Paint cels with stroke counts and file sizes
 - [`klad strokes`](#klad-strokes): List the strokes and fills of a paint layer's cel at a frame
@@ -3023,7 +3023,7 @@ Options:
 ## klad notes
 
 ```text
-Notes the human pinned on the canvas; --done <id> marks one as handled
+Notes the human pinned on the canvas; --done <id> marks one as handled, --clear-done removes the handled ones
 
 Usage: klad notes [OPTIONS] <BUNDLE>
 
@@ -3037,6 +3037,9 @@ Options:
 
       --all
           Include notes already marked done
+
+      --clear-done
+          Remove every note marked done
 
       --json
 

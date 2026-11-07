@@ -132,7 +132,7 @@ impl Editor {
             .unwrap_or_default();
     }
 
-    fn reread_pins(&mut self) {
+    pub(super) fn reread_pins(&mut self) {
         self.pins = notes::read(&self.scene.bundle);
     }
 
@@ -275,23 +275,27 @@ impl Editor {
                 go = Some((n.frame, n.id));
             }
         });
+        let mut clear = false;
         if !done.is_empty() {
-            ui.collapsing(format!("done ({})", done.len()), |ui| {
+            let id = ui.make_persistent_id("done notes");
+            let header = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
+                .show_header(ui, |ui| {
+                    let named = ui
+                        .add(egui::Button::new(format!("done ({})", done.len())).frame(false))
+                        .hint("show or hide the notes the agent marked done")
+                        .clicked();
+                    let cleared = ui
+                        .with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.button("clear all")
+                                .hint("remove every done note, as klad notes --clear-done")
+                                .clicked()
+                        })
+                        .inner;
+                    (named, cleared)
+                });
+            let (_, head, _) = header.body(|ui| {
                 done.iter().for_each(|n| {
-                    ui.horizontal(|ui| {
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    RichText::new(format!("{} {}. frame {}: {}", icon::CHECK, n.id, n.frame, n.text))
-                                        .color(theme::WEAK),
-                                )
-                                .truncate(),
-                            )
-                            .hint("go to its frame and open it")
-                            .clicked()
-                        {
-                            go = Some((n.frame, n.id));
-                        }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
                             .button("open again")
                             .hint("the agent should look at it again")
@@ -299,9 +303,45 @@ impl Editor {
                         {
                             reopen = Some(n.id);
                         }
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        RichText::new(format!(
+                                            "{} {}. frame {}: {}",
+                                            icon::CHECK,
+                                            n.id,
+                                            n.frame,
+                                            n.text
+                                        ))
+                                        .color(theme::WEAK),
+                                    )
+                                    .truncate(),
+                                )
+                                .hint("go to its frame and open it")
+                                .clicked()
+                            {
+                                go = Some((n.frame, n.id));
+                            }
+                        });
                     });
                 });
             });
+            let (named, cleared) = head.inner;
+            clear = cleared;
+            if named {
+                let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
+                state.toggle(ui);
+                state.store(ui.ctx());
+            }
+        }
+        if clear {
+            let removed = notes::clear_done(&self.scene.bundle)?;
+            self.reread_pins();
+            self.say(
+                Tone::Done,
+                format!("removed {removed} done note{}", if removed == 1 { "" } else { "s" }),
+            );
         }
         if let Some(id) = reopen {
             notes::set_done(&self.scene.bundle, id, false)?;

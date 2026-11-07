@@ -91,6 +91,14 @@ pub fn remove(bundle: &Bundle, id: u32) -> Result<()> {
     write(bundle, &notes)
 }
 
+pub fn clear_done(bundle: &Bundle) -> Result<usize> {
+    let (done, open): (Vec<Note>, Vec<Note>) = read(bundle).into_iter().partition(|n| n.done);
+    if !done.is_empty() {
+        write(bundle, &open)?;
+    }
+    Ok(done.len())
+}
+
 pub fn read_selection(bundle: &Bundle) -> Option<Selection> {
     serde_json::from_str(&fs::read_to_string(selection_path(bundle)).ok()?).ok()
 }
@@ -125,7 +133,17 @@ mod tests {
         assert!(set_done(&bundle, 1, true).unwrap());
         assert!(!set_done(&bundle, 7, true).unwrap());
         remove(&bundle, 2).unwrap();
-        assert_eq!(read(&bundle), vec![Note { done: true, ..a }]);
+        assert_eq!(
+            read(&bundle),
+            vec![Note {
+                done: true,
+                ..a.clone()
+            }]
+        );
+        let c = add(&bundle, (1.0, 1.0), 0, "still open", "user").unwrap();
+        assert_eq!(clear_done(&bundle).unwrap(), 1);
+        assert_eq!(read(&bundle), vec![c]);
+        assert_eq!(clear_done(&bundle).unwrap(), 0);
         write_selection(&bundle, Some("l1".into()), vec!["n3".into()], 0).unwrap();
         assert_eq!(read_selection(&bundle).unwrap().nodes, vec!["n3"]);
         fs::remove_dir_all(&dir).unwrap();

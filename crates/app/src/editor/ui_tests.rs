@@ -1097,6 +1097,66 @@ fn the_history_lists_you_and_the_agent_and_steps_back_to_a_clicked_step() {
 }
 
 #[test]
+fn notes_stay_one_line_inside_the_pane_and_done_ones_clear_together() {
+    use klad_core::notes;
+    let path = sample("notes-pane");
+    let long = "make the lantern glow warmer and push the shadow under the ledge further left, then soften the rim light on the far side of the rock";
+    {
+        let b = Bundle::open(&path).unwrap();
+        (0..3).for_each(|i| {
+            notes::add(&b, (40.0 * i as f32, 50.0), 0, &format!("{i} {long}"), "user").unwrap();
+        });
+        notes::set_done(&b, 2, true).unwrap();
+        notes::set_done(&b, 3, true).unwrap();
+    }
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    [
+        (Pane::Tool, true),
+        (Pane::Layers, true),
+        (Pane::Inspector, true),
+        (Pane::Notes, false),
+    ]
+    .into_iter()
+    .for_each(|(pane, collapsed)| {
+        if let Some(p) = h.state_mut().settings.layout.pane_mut(pane) {
+            p.collapsed = collapsed;
+        }
+    });
+    h.state_mut().reread_pins();
+    h.run_steps(3);
+    h.get_by_label_contains("done (2)").click();
+    h.run_steps(2);
+    let edge = h
+        .query_all_by_label(theme::icon::CLOSE)
+        .map(|n| n.rect().right())
+        .fold(0.0, f32::max);
+    assert!(edge <= 1440.0, "the panes' close buttons stay in the window: {edge}");
+    let rows: Vec<Rect> = h
+        .query_all_by_label_contains("make the lantern glow")
+        .chain(h.query_all_by_label("open again"))
+        .map(|n| n.rect())
+        .collect();
+    assert_eq!(rows.len(), 5, "{rows:?}");
+    rows.iter().for_each(|r| {
+        assert!(
+            r.right() <= edge + 0.5,
+            "a row runs past the pane: {r:?}, the pane ends at {edge}"
+        );
+        assert!(r.height() < 40.0, "a note stays one line: {r:?}");
+    });
+    h.get_by_label("clear all").click();
+    h.run_steps(2);
+    let left = notes::read(&Bundle::open(&path).unwrap());
+    assert_eq!(
+        left.iter().map(|n| n.id).collect::<Vec<_>>(),
+        [1],
+        "only the open note stays"
+    );
+    assert!(h.query_by_label_contains("done (").is_none());
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn a_note_pinned_on_the_canvas_is_marked_done_by_the_agent_and_edited_from_its_pin() {
     use klad_core::notes;
     let path = sample("notes");
