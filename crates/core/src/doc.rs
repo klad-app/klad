@@ -1228,6 +1228,13 @@ impl Document {
             {
                 bail!("layer {}: depth {depth} must be 0 or more", layer.id);
             }
+            layer
+                .cels()
+                .iter()
+                .filter_map(|c| c.pose.as_ref().map(|p| (c, p)))
+                .try_for_each(|(c, p)| {
+                    crate::rig::check_pose(p).with_context(|| format!("layer {}: cel {}", layer.id, c.id))
+                })?;
             if !layer.bones.is_empty() || !layer.ik.is_empty() {
                 if !matches!(layer.kind(), Kind::Paint | Kind::Group) {
                     bail!("layer {}: bones go on a paint layer or a group", layer.id);

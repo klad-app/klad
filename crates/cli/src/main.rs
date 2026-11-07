@@ -1852,7 +1852,15 @@ fn mark_transform(
 
 fn parse_numbers(text: &str) -> Result<Vec<f32>> {
     text.split(',')
-        .map(|v| v.trim().parse::<f32>().map_err(|e| anyhow!("{v:?}: {e}")))
+        .map(|v| {
+            v.trim()
+                .parse::<f32>()
+                .map_err(|e| anyhow!("{v:?}: {e}"))
+                .and_then(|n| match n.is_finite() {
+                    true => Ok(n),
+                    false => Err(anyhow!("{v:?} is not a number klad can draw with")),
+                })
+        })
         .collect()
 }
 

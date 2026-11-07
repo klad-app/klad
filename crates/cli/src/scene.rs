@@ -405,6 +405,33 @@ pub fn rig(path: &Path, dir: Option<PathBuf>) -> Result<Vec<PathBuf>> {
                             values.iter().map(|v| real(*v)).collect::<Vec<_>>().join(", ")
                         )
                     })
+                    .chain(
+                        bones
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, b)| b.parent.as_ref().is_none_or(|p| !bones.iter().any(|o| &o.name == p)))
+                            .enumerate()
+                            .map(|(k, (i, b))| {
+                                let j = bones.len() + k;
+                                let values: Vec<String> = poses
+                                    .iter()
+                                    .map(|(_, p)| {
+                                        format!(
+                                            "Vector2({}, {})",
+                                            number(b.head[0] + p.root[0]),
+                                            number(b.head[1] + p.root[1])
+                                        )
+                                    })
+                                    .collect();
+                                format!(
+                                    "tracks/{j}/type = \"value\"\ntracks/{j}/imported = false\ntracks/{j}/enabled = true\ntracks/{j}/path = NodePath(\"Skeleton2D/{}:position\")\ntracks/{j}/interp = 0\ntracks/{j}/loop_wrap = true\ntracks/{j}/keys = {{\n\"times\": {},\n\"transitions\": {},\n\"update\": 0,\n\"values\": [{}]\n}}\n",
+                                    paths[i],
+                                    floats(&times),
+                                    floats(&vec![1.0; times.len()]),
+                                    values.join(", ")
+                                )
+                            }),
+                    )
                     .collect();
                 format!(
                     "[sub_resource type=\"Animation\" id=\"Animation_{k}\"]\nresource_name = {}\nlength = {}\nloop_mode = {}\nstep = {}\n{tracks}\n",

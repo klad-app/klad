@@ -656,6 +656,7 @@ pub(crate) struct Editor {
     key_ease: klad_core::keys::Ease,
     bindings: crate::commands::Bindings,
     capturing: Option<Cmd>,
+    keys_busy: bool,
     key_filter: String,
     selection: Option<String>,
     drag: Option<Drag>,
@@ -831,6 +832,7 @@ impl Editor {
             key_ease: klad_core::keys::Ease::Linear,
             bindings: crate::commands::Bindings::default(),
             capturing: None,
+            keys_busy: false,
             key_filter: String::new(),
             selection: None,
             drag: None,
@@ -2157,6 +2159,9 @@ impl Editor {
         }
         if self.tool != Tool::Pen {
             return self.commit_pen(false);
+        }
+        if self.keys_busy {
+            return Ok(());
         }
         let (finish, cancel) = ui.input_mut(|i| {
             (

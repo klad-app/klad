@@ -6,7 +6,10 @@ use anyhow::{Context, Result, bail};
 use egui::{Color32, Key, Modifiers, Pos2, RichText, Vec2};
 use klad_core::doc::Kind;
 use klad_core::ops::{BendSpec, BoneSpec, IkSpec, Op, WeightsSpec};
-use klad_core::rig::{Bend, Bone, CELL, Ik, Pose, Reach, Weights, applied, moved, painted, subtree, tips, weights_for};
+use klad_core::rig::{
+    Bend, Bone, CELL, Ik, Pose, Reach, Weights, applied, bent_against, limb_of, moved, near_degrees, painted, subtree,
+    target_for_end, tips, weights_for,
+};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -45,6 +48,7 @@ pub(super) struct Chain {
     pub head: [f32; 2],
     pub joined: bool,
     pub drawn: Vec<String>,
+    pub undone: Vec<String>,
     pub to: Vec2,
     pub pressed: bool,
 }
@@ -68,6 +72,7 @@ pub(super) struct BoneTool {
     pub root: [f32; 2],
     pub reach: BTreeMap<String, Reach>,
     pub loaded: Option<(u32, String, Option<Pose>)>,
+    pub sent: bool,
     pub posing: Option<Posing>,
     pub name: String,
     pub heat: Option<(String, u64, egui::TextureHandle)>,
@@ -87,6 +92,7 @@ impl Default for BoneTool {
             root: [0.0, 0.0],
             reach: BTreeMap::new(),
             loaded: None,
+            sent: false,
             posing: None,
             name: String::new(),
             heat: None,
@@ -110,15 +116,6 @@ fn near_segment(p: Vec2, a: [f32; 2], b: [f32; 2]) -> f32 {
 
 fn at(p: [f32; 2]) -> Vec2 {
     Vec2::new(p[0], p[1])
-}
-
-fn limb(bones: &[Bone], k: &Ik) -> Vec<String> {
-    let parent = bones
-        .iter()
-        .find(|b| b.name == k.bone)
-        .and_then(|b| b.parent.clone())
-        .filter(|_| k.chain == 2);
-    std::iter::once(k.bone.clone()).chain(parent).collect()
 }
 
 pub(super) fn pose_args(bundle: &std::path::Path, owner: &str, frame: u32, pose: &Pose) -> Vec<String> {
@@ -200,7 +197,8 @@ impl Editor {
     pub(super) fn bone_keys(&mut self, ui: &mut egui::Ui) {
         self.tend_chain();
         self.tend_pose();
-        if self.bones.chain.is_none() {
+        self.tend_bone_pick();
+        if self.bones.chain.is_none() || self.keys_busy {
             return;
         }
         let (enter, escape) = ui.input_mut(|i| {
@@ -230,14 +228,38 @@ impl Editor {
         }
         let bones = self.rig_bones();
         let exists = |n: &str| bones.iter().any(|b| b.name == n);
+        if chain.joined
+            && chain.parent.as_deref().is_some_and(|p| !exists(p))
+            && let Some(renamed) = bones
+                .iter()
+                .find(|b| (at(b.tail) - at(chain.head)).length() <= JOINED && !chain.drawn.contains(&b.name))
+        {
+            let (was, now) = (chain.parent.clone().unwrap_or_default(), renamed.name.clone());
+            chain
+                .drawn
+                .iter_mut()
+                .filter(|n| **n == was)
+                .for_each(|n| *n = now.clone());
+            chain.parent = Some(now);
+        }
         if chain.parent.as_deref().is_some_and(|p| !exists(p)) {
             while chain.drawn.last().is_some_and(|n| !exists(n)) {
-                chain.drawn.pop();
+                chain.undone.extend(chain.drawn.pop());
             }
             let Some(last) = chain.drawn.last() else {
                 return;
             };
             chain.parent = Some(last.clone());
+            chain.joined = true;
+        }
+        while let Some(back) = chain.undone.last().cloned()
+            && bones
+                .iter()
+                .any(|b| b.name == back && b.parent == chain.parent && b.parent.is_some())
+        {
+            chain.undone.pop();
+            chain.drawn.push(back.clone());
+            chain.parent = Some(back);
             chain.joined = true;
         }
         if chain.joined
@@ -248,9 +270,27 @@ impl Editor {
         self.bones.chain = Some(chain);
     }
 
+    fn tend_bone_pick(&mut self) {
+        let Some(picked) = self.bones.selected.clone() else {
+            return;
+        };
+        let bones = self.rig_bones();
+        if bones.iter().any(|b| b.name == picked) {
+            return;
+        }
+        let next = self
+            .bones
+            .chain
+            .as_ref()
+            .and_then(|c| c.parent.clone())
+            .filter(|p| bones.iter().any(|b| &b.name == p));
+        self.bones.name = next.clone().unwrap_or_default();
+        self.bones.selected = next;
+        self.bones.heat = None;
+    }
+
     fn tend_pose(&mut self) {
-        if self.bones.mode != Mode::Pose {
-            self.bones.loaded = None;
+        if self.bones.posing.is_some() {
             return;
         }
         let Some(owner) = self.rig_owner() else {
@@ -261,6 +301,18 @@ impl Editor {
         if self.bones.loaded.as_ref() == Some(&key) {
             return;
         }
+        if self.bones.sent
+            && self
+                .bones
+                .loaded
+                .as_ref()
+                .is_some_and(|(f, o, _)| (*f, o) == (key.0, &key.1))
+        {
+            self.bones.sent = false;
+            self.bones.loaded = Some(key);
+            return;
+        }
+        self.bones.sent = false;
         let pose = stored.unwrap_or_default();
         self.bones.pose = pose.angles;
         self.bones.root = pose.root;
@@ -316,6 +368,7 @@ impl Editor {
             head: if sibling { made.head } else { made.tail },
             joined: !sibling || joined(made),
             drawn,
+            undone: Vec::new(),
             to: at(made.tail),
             pressed: false,
         });
@@ -332,7 +385,7 @@ impl Editor {
         if let Some(c) = self.bones.chain.as_mut() {
             c.pressed = false;
         }
-        if (chain.to - at(chain.head)).length() * self.zoom() < CLICK {
+        if (chain.to - at(chain.head)).length() * self.zoom() <= NEAR {
             self.end_chain();
             return Ok(());
         }
@@ -348,28 +401,72 @@ impl Editor {
         self.rig_ik()
             .into_iter()
             .filter(|k| self.bones.reach.get(&k.bone).is_some_and(|r| r.mix > 0.0))
-            .find(|k| limb(&bones, k).iter().any(|b| b == name))
+            .find(|k| limb_of(&bones, k).iter().any(|b| b == name))
             .map(|k| k.bone)
     }
 
-    fn ik_on(&mut self, end: &str) {
-        let bones = self.rig_bones();
-        let Some(i) = bones.iter().position(|b| b.name == end) else {
-            return;
+    fn ik_on(&mut self, end: &str) -> Option<[f32; 2]> {
+        let (bones, ik) = (self.rig_bones(), self.rig_ik());
+        let shown = self.shown_pose();
+        let target = target_for_end(&bones, &ik, &shown, end)?;
+        if bent_against(&bones, &ik, &shown, end) {
+            let side = match ik.iter().find(|k| k.bone == end).map(|k| k.bend) {
+                Some(Bend::Counterclockwise) => "counterclockwise",
+                _ => "clockwise",
+            };
+            self.say(
+                Tone::Info,
+                format!(
+                    "{end}'s IK bends {side}, so the joint turns over to that side; flip it in draw mode's IK menu"
+                ),
+            );
+        }
+        self.bones.reach.insert(end.to_string(), Reach { target, mix: 1.0 });
+        Some(target)
+    }
+
+    fn neighbour_turns(&self, end: &str) -> BTreeMap<String, f32> {
+        let (bones, ik) = (self.rig_bones(), self.rig_ik());
+        let Some(owner) = self.rig_owner().and_then(|o| self.scene.bundle.doc.layer(&o).cloned()) else {
+            return BTreeMap::new();
         };
-        let tip = tips(&bones, &self.rig_ik(), &self.shown_pose())[i].1;
-        self.bones
-            .reach
-            .insert(end.to_string(), Reach { target: tip, mix: 1.0 });
+        let frame = self.scene.frame;
+        let here = self.stored_pose(&owner.id).map(|p| p.rest);
+        let limb: Vec<String> = ik
+            .iter()
+            .find(|k| k.bone == end)
+            .map(|k| limb_of(&bones, k))
+            .unwrap_or_default();
+        painted(&owner)
+            .first()
+            .and_then(|l| {
+                l.cels()
+                    .iter()
+                    .filter(|c| c.frame < frame)
+                    .filter_map(|c| c.pose.as_ref())
+                    .rfind(|p| here.as_ref().is_none_or(|r| &p.rest == r))
+                    .cloned()
+            })
+            .map(|p| applied(&bones, &ik, &p))
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(b, _)| limb.contains(b))
+            .collect()
     }
 
     fn ik_off(&mut self, end: &str) {
         let (bones, ik) = (self.rig_bones(), self.rig_ik());
         let solved = applied(&bones, &ik, &self.shown_pose());
+        let before = self.neighbour_turns(end);
         if let Some(k) = ik.iter().find(|k| k.bone == end) {
-            limb(&bones, k).into_iter().for_each(|b| {
+            limb_of(&bones, k).into_iter().for_each(|b| {
                 if let Some(v) = solved.get(&b) {
-                    self.bones.pose.insert(b, *v);
+                    let to = before
+                        .get(&b)
+                        .or_else(|| self.bones.pose.get(&b))
+                        .copied()
+                        .unwrap_or(0.0);
+                    self.bones.pose.insert(b, near_degrees(*v, to));
                 }
             });
         }
@@ -527,12 +624,10 @@ impl Editor {
             })
             .min_by(|a, b| a.0.total_cmp(&b.0));
         if !alt && let Some((_, end, target)) = handle {
-            let target = self
-                .bones
-                .reach
-                .entry(end.clone())
-                .or_insert(Reach { target, mix: 1.0 })
-                .target;
+            let target = match self.bones.reach.get(&end) {
+                Some(r) => r.target,
+                None => self.ik_on(&end).unwrap_or(target),
+            };
             self.bones.posing = Some(Posing::Reach(end.clone(), at(target) - c));
             self.pick_bone(Some(end));
             return;
@@ -622,7 +717,39 @@ impl Editor {
         }
     }
 
+    fn flush_name(&mut self) -> Result<()> {
+        let Some(picked) = self.bones.selected.clone() else {
+            return Ok(());
+        };
+        let to = self.bones.name.trim().to_string();
+        let bones = self.rig_bones();
+        if to.is_empty()
+            || to == picked
+            || !bones.iter().any(|b| b.name == picked)
+            || bones.iter().any(|b| b.name == to)
+        {
+            return Ok(());
+        }
+        self.bone_edit(|s| {
+            s.rename = Some(picked.clone());
+            s.to_name = Some(to.clone());
+        })?;
+        if let Some(Drag {
+            what: Dragging::Bone(n, _) | Dragging::New(Some(n)),
+            ..
+        }) = self.bones.drag.as_mut()
+            && *n == picked
+        {
+            *n = to.clone();
+        }
+        self.bones.selected = Some(to);
+        Ok(())
+    }
+
     pub(super) fn bone_up(&mut self) -> Result<()> {
+        if self.bones.mode == Mode::Draw {
+            self.flush_name()?;
+        }
         match self.bones.mode {
             Mode::Draw if self.bones.chain.is_some() => self.chain_up()?,
             Mode::Draw => {
@@ -712,6 +839,7 @@ impl Editor {
             },
             failure: |_, err| super::tweens::failure(err),
         });
+        self.bones.sent = true;
         Ok(())
     }
 
@@ -732,7 +860,7 @@ impl Editor {
         match ik.iter().find(|k| k.bone == picked) {
             Some(k) => {
                 let label = match (k.chain, &parent) {
-                    (2, Some(p)) => format!("IK: limb with {p}"),
+                    (2, Some(_)) => "IK: limb".to_string(),
                     _ => "IK: aim".to_string(),
                 };
                 ui.menu_button(label, |ui| {
@@ -799,7 +927,12 @@ impl Editor {
                     }
                 })
                 .response
-                .hint("this bone's IK: in pose mode, drag its end and the limb follows");
+                .hint(match (k.chain, &parent) {
+                    (2, Some(p)) => {
+                        format!("this bone's IK, a limb with {p}: in pose mode, drag its end and the limb follows")
+                    }
+                    _ => "this bone's IK, an aim: in pose mode, drag its end and the bone points there".to_string(),
+                });
             }
             None => {
                 ui.menu_button("add IK", |ui| {
@@ -863,7 +996,6 @@ impl Editor {
                 .clicked()
             {
                 self.bones.mode = *mode;
-                self.bones.loaded = None;
                 self.bones.posing = None;
             }
         });
@@ -879,7 +1011,10 @@ impl Editor {
                     let r = ui
                         .add(egui::TextEdit::singleline(&mut self.bones.name).desired_width(110.0))
                         .labelled_by(label.id)
-                        .hint("the picked bone's name; Return renames it");
+                        .hint(match self.bones.chain {
+                            Some(_) => "the picked bone's name; Return renames it",
+                            None => "the picked bone's name; Return renames it. Drag its ends or middle to move it; alt drag from its end starts a chain from there; a drag on empty canvas starts a new chain",
+                        });
                     if r.lost_focus() && self.bones.name.trim() != picked && !self.bones.name.trim().is_empty() {
                         let to = self.bones.name.trim().to_string();
                         run = Some(Box::new(move |e| {
@@ -903,21 +1038,20 @@ impl Editor {
                         }));
                     }
                 }
-                let (hint, more) = match (&self.bones.chain, &self.bones.selected) {
-                    (Some(_), _) => (
+                let said = match (&self.bones.chain, &self.bones.selected) {
+                    (Some(_), _) => Some((
                         "click: the next bone; Esc: done",
                         "each click places the next bone of the chain; shift as you let go starts the next one from the same joint; Esc, Enter, a right click or a click on the chain's open end ends it",
-                    ),
-                    (None, Some(_)) => (
-                        "drag its ends or middle; alt drag: a child",
-                        "drag an end or the middle to move it; alt drag from its end starts a chain from there; a drag on empty canvas starts a new chain",
-                    ),
-                    (None, None) => (
+                    )),
+                    (None, Some(_)) => None,
+                    (None, None) => Some((
                         "drag to draw a chain of bones",
                         "a drag draws a bone and the chain carries on from its end: each click adds the next; click a bone to pick it",
-                    ),
+                    )),
                 };
-                ui.label(RichText::new(hint).color(theme::WEAK)).hint(more);
+                if let Some((hint, more)) = said {
+                    ui.label(RichText::new(hint).color(theme::WEAK)).hint(more);
+                }
             }
             Mode::Weights => {
                 ui.add(
@@ -996,7 +1130,7 @@ impl Editor {
                     .bones
                     .selected
                     .as_ref()
-                    .and_then(|p| ik.iter().find(|k| limb(&bones, k).contains(p)))
+                    .and_then(|p| ik.iter().find(|k| limb_of(&bones, k).contains(p)))
                     .map(|k| k.bone.clone());
                 let how = "drag a bone's end to turn it; drag the end of an IK limb and the limb reaches for it; drag a root bone's head to move the whole while IK ends stay; alt drag turns a bone by hand, taking its limb off IK";
                 match held {
@@ -1010,7 +1144,9 @@ impl Editor {
                             .changed()
                         {
                             match on {
-                                true => self.ik_on(&end),
+                                true => {
+                                    self.ik_on(&end);
+                                }
                                 false => self.ik_off(&end),
                             }
                         }
@@ -1222,7 +1358,7 @@ impl Editor {
         let held: Vec<String> = ik
             .iter()
             .filter(|k| pose.ik.get(&k.bone).is_some_and(|r| r.mix > 0.0))
-            .flat_map(|k| limb(&bones, k))
+            .flat_map(|k| limb_of(&bones, k))
             .collect();
         bones.iter().zip(&shown).for_each(|(b, (h, t))| {
             let (a, z) = (place(at(*h)), place(at(*t)));
@@ -1302,6 +1438,7 @@ impl Editor {
         }
         if editing
             && self.bones.drag.is_none()
+            && self.bones.chain.is_none()
             && let Some(p) = hover
         {
             let cursor = match (self.modifiers.alt, self.grip_at(p)) {

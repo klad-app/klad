@@ -31,8 +31,11 @@ const LAYER_KEYS: &[&str] = &[
     "adjust",
     "depth",
     "reference",
+    "bones",
+    "ik",
+    "keys",
 ];
-const CEL_KEYS: &[&str] = &["id", "frame", "hold", "link", "tween", "nodes"];
+const CEL_KEYS: &[&str] = &["id", "frame", "hold", "link", "tween", "nodes", "parts", "pose"];
 const NODE_KEYS: &[&str] = &[
     "id",
     "name",
@@ -44,10 +47,13 @@ const NODE_KEYS: &[&str] = &[
     "blur",
     "clip",
     "visible",
+    "keys",
 ];
 const TRANSFORM_KEYS: &[&str] = &["x", "y", "rotate", "sx", "sy", "pivot"];
 const STROKE_KEYS: &[&str] = &["paint", "width", "cap", "join", "dash"];
-const STRUCTURE: &[&str] = &["id", "kind", "type", "cels", "children", "nodes", "mask"];
+const STRUCTURE: &[&str] = &[
+    "id", "kind", "type", "cels", "children", "nodes", "mask", "bones", "ik", "keys", "pose", "parts",
+];
 
 fn shape_keys(kind: &str) -> Result<&'static [&'static str]> {
     Ok(match kind {
@@ -1789,12 +1795,25 @@ fn bone(doc: &mut Document, spec: &BoneSpec, out: &mut Applied) -> Result<()> {
                 .filter(|c| gone.contains(&c.bone))
                 .map(|c| c.bone.clone())
                 .collect();
-            bake(doc, &path, &bones, &ik, &held);
+            let also = bake(doc, &path, &bones, &ik, &held, &gone);
             ik.retain(|c| !held.contains(&c.bone));
             bones.retain(|b| !gone.contains(&b.name));
+            crate::doc::family_paths(doc, &path).iter().for_each(|p| {
+                if let Some(cels) = doc.layer_at_mut(p).cels_mut() {
+                    cels.iter_mut().filter_map(|c| c.pose.as_mut()).for_each(|pose| {
+                        pose.angles.retain(|b, _| !gone.contains(b));
+                        pose.ik.retain(|b, _| !gone.contains(b));
+                    });
+                }
+            });
             out.notes.push(match held.is_empty() {
                 true => format!("removed {}", gone.join(", ")),
-                false => format!("removed {} and the IK on {}", gone.join(", "), held.join(", ")),
+                false => format!(
+                    "removed {} and the IK on {}{}",
+                    gone.join(", "),
+                    held.join(", "),
+                    kept_note(&also)
+                ),
             });
         }
         (None, None, Some(name), None, None) => {
@@ -1859,18 +1878,24 @@ fn bone(doc: &mut Document, spec: &BoneSpec, out: &mut Applied) -> Result<()> {
         _ => bail!("a bone op takes one of add, chain, rm, rename, move or reparent"),
     }
     crate::rig::check(&bones)?;
-    let broken: Vec<String> = ik
+    let broken: Vec<(String, String)> = ik
         .iter()
-        .filter(|c| crate::rig::check_ik(&bones, std::slice::from_ref(c)).is_err())
-        .map(|c| c.bone.clone())
+        .filter_map(|c| {
+            crate::rig::check_ik(&bones, std::slice::from_ref(c))
+                .err()
+                .map(|e| (c.bone.clone(), e.to_string()))
+        })
         .collect();
     if !broken.is_empty() {
-        bake(doc, &path, &before, &ik, &broken);
-        ik.retain(|c| !broken.contains(&c.bone));
-        out.notes.push(format!(
-            "removed the IK on {}: its limb no longer has a parent to turn (its poses keep their look as turns)",
-            broken.join(", ")
-        ));
+        let names: Vec<String> = broken.iter().map(|(b, _)| b.clone()).collect();
+        let also = bake(doc, &path, &before, &ik, &names, &[]);
+        ik.retain(|c| !names.contains(&c.bone));
+        broken.iter().for_each(|(_, why)| {
+            out.notes.push(format!(
+                "removed {why}{}; the poses that used it keep its turns, but its limb changed: pose them again",
+                kept_note(&also)
+            ))
+        });
     }
     crate::rig::check_ik(&bones, &ik)?;
     let layer = doc.layer_at_mut(&path);
@@ -1880,40 +1905,100 @@ fn bone(doc: &mut Document, spec: &BoneSpec, out: &mut Applied) -> Result<()> {
     Ok(())
 }
 
-fn bake(doc: &mut Document, path: &[usize], bones: &[crate::rig::Bone], ik: &[crate::rig::Ik], held: &[String]) {
+fn bake(
+    doc: &mut Document,
+    path: &[usize],
+    bones: &[crate::rig::Bone],
+    ik: &[crate::rig::Ik],
+    held: &[String],
+    gone: &[String],
+) -> Vec<String> {
+    use crate::rig::{applied, limb_of, near_degrees};
     if held.is_empty() {
-        return;
+        return Vec::new();
     }
-    let driven: Vec<String> = ik
-        .iter()
-        .filter(|c| held.contains(&c.bone))
-        .flat_map(|c| {
-            let parent = bones
-                .iter()
-                .find(|b| b.name == c.bone)
-                .and_then(|b| b.parent.clone())
-                .filter(|_| c.chain == 2);
-            std::iter::once(c.bone.clone()).chain(parent)
-        })
-        .collect();
+    let shares = |x: &crate::rig::Ik, y: &crate::rig::Ik| {
+        let mine = limb_of(bones, x);
+        limb_of(bones, y).iter().any(|b| mine.contains(b))
+    };
+    let mut also = BTreeSet::new();
     crate::doc::family_paths(doc, path).iter().for_each(|p| {
-        if let Some(cels) = doc.layer_at_mut(p).cels_mut() {
-            cels.iter_mut()
-                .filter_map(|c| c.pose.as_mut())
-                .filter(|pose| held.iter().any(|h| pose.ik.contains_key(h)))
-                .for_each(|pose| {
-                    let solved = crate::rig::applied(bones, ik, pose);
-                    driven.iter().for_each(|b| {
-                        if let Some(v) = solved.get(b) {
-                            pose.angles.insert(b.clone(), *v);
+        let Some(cels) = doc.layer_at_mut(p).cels_mut() else {
+            return;
+        };
+        let mut shown: BTreeMap<String, BTreeMap<String, f32>> = BTreeMap::new();
+        cels.iter_mut().filter_map(|c| c.pose.as_mut()).for_each(|pose| {
+            let solved = applied(bones, ik, pose);
+            let mut looks = solved.clone();
+            if held.iter().any(|h| pose.ik.contains_key(h)) {
+                let active: Vec<&crate::rig::Ik> = ik.iter().filter(|c| pose.ik.contains_key(&c.bone)).collect();
+                let mut part: Vec<&crate::rig::Ik> =
+                    active.iter().copied().filter(|c| held.contains(&c.bone)).collect();
+                loop {
+                    let more: Vec<&crate::rig::Ik> = active
+                        .iter()
+                        .copied()
+                        .filter(|c| !part.iter().any(|q| q.bone == c.bone) && part.iter().any(|q| shares(q, c)))
+                        .collect();
+                    if more.is_empty() {
+                        break;
+                    }
+                    part.extend(more);
+                }
+                let before = shown.get(&pose.rest);
+                part.iter()
+                    .flat_map(|c| limb_of(bones, c))
+                    .filter(|b| !gone.contains(b))
+                    .for_each(|b| {
+                        if let Some(v) = solved.get(&b) {
+                            let to = before
+                                .and_then(|m| m.get(&b))
+                                .or_else(|| pose.angles.get(&b))
+                                .copied()
+                                .unwrap_or(0.0);
+                            let kept = near_degrees(*v, to);
+                            looks.insert(b.clone(), kept);
+                            pose.angles.insert(b, kept);
                         }
                     });
-                    held.iter().for_each(|h| {
-                        pose.ik.remove(h);
-                    });
+                part.iter().for_each(|c| {
+                    pose.ik.remove(&c.bone);
+                    if !held.contains(&c.bone) {
+                        also.insert(c.bone.clone());
+                    }
                 });
-        }
+            }
+            shown.insert(pose.rest.clone(), looks);
+        });
     });
+    also.into_iter().collect()
+}
+
+fn kept_note(also: &[String]) -> String {
+    match also.is_empty() {
+        true => String::new(),
+        false => format!(
+            "; the IK on {} shares a bone with it, so its targets in those poses became turns too",
+            also.join(", ")
+        ),
+    }
+}
+
+fn posed_with(doc: &Document, path: &[usize], bone: &str) -> Vec<u32> {
+    let mut frames: Vec<u32> = crate::doc::family_paths(doc, path)
+        .iter()
+        .flat_map(|p| {
+            doc.layer_at(p)
+                .cels()
+                .iter()
+                .filter(|c| c.pose.as_ref().is_some_and(|pose| pose.ik.contains_key(bone)))
+                .map(|c| c.frame)
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    frames.sort_unstable();
+    frames.dedup();
+    frames
 }
 
 fn ik(doc: &mut Document, spec: &IkSpec, out: &mut Applied) -> Result<()> {
@@ -2000,17 +2085,27 @@ fn ik(doc: &mut Document, spec: &IkSpec, out: &mut Applied) -> Result<()> {
             c.chain = spec.chain.unwrap_or(c.chain);
             c.bend = bend(c.bend, rest);
             c.softness = spec.softness.unwrap_or(c.softness);
-            out.notes.push(said(c));
+            let made = said(c);
+            let using = posed_with(doc, &path, name);
+            out.notes.push(match using.is_empty() {
+                true => made,
+                false => format!(
+                    "{made}; the poses at {} solve with it now, but their drawings are bent the old way: pose them again (klad pose) and remake their in-betweens",
+                    using.iter().map(|f| format!("frame {f}")).collect::<Vec<_>>().join(", ")
+                ),
+            });
         }
         (None, None, Some(name)) => {
             find(&ik, name)?;
             if spec.chain.is_some() || spec.bend.is_some() || spec.softness.is_some() {
                 bail!("rm takes no chain, bend or softness");
             }
-            bake(doc, &path, &bones, &ik, std::slice::from_ref(name));
+            let also = bake(doc, &path, &bones, &ik, std::slice::from_ref(name), &[]);
             ik.retain(|c| &c.bone != name);
-            out.notes
-                .push(format!("removed the IK on {name}; its poses keep their look as turns"));
+            out.notes.push(format!(
+                "removed the IK on {name}; its poses keep their look as turns{}",
+                kept_note(&also)
+            ));
         }
         _ => bail!("an ik op takes one of add, set or rm"),
     }
@@ -3568,6 +3663,130 @@ mod tests {
         );
         let solved = applied(&layer.bones, &layer.ik, &baked);
         assert_eq!(solved["thigh"], baked.angles["thigh"]);
+    }
+
+    fn leg_with(lines: &[Value]) -> (Document, String, Vec<usize>) {
+        let doc = base();
+        let ink = doc.find_layer("ink").unwrap().id.clone();
+        let mut all = vec![
+            json!({"op":"bone","layer":ink,"chain":["thigh","shin","foot"],"through":[[100,100],[100,200],[90,300],[140,300]]}),
+        ];
+        all.extend(lines.iter().cloned().map(|mut l| {
+            l["layer"] = json!(ink);
+            l
+        }));
+        let (doc, _) = apply_all(&doc, &ops(&all)).unwrap();
+        let path = layer_path(&doc, &ink).unwrap();
+        (doc, ink, path)
+    }
+
+    fn posed(doc: &mut Document, path: &[usize], at: usize, pose: crate::rig::Pose) {
+        doc.layer_at_mut(path).cels_mut().unwrap()[at].pose = Some(pose);
+    }
+
+    fn reach(pairs: &[(&str, [f32; 2], f32)]) -> crate::rig::Pose {
+        crate::rig::Pose {
+            rest: "c0".into(),
+            ik: pairs
+                .iter()
+                .map(|(b, t, m)| (b.to_string(), crate::rig::Reach { target: *t, mix: *m }))
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn removing_one_of_two_iks_on_a_shared_bone_keeps_the_pose() {
+        use crate::rig::tips;
+        [("foot", 1.0), ("shin", 1.0), ("foot", 0.5), ("shin", 0.5)]
+            .into_iter()
+            .for_each(|(gone, mix)| {
+                let (mut doc, ink, path) =
+                    leg_with(&[json!({"op":"ik","add":"shin"}), json!({"op":"ik","add":"foot"})]);
+                posed(
+                    &mut doc,
+                    &path,
+                    0,
+                    reach(&[("shin", [150.0, 180.0], 1.0), ("foot", [180.0, 240.0], mix)]),
+                );
+                let layer = doc.layer(&ink).unwrap();
+                let before = tips(&layer.bones, &layer.ik, layer.cels()[0].pose.as_ref().unwrap());
+                let (doc, made) = apply_all(&doc, &ops(&[json!({"op":"ik","layer":ink,"rm":gone})])).unwrap();
+                let layer = doc.layer(&ink).unwrap();
+                let after = tips(&layer.bones, &layer.ik, layer.cels()[0].pose.as_ref().unwrap());
+                assert!(
+                    before
+                        .iter()
+                        .zip(&after)
+                        .all(|(a, b)| (a.1[0] - b.1[0]).abs() < 1e-2 && (a.1[1] - b.1[1]).abs() < 1e-2),
+                    "removing {gone} at mix {mix}: {before:?} {after:?}"
+                );
+                assert!(
+                    made.notes.iter().any(|n| n.contains("shares a bone")),
+                    "{:?}",
+                    made.notes
+                );
+            });
+    }
+
+    #[test]
+    fn baked_turns_stay_the_short_way_between_poses() {
+        let (mut doc, ink, path) = leg_with(&[json!({"op":"ik","add":"shin"})]);
+        let at = |frame: u32, id: &str| crate::doc::Cel {
+            id: id.into(),
+            frame,
+            ..doc.layer(&ink).unwrap().cels()[0].clone()
+        };
+        let (four, eight) = (at(4, "k4"), at(8, "k8"));
+        doc.layer_at_mut(&path).cels_mut().unwrap().extend([four, eight]);
+        posed(&mut doc, &path, 1, reach(&[("shin", [70.0, -300.0], 1.0)]));
+        posed(&mut doc, &path, 2, reach(&[("shin", [130.0, -300.0], 1.0)]));
+        let (doc, _) = apply_all(&doc, &ops(&[json!({"op":"ik","layer":ink,"rm":"shin"})])).unwrap();
+        let cels = doc.layer(&ink).unwrap().cels();
+        let turn = |i: usize, b: &str| cels[i].pose.as_ref().unwrap().angles[b];
+        ["thigh", "shin"].iter().for_each(|b| {
+            assert!(
+                (turn(1, b) - turn(2, b)).abs() < 180.0,
+                "{b}: {} then {}, so an in-between goes the short way",
+                turn(1, b),
+                turn(2, b)
+            )
+        });
+    }
+
+    #[test]
+    fn removing_a_bone_takes_its_turns_out_of_the_poses_and_set_still_works_on_rigs() {
+        let (mut doc, ink, path) = leg_with(&[json!({"op":"ik","add":"shin"})]);
+        let mut pose = reach(&[("shin", [150.0, 180.0], 1.0)]);
+        pose.angles.insert("foot".into(), 12.0);
+        posed(&mut doc, &path, 0, pose);
+        let cel = doc.layer(&ink).unwrap().cels()[0].id.clone();
+        let (doc, _) = apply_all(
+            &doc,
+            &ops(&[
+                json!({"op":"set","id":ink,"opacity":0.5,"name":"leg"}),
+                json!({"op":"set","id":cel,"hold":3}),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(
+            doc.layer(&ink).unwrap().opacity,
+            0.5,
+            "set works on a layer with bones and IK"
+        );
+        assert!(
+            apply_all(&doc, &ops(&[json!({"op":"set","id":ink,"ik":[]})])).is_err(),
+            "but cannot write the IK itself"
+        );
+        let (doc, _) = apply_all(&doc, &ops(&[json!({"op":"bone","layer":ink,"rm":"shin"})])).unwrap();
+        let kept = doc.layer(&ink).unwrap().cels()[0].pose.clone().unwrap();
+        assert!(
+            kept.angles.keys().all(|b| b == "thigh") && kept.ik.is_empty(),
+            "only the thigh's turn is left: {kept:?}"
+        );
+        let mut doc = doc;
+        posed(&mut doc, &path, 0, reach(&[("thigh", [f32::NAN, 1.0], 1.0)]));
+        assert!(doc.validate().is_err(), "a target that is not a number is never saved");
     }
 
     #[test]

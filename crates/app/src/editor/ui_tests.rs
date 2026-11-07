@@ -3370,6 +3370,20 @@ fn bones_are_drawn_as_a_chain_that_fans_ends_and_takes_back_its_last_bone() {
     h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
     h.run_steps(3);
     assert_eq!(bones(&h).len(), 2, "cmd Z takes back the last bone");
+    assert_eq!(
+        h.state().bones.selected.as_deref(),
+        Some("bone 2"),
+        "and picks the one the chain goes on from"
+    );
+    h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
+    h.run_steps(3);
+    assert_eq!(
+        h.state().bones.chain.as_ref().and_then(|c| c.parent.clone()).as_deref(),
+        Some("bone 3"),
+        "redo brings the chain back to the bone it brought back"
+    );
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(3);
     let again = canvas_at(&h, 230.0, 40.0);
     click_with(&mut h, again, Modifiers::NONE);
     let redrawn = bones(&h);
@@ -3380,11 +3394,11 @@ fn bones_are_drawn_as_a_chain_that_fans_ends_and_takes_back_its_last_bone() {
         "and the chain carries on from the one before"
     );
     assert_eq!(redrawn[2].head, redrawn[1].tail);
-    let joint = canvas_at(&h, redrawn[2].tail[0], redrawn[2].tail[1]);
+    let joint = canvas_at(&h, redrawn[2].tail[0], redrawn[2].tail[1]) + vec2(7.0, 0.0);
     click_with(&mut h, joint, Modifiers::NONE);
     assert!(
         h.state().bones.chain.is_none(),
-        "a click on the open end ends the chain"
+        "a click on the open end's ring ends the chain"
     );
     assert_eq!(bones(&h).len(), 3);
     let (root, hand) = (canvas_at(&h, 400.0, 300.0), canvas_at(&h, 400.0, 220.0));
@@ -3434,6 +3448,89 @@ fn bones_are_drawn_as_a_chain_that_fans_ends_and_takes_back_its_last_bone() {
 }
 
 #[test]
+fn a_bone_renamed_while_its_chain_is_drawn_stays_the_parent_of_the_next() {
+    let path = sample("chain-rename");
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    activate(&mut h, "lines");
+    h.key_press(Key::J);
+    h.run_steps(2);
+    let bones = |h: &Harness<'static, Editor>| h.state().scene.bundle.doc.layer("l6").unwrap().bones.clone();
+    let (a, b, c) = (
+        canvas_at(&h, 40.0, 40.0),
+        canvas_at(&h, 120.0, 80.0),
+        canvas_at(&h, 200.0, 90.0),
+    );
+    drag(&mut h, a, b);
+    h.run_steps(2);
+    h.state_mut().bones.name = "thigh".into();
+    drag(&mut h, c, c + vec2(1.0, 1.0));
+    h.run_steps(2);
+    let made = bones(&h);
+    assert_eq!(made[0].name, "thigh", "the name typed in the field is kept: {made:?}");
+    assert_eq!(
+        made[1].parent.as_deref(),
+        Some("thigh"),
+        "and the chain carries on from it"
+    );
+    assert_eq!(made[1].head, made[0].tail);
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn return_and_esc_go_to_the_palette_while_a_chain_is_drawn() {
+    let path = sample("chain-keys");
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    activate(&mut h, "lines");
+    h.key_press(Key::J);
+    h.run_steps(2);
+    let (a, b) = (canvas_at(&h, 40.0, 40.0), canvas_at(&h, 120.0, 80.0));
+    drag(&mut h, a, b);
+    h.run_steps(2);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+    h.run_steps(2);
+    assert!(h.state().palette.is_some());
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    assert!(h.state().palette.is_none(), "Esc closes the palette");
+    assert!(h.state().bones.chain.is_some(), "and leaves the chain alone");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn the_bone_options_stay_one_row_whatever_is_picked() {
+    let path = sample("bone-bar");
+    Bundle::open(&path)
+        .unwrap()
+        .apply(
+            &parse_lines(
+                r#"{"op":"bone","layer":"l6","chain":["thigh","shin"],"through":[[100,60],[100,160],[110,260]]}
+{"op":"ik","layer":"l6","add":"shin"}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    [vec2(1280.0, 800.0), vec2(1440.0, 900.0), vec2(1512.0, 982.0)]
+        .into_iter()
+        .for_each(|size| {
+            let mut h = harness(editor(&path), size);
+            activate(&mut h, "lines");
+            h.key_press(Key::J);
+            h.run_steps(3);
+            let top = h.state().canvas_rect.min.y;
+            ["thigh", "shin"].into_iter().for_each(|bone| {
+                h.state_mut().pick_bone(Some(bone.into()));
+                h.run_steps(3);
+                assert_eq!(
+                    h.state().canvas_rect.min.y,
+                    top,
+                    "{size:?}: picking {bone} keeps the canvas where it is"
+                );
+            });
+        });
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn a_leg_gets_its_ik_in_the_options_and_its_foot_is_dragged_and_planted_in_pose_mode() {
     let path = sample("leg-ik");
     Bundle::open(&path)
@@ -3459,7 +3556,7 @@ fn a_leg_gets_its_ik_in_the_options_and_its_foot_is_dragged_and_planted_in_pose_
     assert_eq!(ik.len(), 1, "{ik:?}");
     assert_eq!((ik[0].bone.as_str(), ik[0].chain), ("shin", 2));
     assert!(
-        h.query_by_label_contains("IK: limb with thigh").is_some(),
+        h.query_by_label_contains("IK: limb").is_some(),
         "the options show the bone's IK"
     );
     h.get_by_label("pose").click();
@@ -3501,6 +3598,14 @@ fn a_leg_gets_its_ik_in_the_options_and_its_foot_is_dragged_and_planted_in_pose_
     assert!(
         (root[0] - 30.0).abs() < 1.5 && (root[1] - 10.0).abs() < 1.5,
         "the root's head moves it all: {root:?}"
+    );
+    h.get_by_label("draw").click();
+    h.run_steps(2);
+    h.get_by_label("pose").click();
+    h.run_steps(2);
+    assert!(
+        h.state().bones.reach.contains_key("shin") && h.state().bones.root == root,
+        "a trip to draw mode keeps the pose being built"
     );
     let planted = shown(&h)[1].1;
     assert!(

@@ -269,26 +269,24 @@ pub fn list(bundle: &Bundle, as_json: bool) -> Result<()> {
                 .iter()
                 .filter_map(|c| c.pose.as_ref().map(|p| (c, p)))
                 .for_each(|(c, p)| {
-                    let angles: Vec<String> = p.angles.iter().map(|(k, v)| format!("{k}={v}")).collect();
-                    let root = match p.root == [0.0, 0.0] {
-                        true => String::new(),
-                        false => format!(" root {},{}", p.root[0], p.root[1]),
-                    };
-                    let targets: Vec<String> =
-                        p.ik.iter()
-                            .map(|(k, r)| match r.mix == 1.0 {
-                                true => format!(" target {k}={},{}", r.target[0], r.target[1]),
-                                false => format!(" target {k}={},{} mix {}", r.target[0], r.target[1], r.mix),
-                            })
+                    let mut said: Vec<String> = p.angles.iter().map(|(k, v)| format!("{k}={v}")).collect();
+                    if p.root != [0.0, 0.0] {
+                        said.push(format!("root {},{}", p.root[0], p.root[1]));
+                    }
+                    p.ik.iter().for_each(|(k, r)| {
+                        said.push(match r.mix == 1.0 {
+                            true => format!("target {k}={},{}", r.target[0], r.target[1]),
+                            false => format!("target {k}={},{} mix {}", r.target[0], r.target[1], r.mix),
+                        })
+                    });
+                    if !p.ik.is_empty() && !o.ik.is_empty() {
+                        let solved: Vec<String> = applied(&o.bones, &o.ik, p)
+                            .iter()
+                            .map(|(k, v)| format!("{k}={v:.2}"))
                             .collect();
-                    println!(
-                        "  pose {} at {} from {}: {}{root}{}",
-                        c.id,
-                        c.frame,
-                        p.rest,
-                        angles.join(" "),
-                        targets.concat()
-                    );
+                        said.push(format!("solved {}", solved.join(" ")));
+                    }
+                    println!("  pose {} at {} from {}: {}", c.id, c.frame, p.rest, said.join(" "));
                 })
         });
     });
@@ -488,6 +486,10 @@ mod tests {
         assert!(
             values.iter().any(|v| (v - wanted).abs() < 1e-3),
             "the rig exports the solved turn {wanted}: {values:?}"
+        );
+        assert!(
+            text.contains("NodePath(\"Skeleton2D/upper:position\")") && text.contains("Vector2(140, 170)"),
+            "the root move goes to Godot too, so the planted end stays put there"
         );
         edit(&dir, r#"{"op":"ik","layer":"l1","rm":"fore"}"#).unwrap();
         let bundle = Bundle::open(&dir).unwrap();

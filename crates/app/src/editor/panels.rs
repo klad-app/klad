@@ -73,6 +73,10 @@ impl Editor {
             lock(&self.stats).frame_ms.push(dt * 1000.0);
         }
         self.pointer = ui.input(|i| i.pointer.latest_pos()).or(self.pointer);
+        self.keys_busy = ctx.egui_wants_keyboard_input()
+            || self.palette.is_some()
+            || self.windows.settings
+            || self.capturing.is_some();
         self.check(|e| e.sync());
         self.tend_jobs();
         self.check(|e| e.tab_keys());

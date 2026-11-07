@@ -308,7 +308,26 @@ fn a_chain_and_its_ik_are_set_up_and_posed_from_the_command_line() {
         listed.contains("ik shin: a limb with thigh, bending counterclockwise, softness 4 px"),
         "{listed}"
     );
-    assert!(listed.contains("root -10,0 target shin=180,240 mix 0.5"), "{listed}");
+    assert!(
+        listed.contains("root -10,0 target shin=180,240 mix 0.5 solved shin="),
+        "{listed}"
+    );
+    let nan = Command::new(env!("CARGO_BIN_EXE_klad"))
+        .args([
+            "pose",
+            path,
+            "l1",
+            "--from",
+            "0",
+            "--to",
+            "4",
+            "--target",
+            "shin=nan,240",
+        ])
+        .output()
+        .unwrap();
+    assert!(!nan.status.success(), "a target that is not a number is refused");
+    klad(&["ls", path]);
     let json: serde_json::Value = serde_json::from_str(&klad(&["bones", path, "--json"])).unwrap();
     assert_eq!(json[0]["ik"][0]["bone"], "shin");
     assert!(json[0]["poses"][0]["solved"]["thigh"].is_number());
