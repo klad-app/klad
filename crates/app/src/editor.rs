@@ -34,7 +34,7 @@ use crate::color::{self, Hsva};
 use crate::commands::Cmd;
 use crate::composite::{Preview, Scene, Tiles};
 use crate::frames::FrameCache;
-use crate::gpu::CanvasPaint;
+use crate::gpu::{CanvasPaint, Outbox};
 use crate::jobs::Jobs;
 use crate::lift;
 use crate::messages::{Messages, Tone};
@@ -647,6 +647,7 @@ pub(crate) struct Editor {
     ctx: egui::Context,
     sel_box: Option<(String, u64, [Vec2; 4])>,
     preview: Option<PreviewState>,
+    outbox: Arc<Mutex<Outbox>>,
     zoom_px: f32,
     picked: Option<Picked>,
     also: Vec<String>,
@@ -821,6 +822,7 @@ impl Editor {
             ctx,
             sel_box: None,
             preview: None,
+            outbox: Arc::default(),
             zoom_px: 1.0,
             picked: None,
             also: Vec::new(),
@@ -2961,14 +2963,13 @@ impl Editor {
         }
         uploads.extend(previewed);
         let (frame_uploads, frame_drops) = self.frames.take();
+        lock(&self.outbox).send(uploads, frame_uploads, frame_drops);
         ui.painter().add(egui_wgpu::Callback::new_paint_callback(
             rect,
             CanvasPaint {
                 show: show.filter(|_| self.preview.is_none()),
-                frame_uploads: Mutex::new(frame_uploads),
-                frame_drops,
+                outbox: self.outbox.clone(),
                 uniform: view_uniform,
-                uploads: Mutex::new(uploads),
                 size: (w, h),
                 cols: self.scene.cols(),
                 pending: self.pending.take(),

@@ -4,7 +4,7 @@ use egui_wgpu::wgpu;
 use half::f16;
 use klad_brush::TILE;
 use rayon::prelude::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -328,16 +328,35 @@ fn upload_tiles(queue: &wgpu::Queue, plane: &Plane, cols: usize, tiles: &[Upload
     });
 }
 
+#[derive(Default)]
+pub struct Outbox {
+    tiles: BTreeMap<usize, Vec<f16>>,
+    frames: BTreeMap<u64, FrameImage>,
+    drops: BTreeSet<u64>,
+}
+
+impl Outbox {
+    pub fn send(&mut self, tiles: Vec<(usize, Vec<f16>)>, frames: Vec<FrameImage>, drops: Vec<u64>) {
+        self.tiles.extend(tiles);
+        drops.into_iter().for_each(|key| {
+            self.frames.remove(&key);
+            self.drops.insert(key);
+        });
+        frames.into_iter().for_each(|image| {
+            self.drops.remove(&image.key);
+            self.frames.insert(image.key, image);
+        });
+    }
+}
+
 pub struct CanvasPaint {
     pub uniform: [f32; 12],
-    pub uploads: Mutex<Vec<(usize, Vec<f16>)>>,
+    pub outbox: Arc<Mutex<Outbox>>,
     pub size: (u32, u32),
     pub cols: usize,
     pub pending: Option<Instant>,
     pub stats: Arc<Mutex<Stats>>,
     pub show: Option<u64>,
-    pub frame_uploads: Mutex<Vec<FrameImage>>,
-    pub frame_drops: Vec<u64>,
 }
 
 impl egui_wgpu::CallbackTrait for CanvasPaint {
@@ -356,13 +375,14 @@ impl egui_wgpu::CallbackTrait for CanvasPaint {
             gpu.resize(device, self.size);
         }
         queue.write_buffer(&gpu.canvas.uniform, 0, bytemuck::cast_slice(&self.uniform));
-        let uploads = std::mem::take(&mut *lock(&self.uploads));
+        let Outbox { tiles, frames, drops } = std::mem::take(&mut *lock(&self.outbox));
+        let uploads: Vec<Upload> = tiles.into_iter().collect();
         let start = Instant::now();
         upload_tiles(queue, &gpu.canvas, self.cols, &uploads);
-        self.frame_drops.iter().for_each(|key| {
+        drops.iter().for_each(|key| {
             gpu.frames.remove(key);
         });
-        let images = std::mem::take(&mut *lock(&self.frame_uploads));
+        let images: Vec<FrameImage> = frames.into_values().collect();
         let started = Instant::now();
         images.iter().for_each(|image| gpu.put_frame(device, queue, image));
         if let Some(plane) = self.show.and_then(|key| gpu.frames.get(&key)) {
@@ -400,6 +420,30 @@ impl egui_wgpu::CallbackTrait for CanvasPaint {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_outbox_keeps_what_a_discarded_pass_sent_once_per_tile_and_picture() {
+        let picture = |key| FrameImage {
+            key,
+            width: 1,
+            height: 1,
+            mips: vec![vec![0; 4]],
+        };
+        let tile = |v: f32| vec![f16::from_f32(v); 4];
+        let mut outbox = Outbox::default();
+        outbox.send(
+            vec![(3, tile(0.1)), (5, tile(0.2))],
+            vec![picture(7), picture(8)],
+            Vec::new(),
+        );
+        outbox.send(vec![(3, tile(0.9))], vec![picture(9)], vec![8]);
+        assert_eq!(outbox.tiles.keys().copied().collect::<Vec<_>>(), [3, 5]);
+        assert_eq!(outbox.tiles[&3][0].to_f32(), tile(0.9)[0].to_f32());
+        assert_eq!(outbox.frames.keys().copied().collect::<Vec<_>>(), [7, 9]);
+        assert_eq!(outbox.drops.iter().copied().collect::<Vec<_>>(), [8]);
+        outbox.send(Vec::new(), vec![picture(8)], Vec::new());
+        assert!(outbox.drops.is_empty() && outbox.frames.contains_key(&8));
+    }
 
     #[test]
     fn mip_chains_average_down_to_one_pixel() {
