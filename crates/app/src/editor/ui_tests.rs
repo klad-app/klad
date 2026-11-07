@@ -1111,6 +1111,39 @@ fn a_shape_previews_only_its_tiles_while_dragged_and_two_drags_in_a_row_both_lan
 }
 
 #[test]
+fn a_tap_that_wobbles_selects_and_a_drag_past_three_points_moves() {
+    let path = sample("tap");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    activate(&mut h, "shapes");
+    let id = {
+        let ed = h.state();
+        ed.scene.bundle.doc.find_layer("shapes").unwrap().cels()[0].nodes[0]
+            .id
+            .clone()
+    };
+    h.state_mut().tool = Tool::Select;
+    let view = h.state().view.unwrap();
+    let rect = h.state().canvas_rect;
+    let at = rect.min + view.to_screen(egui::Vec2::new(120.0, 30.0), rect.size());
+    let rev = h.state().scene.bundle.doc.rev;
+    drag(&mut h, at, at + vec2(1.5, -1.0));
+    settle(&mut h, |ed| ed.drag.is_none() && ed.preview.is_none());
+    assert_eq!(h.state().selection.as_deref(), Some(id.as_str()), "the tap selects");
+    assert_eq!(h.state().scene.bundle.doc.rev, rev, "a wobble is not a move");
+    let before = h.state().node_transform(&id).unwrap();
+    drag(&mut h, at, at + vec2(5.0, 0.0));
+    settle(&mut h, |ed| ed.drag.is_none() && ed.preview.is_none());
+    let after = h.state().node_transform(&id).unwrap();
+    assert!(
+        ((after.x - before.x) - 5.0 / view.zoom).abs() < 0.5,
+        "moved {} for 5 pt at zoom {}",
+        after.x - before.x,
+        view.zoom
+    );
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn switching_layers_keeps_the_canvas_unless_the_picture_changes() {
     let path = sample("switch");
     let mut h = harness(editor(&path), vec2(1440.0, 900.0));

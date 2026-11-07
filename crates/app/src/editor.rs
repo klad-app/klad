@@ -75,6 +75,7 @@ use std::time::{Duration, Instant};
 const HANDLE: f32 = 12.0;
 const REFILL_MS: f64 = 8.0;
 const FINISH_WAIT: Duration = Duration::from_secs(2);
+const DRAG_SLOP: f32 = 3.0;
 const KNOB: f32 = 30.0;
 const IDENTITY: [f32; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
 
@@ -315,9 +316,16 @@ struct Drag {
     now: Vec2,
     center: Vec2,
     corners: [Vec2; 4],
+    slop: f32,
+    crossed: bool,
 }
 
 impl Drag {
+    fn to(&mut self, at: Vec2) {
+        self.now = at;
+        self.crossed |= (self.now - self.start).length() > self.slop;
+    }
+
     fn scale(&self) -> f32 {
         if self.grab != Grab::Scale {
             return 1.0;
@@ -386,7 +394,7 @@ impl Drag {
     }
 
     fn moved(&self) -> bool {
-        (self.now - self.start).length() > 0.5
+        self.crossed
     }
 
     fn mark_transform(&self) -> MarkTransform {
@@ -1576,6 +1584,8 @@ impl Editor {
             now: at,
             center,
             corners,
+            slop: DRAG_SLOP / self.view.map_or(1.0, |v| v.zoom),
+            crossed: false,
         });
     }
 
@@ -2500,7 +2510,7 @@ impl Editor {
             (Tool::Strokes, Phase::Up) => self.finish_pick()?,
             (Tool::Strokes, Phase::Move) if self.drag.is_some() => {
                 if let Some(drag) = self.drag.as_mut() {
-                    drag.now = c;
+                    drag.to(c);
                 }
                 self.copy_for_drag()?;
             }
@@ -2550,7 +2560,7 @@ impl Editor {
             },
             (Tool::Select, Phase::Move) => {
                 if let Some(drag) = self.drag.as_mut() {
-                    drag.now = c;
+                    drag.to(c);
                 }
                 self.copy_for_drag()?;
             }
@@ -4288,6 +4298,8 @@ mod tests {
                     vec2(150.0, 150.0),
                     vec2(50.0, 150.0),
                 ],
+                slop: 0.5,
+                crossed: true,
             };
             let committed = drag.mark_transform();
             let a = committed.affine(committed.pivot.unwrap_or([0.0, 0.0]));
