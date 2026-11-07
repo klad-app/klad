@@ -106,6 +106,7 @@ pub fn margin(effects: &[Effect], scale: f32) -> i32 {
             Effect::Shadow(s) => factor(s.radius * scale) * 2 + 2,
             Effect::Displace(_) => 2,
             Effect::Relief(r) => factor(r.softness * scale) * 2 + 2,
+            Effect::Noise(_) | Effect::Haze(_) => 0,
             _ => 1,
         })
         .sum();
@@ -646,6 +647,14 @@ mod tests {
         let d = Displace::default();
         assert_eq!(displace(&shape, &d, space, None), displace(&shape, &d, space, None));
         assert_ne!(displace(&shape, &d, space, None), shape);
+    }
+
+    #[test]
+    fn effects_that_read_only_their_own_pixel_need_no_margin() {
+        let grain = Effect::Noise(Noise::default());
+        let fog = Effect::Haze(klad_core::look::Haze::default());
+        assert_eq!(margin(&[grain.clone(), fog], 1.0), 0);
+        assert!(margin(&[grain, Effect::Displace(Displace::default())], 1.0) > 0);
     }
 }
 
