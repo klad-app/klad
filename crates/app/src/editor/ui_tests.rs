@@ -1279,6 +1279,53 @@ fn a_tap_that_wobbles_selects_and_a_drag_past_three_points_moves() {
 }
 
 #[test]
+fn an_edit_or_a_tool_switch_during_a_drag_leaves_the_right_picture() {
+    let path = sample("interrupted");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    activate(&mut h, "shapes");
+    h.state_mut().tool = Tool::Select;
+    let view = h.state().view.unwrap();
+    let rect = h.state().canvas_rect;
+    let corner = rect.min + view.to_screen(egui::Vec2::new(120.0, 30.0), rect.size());
+    let press = |h: &mut Harness<'static, Editor>, from: egui::Pos2, steps: usize| {
+        h.hover_at(from);
+        h.run_steps(1);
+        h.drag_at(from);
+        h.run_steps(1);
+        (1..=steps).for_each(|i| {
+            h.hover_at(from + vec2(12.0 * i as f32, 6.0 * i as f32));
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            h.run_steps(1);
+        });
+    };
+    press(&mut h, corner, 3);
+    settle(&mut h, |ed| ed.preview.as_ref().is_some_and(|p| p.done.is_some()));
+    let lines = h.state().scene.bundle.doc.find_layer("lines").unwrap().id.clone();
+    h.state_mut()
+        .apply(parse_lines(&format!(r#"{{"op":"set","id":"{lines}","opacity":0.4}}"#)).unwrap())
+        .unwrap();
+    (4..=6).for_each(|i| {
+        h.hover_at(corner + vec2(12.0 * i as f32, 6.0 * i as f32));
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.run_steps(1);
+    });
+    h.drop_at(corner + vec2(72.0, 36.0));
+    h.run_steps(1);
+    canvas_shows_the_committed_picture(&mut h);
+    let moved = h.state().scene.bundle.doc.rev;
+    press(&mut h, corner + vec2(72.0, 36.0), 4);
+    settle(&mut h, |ed| ed.preview.as_ref().is_some_and(|p| p.done.is_some()));
+    h.state_mut().tool = Tool::Brush;
+    h.run_steps(2);
+    assert!(h.state().drag.is_none(), "a tool switch ends the drag");
+    canvas_shows_the_committed_picture(&mut h);
+    assert_eq!(h.state().scene.bundle.doc.rev, moved, "an ended drag commits nothing");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn a_layer_made_and_activated_at_once_or_mid_refill_still_draws() {
     let path = sample("made");
     let mut h = harness(editor(&path), vec2(1440.0, 900.0));

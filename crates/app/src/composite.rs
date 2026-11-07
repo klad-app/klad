@@ -2312,6 +2312,10 @@ impl Scene {
         compose_tile(items, &job)
     }
 
+    pub fn uses_caches(&self) -> bool {
+        self.fast
+    }
+
     pub fn preview_snapshot(&self, cels: &[String], brushes: &BrushSet) -> Option<crate::preview::Snapshot> {
         if self.slimmed() || self.stale || (self.tint_mask && self.active_is_mask()) {
             return None;
@@ -2331,6 +2335,7 @@ impl Scene {
             cels: replays,
             onions: self.onion_map().cloned(),
             brushes: brushes.clone(),
+            vectors: std::sync::OnceLock::new(),
         })
     }
 
@@ -3333,6 +3338,7 @@ mod tests {
             snap: std::sync::Arc::new(scene.preview_snapshot(cels, brushes).unwrap()),
             shown: BTreeSet::new(),
             visible: scene.all_tiles().into_iter().collect(),
+            cancel: std::sync::Arc::default(),
         }
         .run()
         .unwrap()

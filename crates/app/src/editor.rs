@@ -70,6 +70,7 @@ use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -443,11 +444,24 @@ struct Finish {
 
 struct PreviewState {
     snap: Arc<preview::Snapshot>,
+    pending: BTreeSet<usize>,
+    cancel: Arc<AtomicBool>,
     asked: Option<Vec<Op>>,
+    asked_at: Option<Vec2>,
     job: Option<Receiver<Result<preview::Done>>>,
     shown: BTreeSet<usize>,
     done: Option<(Vec<Op>, bool, BTreeSet<usize>)>,
     finish: Option<Finish>,
+}
+
+impl PreviewState {
+    fn release(&mut self) -> Vec<usize> {
+        self.cancel.store(true, AtomicOrdering::Relaxed);
+        std::mem::take(&mut self.shown)
+            .into_iter()
+            .chain(self.finish.take().into_iter().flat_map(|f| f.dirty))
+            .collect()
+    }
 }
 
 struct Live {
@@ -1392,26 +1406,36 @@ impl Editor {
     }
 
     fn drop_preview(&mut self) {
-        if let Some(state) = self.preview.take() {
-            self.dirty.extend(state.shown);
-            if let Some(finish) = state.finish {
-                self.dirty.extend(finish.dirty);
-            }
+        if let Some(mut state) = self.preview.take() {
+            self.dirty.extend(state.release());
         }
     }
 
-    fn finish_preview(&mut self, ops: Vec<Op>, dirty: Vec<usize>) {
+    fn settle(&mut self, pending: &BTreeSet<usize>, settled: &BTreeSet<usize>, rest: Vec<usize>) {
+        self.dirty.retain(|i| !(settled.contains(i) && pending.contains(i)));
+        self.dirty.extend(rest.into_iter().filter(|i| !settled.contains(i)));
+    }
+
+    fn finish_preview(&mut self, ops: Vec<Op>, dirty: Vec<usize>, before: u64) {
         let Some(mut state) = self.preview.take() else {
             self.dirty.extend(dirty);
             return;
         };
+        if state.snap.rev != before {
+            self.dirty.extend(dirty.into_iter().chain(state.release()));
+            return;
+        }
         match state.done.take() {
             Some((done, exact, composed)) if state.job.is_none() && done == ops => {
-                let settled = |i: &usize| exact && composed.contains(i);
-                self.dirty.retain(|i| !settled(i));
-                self.dirty
-                    .extend(dirty.into_iter().chain(state.shown).filter(|i| !settled(i)));
+                let settled = match exact && !self.scene.uses_caches() {
+                    true => composed,
+                    false => BTreeSet::new(),
+                };
+                let pending = std::mem::take(&mut state.pending);
+                let rest = dirty.into_iter().chain(state.release()).collect();
+                self.settle(&pending, &settled, rest);
             }
+            Some((_, false, _)) => self.dirty.extend(dirty.into_iter().chain(state.release())),
             done => {
                 state.done = done;
                 state.finish = Some(Finish {
@@ -1426,6 +1450,9 @@ impl Editor {
     }
 
     fn tend_preview(&mut self, visible: BTreeSet<usize>) -> Result<Tiles> {
+        if self.drag.is_some() && !matches!(self.tool, Tool::Select | Tool::Strokes) {
+            self.drag = None;
+        }
         let mut uploads = Vec::new();
         let rev = self.scene.bundle.doc.rev;
         if let Some(mut state) = self.preview.take() {
@@ -1444,50 +1471,48 @@ impl Editor {
                     if current {
                         uploads = done.tiles;
                     }
-                    if last || !current {
+                    if !current {
                         keep = false;
-                        let settled: BTreeSet<usize> = match current && done.exact {
+                        self.dirty.extend(earlier.into_iter().chain(done.hidden));
+                        self.dirty.extend(state.release());
+                    } else if last {
+                        keep = false;
+                        let settled = match done.exact && !self.scene.uses_caches() {
                             true => composed,
                             false => BTreeSet::new(),
                         };
-                        self.dirty.retain(|i| !settled.contains(i));
-                        let finished = state.finish.take().map(|f| f.dirty).unwrap_or_default();
-                        self.dirty.extend(
-                            finished
-                                .into_iter()
-                                .chain(earlier)
-                                .chain(state.shown.iter().copied())
-                                .chain(done.hidden)
-                                .filter(|i| !settled.contains(i)),
-                        );
+                        let pending = std::mem::take(&mut state.pending);
+                        let rest = earlier.into_iter().chain(done.hidden).chain(state.release()).collect();
+                        self.settle(&pending, &settled, rest);
                     } else {
                         state.done = Some((done.ops, done.exact, composed));
                     }
                 }
                 Some(Err(e)) => {
                     keep = false;
-                    self.dirty.extend(state.shown.iter().copied());
-                    self.dirty
-                        .extend(state.finish.iter().flat_map(|f| f.dirty.iter().copied()));
+                    self.dirty.extend(state.release());
                     self.failed(e.context("the moved picture could not be drawn"));
                 }
                 None => {}
             }
-            let abandoned = state.finish.is_none() && self.drag.is_none();
-            if keep && (abandoned || state.finish.as_ref().is_some_and(|f| f.since.elapsed() > FINISH_WAIT)) {
-                keep = false;
-                self.dirty.extend(state.shown.iter().copied());
-                self.dirty
-                    .extend(state.finish.iter().flat_map(|f| f.dirty.iter().copied()));
-            }
             if keep {
-                self.preview = Some(state);
+                let stale =
+                    state.finish.is_none() && (self.drag.is_none() || state.snap.rev != rev || !self.canvas_current());
+                let late = state.finish.as_ref().is_some_and(|f| f.since.elapsed() > FINISH_WAIT);
+                match stale || late {
+                    true => {
+                        uploads.clear();
+                        self.dirty.extend(state.release());
+                    }
+                    false => self.preview = Some(state),
+                }
             }
         }
         if self.preview.is_none()
             && self.live.is_none()
             && self.drag.as_ref().is_some_and(|d| d.moved() && !d.copy)
             && self.canvas_current()
+            && self.dirty.len() <= timeline::FILL
         {
             let cels = self.preview_cels();
             self.preview = self
@@ -1495,36 +1520,46 @@ impl Editor {
                 .preview_snapshot(&cels, &self.brushes)
                 .map(|snap| PreviewState {
                     snap: Arc::new(snap),
+                    pending: self.dirty.clone(),
+                    cancel: Arc::default(),
                     asked: None,
+                    asked_at: None,
                     job: None,
                     shown: BTreeSet::new(),
                     done: None,
                     finish: None,
                 });
         }
-        let wanted = match self.preview.as_ref().map(|p| p.finish.as_ref()) {
-            Some(Some(finish)) => Some(finish.ops.clone()),
-            Some(None) => self.drag_ops(),
-            None => None,
+        let position = self.drag.as_ref().map(|d| d.now);
+        let ready = self
+            .preview
+            .as_ref()
+            .filter(|p| p.job.is_none())
+            .map(|p| p.finish.as_ref().map(|f| f.ops.clone()).ok_or(p.asked_at != position));
+        let wanted = match ready {
+            Some(Ok(finish)) => Some(finish),
+            Some(Err(true)) => self.drag_ops(),
+            _ => None,
         };
-        if let (Some(state), Some(ops)) = (self.preview.as_mut(), wanted)
-            && state.job.is_none()
-            && state.asked.as_ref() != Some(&ops)
-        {
-            let job = preview::Job {
-                ops: ops.clone(),
-                snap: state.snap.clone(),
-                shown: state.shown.clone(),
-                visible,
-            };
-            state.asked = Some(ops);
-            let (tx, rx) = channel();
-            let ctx = self.ctx.clone();
-            crate::background().spawn(move || {
-                let _ = tx.send(job.run());
-                ctx.request_repaint();
-            });
-            state.job = Some(rx);
+        if let (Some(state), Some(ops)) = (self.preview.as_mut(), wanted) {
+            state.asked_at = position;
+            if state.asked.as_ref() != Some(&ops) {
+                let job = preview::Job {
+                    ops: ops.clone(),
+                    snap: state.snap.clone(),
+                    shown: state.shown.clone(),
+                    visible,
+                    cancel: state.cancel.clone(),
+                };
+                state.asked = Some(ops);
+                let (tx, rx) = channel();
+                let ctx = self.ctx.clone();
+                crate::background().spawn(move || {
+                    let _ = tx.send(job.run());
+                    ctx.request_repaint();
+                });
+                state.job = Some(rx);
+            }
         }
         Ok(uploads)
     }
@@ -1652,8 +1687,9 @@ impl Editor {
             self.drop_preview();
             return Ok(());
         };
+        let before = self.scene.bundle.doc.rev;
         let dirty = self.commit(ops.clone())?;
-        self.finish_preview(ops, dirty);
+        self.finish_preview(ops, dirty, before);
         Ok(())
     }
 
@@ -1765,10 +1801,11 @@ impl Editor {
         let start = Instant::now();
         match self.picked_ops(LassoAction::Transform(drag.mark_transform())) {
             Some((ops, after)) => {
+                let before = self.scene.bundle.doc.rev;
                 let dirty = self.commit(ops.clone())?;
                 self.picked = after;
                 self.forget_missing_selection();
-                self.finish_preview(ops, dirty);
+                self.finish_preview(ops, dirty, before);
             }
             None => self.drop_preview(),
         }
@@ -2960,7 +2997,7 @@ impl Editor {
             opacity: l.stroke.opacity,
             blend: stroke_blend(&l.brush, l.stroke.lock).unwrap_or(l.brush.blend),
         });
-        let mut uploads = if tiles.is_empty() && stroke.is_empty() {
+        let uploads = if tiles.is_empty() && stroke.is_empty() {
             Vec::new()
         } else {
             self.scene.compose_painting(&stroke, &tiles, preview.as_ref())?
@@ -2974,7 +3011,7 @@ impl Editor {
             stats.compose_ms.push(spent as f32);
             stats.tiles.push(uploads.len() as f32);
         }
-        uploads.extend(previewed);
+        let uploads: Tiles = previewed.into_iter().chain(uploads).collect();
         let (frame_uploads, frame_drops) = self.frames.take();
         lock(&self.outbox).send(uploads, frame_uploads, frame_drops);
         ui.painter().add(egui_wgpu::Callback::new_paint_callback(

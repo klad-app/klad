@@ -1,5 +1,5 @@
 use crate::composite::{compose_items, dilate, effect_reach};
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use half::f16;
 use klad_brush::tiles::TILE_PX;
 use klad_brush::{BrushSet, CelReplay, Raster};
@@ -10,7 +10,8 @@ use klad_render::onion::Onions;
 use klad_render::{Rasters, changed_tiles, rasterize_nodes, rasterize_tiles};
 use rayon::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 
 pub struct Snapshot {
     pub rev: u64,
@@ -20,6 +21,7 @@ pub struct Snapshot {
     pub cels: BTreeMap<String, CelReplay>,
     pub onions: Option<Onions>,
     pub brushes: BrushSet,
+    pub vectors: OnceLock<BTreeMap<String, Vec<Node>>>,
 }
 
 pub struct Job {
@@ -27,6 +29,7 @@ pub struct Job {
     pub snap: Arc<Snapshot>,
     pub shown: BTreeSet<usize>,
     pub visible: BTreeSet<usize>,
+    pub cancel: Arc<AtomicBool>,
 }
 
 pub struct Done {
@@ -47,13 +50,21 @@ fn vector_nodes(doc: &klad_core::doc::Document, frame: u32) -> BTreeMap<String, 
 }
 
 impl Job {
+    fn check(&self) -> Result<()> {
+        if self.cancel.load(Ordering::Relaxed) {
+            bail!("the drag ended");
+        }
+        Ok(())
+    }
+
     pub fn run(self) -> Result<Done> {
         let snap = &self.snap;
         let (doc, mut applied) = apply_all(&snap.bundle.doc, &self.ops)?;
+        self.check()?;
         let (w, h) = (doc.canvas.width, doc.canvas.height);
         let mut rasters = snap.rasters.clone();
         let mut changed = BTreeSet::new();
-        let before = vector_nodes(&snap.bundle.doc, snap.frame);
+        let before = snap.vectors.get_or_init(|| vector_nodes(&snap.bundle.doc, snap.frame));
         let redrawn = vector_nodes(&doc, snap.frame)
             .into_iter()
             .filter(|(cel, nodes)| before.get(cel) != Some(nodes))
@@ -108,6 +119,7 @@ impl Job {
             rasters.insert(pending.cel.clone(), raster);
             Ok::<_, anyhow::Error>(())
         })?;
+        self.check()?;
         let cols = (w as usize).div_ceil(klad_brush::TILE);
         let rows = (h as usize).div_ceil(klad_brush::TILE);
         let reach = effect_reach(&doc, &doc.layers);
@@ -121,6 +133,7 @@ impl Job {
         let tiles = now
             .par_iter()
             .map(|&i| {
+                self.check()?;
                 let tile = compose_items(
                     &doc,
                     snap.frame,
