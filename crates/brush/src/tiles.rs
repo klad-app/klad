@@ -96,6 +96,24 @@ impl<T: Copy + Default, const C: usize> TileGrid<T, C> {
         self.tiles.iter().filter(|t| t.is_some()).count()
     }
 
+    pub fn differs(&self, other: &Self) -> Vec<usize>
+    where
+        T: PartialEq,
+    {
+        (0..self.tiles.len().max(other.tiles.len()))
+            .filter(|&i| {
+                match (
+                    self.tiles.get(i).and_then(Option::as_ref),
+                    other.tiles.get(i).and_then(Option::as_ref),
+                ) {
+                    (None, None) => false,
+                    (Some(a), Some(b)) => !Arc::ptr_eq(a, b) && a[..] != b[..],
+                    _ => true,
+                }
+            })
+            .collect()
+    }
+
     pub fn bytes(&self) -> usize {
         self.count() * TILE_PX * C * std::mem::size_of::<T>()
     }
@@ -454,6 +472,24 @@ mod tests {
         let grid = Raster::new(300, 513);
         assert_eq!((grid.cols, grid.rows), (2, 3));
         assert_eq!(grid.count(), 0);
+    }
+
+    #[test]
+    fn grids_tell_which_tiles_differ_without_comparing_shared_ones() {
+        let mut a = Raster::new(600, 300);
+        a.put(0, vec![f16::ONE; TILE_PX * 4].into_boxed_slice());
+        a.put(2, vec![f16::ONE; TILE_PX * 4].into_boxed_slice());
+        let mut b = a.clone();
+        assert!(a.differs(&b).is_empty());
+        b.put(2, vec![f16::ONE; TILE_PX * 4].into_boxed_slice());
+        assert!(
+            a.differs(&b).is_empty(),
+            "equal pixels in a new tile are not a difference"
+        );
+        b.ensure(2)[7] = f16::ZERO;
+        b.clear(0);
+        b.put(4, vec![f16::ONE; TILE_PX * 4].into_boxed_slice());
+        assert_eq!(a.differs(&b), vec![0, 2, 4]);
     }
 
     #[test]

@@ -900,6 +900,22 @@ fn paint_cels(doc: &Document, frame: u32) -> Vec<(String, String)> {
         .collect()
 }
 
+fn redraw(nodes: &[Node], before: Option<(&[Node], &Raster)>, (w, h): (u32, u32)) -> Result<Raster> {
+    if let Some((old, raster)) = before
+        && let Some(tiles) = klad_render::changed_tiles(old, nodes, w, h)?
+    {
+        let mut patched = raster.clone();
+        klad_render::rasterize_tiles(nodes, w, h, &tiles)?
+            .into_iter()
+            .for_each(|(i, tile)| match tile {
+                Some(tile) => patched.put(i, tile.into_boxed_slice()),
+                None => patched.clear(i),
+            });
+        return Ok(patched);
+    }
+    rasterize_nodes(nodes, w, h)
+}
+
 fn nodes_hash(nodes: &[Node]) -> u64 {
     fnv(FNV_OFFSET, &serde_json::to_vec(nodes).unwrap_or_default())
 }
@@ -2284,7 +2300,10 @@ impl Scene {
     }
 
     fn swap_vector(&mut self, cel: String, raster: Raster, dirty: &mut BTreeSet<usize>) {
-        dirty.extend(occupied(self.rasters.get(&cel)).chain(occupied(Some(&raster))));
+        match self.rasters.get(&cel) {
+            Some(old) => dirty.extend(old.differs(&raster)),
+            None => dirty.extend(occupied(Some(&raster))),
+        }
         let previous = self.vector_hash.get(&cel).copied();
         if let (Some(hash), Some(old)) = (previous, self.rasters.insert(cel.clone(), raster)) {
             self.retire(&cel, hash, old);
@@ -2564,7 +2583,14 @@ impl Scene {
         let doc = &self.bundle.doc;
         let fresh = missing
             .par_iter()
-            .map(|(cel, _)| rasterize_nodes(&nodes_of(doc, cel), w, h).map(|r| (cel.clone(), r)))
+            .map(|(cel, _)| {
+                let before = nodes_of(old, cel);
+                let drawn = self
+                    .rasters
+                    .get(cel)
+                    .filter(|_| self.vector_hash.get(cel) == Some(&nodes_hash(&before)));
+                redraw(&nodes_of(doc, cel), drawn.map(|r| (&before[..], r)), (w, h)).map(|r| (cel.clone(), r))
+            })
             .collect::<Result<Vec<_>>>()?;
         recalled
             .into_iter()

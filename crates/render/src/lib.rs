@@ -809,6 +809,129 @@ pub fn rasterize_nodes_at(nodes: &[klad_core::doc::Node], width: u32, height: u3
     Ok(raster)
 }
 
+pub type NodeTiles = Vec<(usize, Option<Vec<half::f16>>)>;
+
+pub fn changed_tiles(
+    old: &[klad_core::doc::Node],
+    new: &[klad_core::doc::Node],
+    width: u32,
+    height: u32,
+) -> Result<Option<Vec<usize>>> {
+    let ids = |nodes: &[klad_core::doc::Node]| -> BTreeMap<String, usize> {
+        nodes.iter().enumerate().map(|(i, n)| (n.id.clone(), i)).collect()
+    };
+    let (before, after) = (ids(old), ids(new));
+    let kept = |nodes: &[klad_core::doc::Node], other: &BTreeMap<String, usize>| -> Vec<String> {
+        nodes
+            .iter()
+            .filter(|n| other.contains_key(&n.id))
+            .map(|n| n.id.clone())
+            .collect()
+    };
+    if before.len() != old.len() || after.len() != new.len() || kept(old, &after) != kept(new, &before) {
+        return Ok(None);
+    }
+    let touched = old
+        .iter()
+        .filter(|n| after.get(&n.id).is_none_or(|&i| new[i] != **n))
+        .chain(new.iter().filter(|n| before.get(&n.id).is_none_or(|&i| old[i] != **n)));
+    let Some(reach) = touched
+        .map(|n| vector::node_reach(n).with_context(|| format!("node {}", n.id)))
+        .collect::<Result<Option<Vec<Rect>>>>()?
+    else {
+        return Ok(None);
+    };
+    let cols = (width as usize).div_ceil(TILE);
+    let rows = (height as usize).div_ceil(TILE);
+    Ok(Some(
+        (0..cols * rows)
+            .filter(|i| {
+                let cell = Rect::from_xywh(
+                    (i % cols * TILE) as f32,
+                    (i / cols * TILE) as f32,
+                    TILE as f32,
+                    TILE as f32,
+                );
+                reach.iter().any(|r| r.intersects(cell))
+            })
+            .collect(),
+    ))
+}
+
+pub fn rasterize_tiles(nodes: &[klad_core::doc::Node], width: u32, height: u32, tiles: &[usize]) -> Result<NodeTiles> {
+    let cols = (width as usize).div_ceil(TILE);
+    let canvas = IRect::from_wh(width as i32, height as i32);
+    let cell = |index: usize| {
+        IRect::from_xywh(
+            (index % cols * TILE) as i32,
+            (index / cols * TILE) as i32,
+            TILE as i32,
+            TILE as i32,
+        )
+    };
+    let Some(wanted) = tiles
+        .iter()
+        .filter_map(|&i| IRect::intersect(&cell(i), &canvas))
+        .reduce(|a, b| IRect::join(&a, &b))
+    else {
+        return Ok(tiles.iter().map(|&i| (i, None)).collect());
+    };
+    let shown: Vec<(&klad_core::doc::Node, Option<IRect>)> = nodes
+        .iter()
+        .filter(|n| n.visible)
+        .map(|n| {
+            let reach = vector::node_reach(n).with_context(|| format!("node {}", n.id))?;
+            Ok((n, reach.map(|r| skia_safe::RoundOut::<IRect>::round_out(&r))))
+        })
+        .collect::<Result<_>>()?;
+    let touching: Vec<&(&klad_core::doc::Node, Option<IRect>)> = shown
+        .iter()
+        .filter(|(_, reach)| reach.is_none_or(|r| IRect::intersects(&r, &wanted)))
+        .collect();
+    let region = touching
+        .iter()
+        .try_fold(wanted, |region, (_, reach)| {
+            reach.map(|r| IRect::join(&region, &IRect::intersect(&r, &canvas).unwrap_or(region)))
+        })
+        .unwrap_or(canvas);
+    let info = f16_info(region.width() as u32, region.height() as u32);
+    let mut surface = surfaces::raster(&info, None, None)
+        .ok_or_else(|| anyhow!("cannot allocate {}x{}", region.width(), region.height()))?;
+    let drawn = surface.canvas();
+    drawn.translate((-region.left as f32, -region.top as f32));
+    touching.iter().try_for_each(|(n, _)| vector::draw_node(drawn, n))?;
+    tiles
+        .iter()
+        .map(|&index| {
+            let Some(part) = IRect::intersect(&cell(index), &canvas) else {
+                return Ok((index, None));
+            };
+            let mut tile = vec![half::f16::ZERO; TILE * TILE * 4];
+            let (w, h) = (part.width() as usize, part.height() as usize);
+            let mut rows = vec![half::f16::ZERO; w * h * 4];
+            if !surface.read_pixels(
+                &f16_info(w as u32, h as u32),
+                bytemuck::cast_slice_mut(&mut rows),
+                w * 8,
+                (part.left - region.left, part.top - region.top),
+            ) {
+                return Err(anyhow!("cannot read tile {index}"));
+            }
+            rows.chunks(w * 4)
+                .enumerate()
+                .for_each(|(row, line)| tile[row * TILE * 4..row * TILE * 4 + w * 4].copy_from_slice(line));
+            Ok((
+                index,
+                tile.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|px| px[3].to_f32() > 0.0)
+                    .then_some(tile),
+            ))
+        })
+        .collect()
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct View {
     pub scale: f32,
@@ -1283,6 +1406,124 @@ mod tests {
         assert_eq!(frame.pixel(75, 50)[3], 0);
         let b = vector::node_box(&doc.layers[0].cels()[0].nodes[0]).unwrap().unwrap();
         assert!((b[2] - 50.0).abs() < 0.01, "{b:?}");
+    }
+
+    fn tiled_scene() -> Vec<Node> {
+        let stroke = |hex: &str, width: f32| StrokeStyle {
+            paint: Fill::Solid(hex.into()),
+            width,
+            cap: klad_core::doc::Cap::Butt,
+            join: klad_core::doc::Join::Miter,
+            dash: Vec::new(),
+        };
+        let mut frame = rect("frame", 180.0, 200.0, 190.0, 90.0, "#e0b040");
+        frame.stroke = Some(stroke("#202840", 18.0));
+        frame.transform.rotate = 17.0;
+        let mut star = Node::new(
+            "star",
+            Shape::Path {
+                d: "M 250 40 L 275 230 L 330 60 L 300 250 L 420 120 Z".into(),
+            },
+        )
+        .filled("#90c0a0");
+        star.stroke = Some(stroke("#103020", 9.0));
+        let mut mist = Node::new(
+            "mist",
+            Shape::Ellipse {
+                cx: 470.0,
+                cy: 250.0,
+                rx: 90.0,
+                ry: 40.0,
+            },
+        )
+        .filled("#5070c0");
+        mist.blur = 24.0;
+        mist.opacity = 0.8;
+        let mut bead = Node::new(
+            "bead",
+            Shape::Ellipse {
+                cx: 0.0,
+                cy: 0.0,
+                rx: 14.0,
+                ry: 9.0,
+            },
+        )
+        .filled("#c04060");
+        bead.stroke = Some(stroke("#401020", 5.0));
+        let row = Node::new(
+            "row",
+            Shape::Repeat(klad_core::generators::Repeat {
+                count: 5,
+                step: [60.0, 25.0],
+                scale: 1.3,
+                children: vec![bead],
+                ..Default::default()
+            }),
+        );
+        let mut row = row;
+        row.transform.x = 20.0;
+        row.transform.y = 30.0;
+        let mut clipped = rect("clipped", 60.0, 150.0, 220.0, 160.0, "#a0a0f0");
+        clipped.clip = Some("M 60 150 L 280 230 L 60 310 Z".into());
+        let edge = rect("edge", -40.0, 250.0, 700.0, 80.0, "#30303080");
+        vec![edge, frame, star, mist, row, clipped]
+    }
+
+    #[test]
+    fn vector_tiles_patched_where_a_node_moved_match_a_whole_render() {
+        let nodes = tiled_scene();
+        let (w, h) = (600u32, 300u32);
+        let whole = rasterize_nodes(&nodes, w, h).unwrap();
+        rasterize_tiles(&nodes, w, h, &[1, 4, 5])
+            .unwrap()
+            .iter()
+            .for_each(|(i, tile)| {
+                assert_eq!(tile.as_deref(), whole.at(*i), "tile {i} drawn alone");
+            });
+        let patched = |before: &[Node], after: &[Node]| -> Option<(Vec<usize>, Raster)> {
+            let dirty = changed_tiles(before, after, w, h).unwrap()?;
+            let mut raster = rasterize_nodes(before, w, h).unwrap();
+            rasterize_tiles(after, w, h, &dirty)
+                .unwrap()
+                .into_iter()
+                .for_each(|(i, tile)| match tile {
+                    Some(tile) => raster.put(i, tile.into_boxed_slice()),
+                    None => raster.clear(i),
+                });
+            Some((dirty, raster))
+        };
+        let agrees = |what: &str, before: &[Node], after: &[Node]| {
+            let (dirty, raster) = patched(before, after).unwrap();
+            let fresh = rasterize_nodes(after, w, h).unwrap();
+            assert!(raster.differs(&fresh).is_empty(), "{what}: patched {dirty:?}");
+            dirty
+        };
+        (1..nodes.len()).for_each(|k| {
+            let mut moved = nodes.clone();
+            moved[k].transform.x += 150.0;
+            moved[k].transform.y -= 60.0;
+            agrees(&format!("{} moved", nodes[k].id), &nodes, &moved);
+        });
+        let mut recoloured = nodes.clone();
+        recoloured[2].fill = Some(Fill::Solid("#ff0000".into()));
+        agrees("recoloured", &nodes, &recoloured);
+        let added: Vec<Node> = nodes
+            .iter()
+            .cloned()
+            .chain([rect("new", 520.0, 20.0, 40.0, 40.0, "#000000")])
+            .collect();
+        assert_eq!(agrees("added", &nodes, &added), vec![2]);
+        agrees("removed", &added, &nodes);
+        let mut hidden = nodes.clone();
+        hidden[3].visible = false;
+        agrees("hidden", &nodes, &hidden);
+        assert_eq!(changed_tiles(&nodes, &nodes, w, h).unwrap(), Some(Vec::new()));
+        let swapped: Vec<Node> = [1, 0, 2, 3, 4, 5].iter().map(|&i| nodes[i].clone()).collect();
+        assert_eq!(
+            changed_tiles(&nodes, &swapped, w, h).unwrap(),
+            None,
+            "a new order redraws the layer"
+        );
     }
 
     #[test]

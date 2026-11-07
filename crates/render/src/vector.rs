@@ -250,7 +250,30 @@ pub fn draw_nodes(canvas: &Canvas, nodes: &[Node]) -> Result<()> {
         .try_for_each(|n| draw_node(canvas, n))
 }
 
-fn draw_node(canvas: &Canvas, node: &Node) -> Result<()> {
+pub fn node_reach(node: &Node) -> Result<Option<Rect>> {
+    fn pad(node: &Node) -> Result<f32> {
+        let own = node.stroke.as_ref().map_or(0.0, |s| s.width * 4.0) + node.blur * 4.0 + 4.0;
+        let grow = instances(&node.shape)
+            .iter()
+            .map(Matrix::max_scale)
+            .fold(1.0f32, f32::max);
+        node.shape.children().iter().try_fold(own, |most, child| {
+            Ok(most.max(pad(child)? * grow * node_matrix(child)?.max_scale().max(1.0)))
+        })
+    }
+    let Some(local) = local_bounds(node)? else {
+        return Ok(None);
+    };
+    let pad = pad(node)?;
+    Ok(Some(
+        node_matrix(node)?
+            .map_rect(local.with_outset((pad, pad)))
+            .0
+            .with_outset((4.0, 4.0)),
+    ))
+}
+
+pub(crate) fn draw_node(canvas: &Canvas, node: &Node) -> Result<()> {
     let context = || format!("node {}", node.id);
     let matrix = node_matrix(node).with_context(context)?;
     let depth = canvas.save();
