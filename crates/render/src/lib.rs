@@ -792,35 +792,6 @@ fn layer_cel(layer: &Layer, cel: &klad_core::doc::Cel) -> String {
     layer.content_of(cel).id.clone()
 }
 
-pub struct Lifted {
-    pub rect: [f32; 4],
-    pub width: u32,
-    pub height: u32,
-    pub pixels: Vec<half::f16>,
-}
-
-pub fn rasterize_region(nodes: &[klad_core::doc::Node], rect: [f32; 4], max_side: u32, scale: f32) -> Result<Lifted> {
-    let [x, y, w, h] = rect;
-    let scale = (max_side as f32 / w.max(h)).min(scale.clamp(0.05, 1.0));
-    let (width, height) = (((w * scale).ceil() as u32).max(1), ((h * scale).ceil() as u32).max(1));
-    let info = f16_info(width, height);
-    let mut surface = surfaces::raster(&info, None, None).ok_or_else(|| anyhow!("cannot allocate {width}x{height}"))?;
-    let canvas = surface.canvas();
-    canvas.scale((scale, scale));
-    canvas.translate((-x, -y));
-    vector::draw_nodes(canvas, nodes)?;
-    let mut pixels = vec![half::f16::ZERO; width as usize * height as usize * 4];
-    if !surface.read_pixels(&info, bytemuck::cast_slice_mut(&mut pixels), width as usize * 8, (0, 0)) {
-        return Err(anyhow!("cannot read pixels"));
-    }
-    Ok(Lifted {
-        rect: [x, y, width as f32 / scale, height as f32 / scale],
-        width,
-        height,
-        pixels,
-    })
-}
-
 pub fn rasterize_nodes(nodes: &[klad_core::doc::Node], width: u32, height: u32) -> Result<Raster> {
     rasterize_nodes_at(nodes, width, height, 1.0)
 }
@@ -883,13 +854,14 @@ pub fn changed_tiles(
     let touched = old
         .iter()
         .filter(|n| after.get(&n.id).is_none_or(|&i| new[i] != **n))
-        .chain(new.iter().filter(|n| before.get(&n.id).is_none_or(|&i| old[i] != **n)));
-    let Some(reach) = touched
+        .chain(new.iter().filter(|n| before.get(&n.id).is_none_or(|&i| old[i] != **n)))
+        .filter(|n| n.visible);
+    let reach = touched
         .map(|n| vector::node_reach(n).with_context(|| format!("node {}", n.id)))
-        .collect::<Result<Option<Vec<Rect>>>>()?
-    else {
-        return Ok(None);
-    };
+        .collect::<Result<Vec<Option<Rect>>>>()?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<Rect>>();
     let cols = (width as usize).div_ceil(TILE);
     let rows = (height as usize).div_ceil(TILE);
     Ok(Some(
@@ -925,24 +897,31 @@ pub fn rasterize_tiles(nodes: &[klad_core::doc::Node], width: u32, height: u32, 
     else {
         return Ok(tiles.iter().map(|&i| (i, None)).collect());
     };
-    let shown: Vec<(&klad_core::doc::Node, Option<IRect>)> = nodes
+    let shown: Vec<(&klad_core::doc::Node, IRect)> = nodes
         .iter()
         .filter(|n| n.visible)
         .map(|n| {
             let reach = vector::node_reach(n).with_context(|| format!("node {}", n.id))?;
-            Ok((n, reach.map(|r| skia_safe::RoundOut::<IRect>::round_out(&r))))
+            Ok(reach.map(|r| (n, skia_safe::RoundOut::<IRect>::round_out(&r))))
         })
-        .collect::<Result<_>>()?;
-    let touching: Vec<&(&klad_core::doc::Node, Option<IRect>)> = shown
-        .iter()
-        .filter(|(_, reach)| reach.is_none_or(|r| IRect::intersects(&r, &wanted)))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
         .collect();
-    let region = touching
+    let touching: Vec<&(&klad_core::doc::Node, IRect)> = shown
         .iter()
-        .try_fold(wanted, |region, (_, reach)| {
-            reach.map(|r| IRect::join(&region, &IRect::intersect(&r, &canvas).unwrap_or(region)))
-        })
-        .unwrap_or(canvas);
+        .filter(|(_, reach)| IRect::intersects(reach, &wanted))
+        .collect();
+    let joined = touching.iter().fold(wanted, |region, (_, reach)| {
+        IRect::join(&region, &IRect::intersect(reach, &canvas).unwrap_or(region))
+    });
+    let t = TILE as i32;
+    let region = IRect::from_ltrb(
+        joined.left.div_euclid(t) * t,
+        joined.top.div_euclid(t) * t,
+        joined.right,
+        joined.bottom,
+    );
     let info = f16_info(region.width() as u32, region.height() as u32);
     let mut surface = surfaces::raster(&info, None, None)
         .ok_or_else(|| anyhow!("cannot allocate {}x{}", region.width(), region.height()))?;
@@ -1573,6 +1552,53 @@ mod tests {
             None,
             "a new order redraws the layer"
         );
+    }
+
+    #[test]
+    fn vector_patches_away_from_the_origin_keep_big_blurs_and_skip_what_draws_nothing() {
+        let (w, h) = (1300u32, 900u32);
+        let mut mist = Node::new(
+            "mist",
+            Shape::Ellipse {
+                cx: 733.0,
+                cy: 571.0,
+                rx: 170.0,
+                ry: 55.0,
+            },
+        )
+        .filled("#7088c0");
+        mist.blur = 26.0;
+        let chip = rect("chip", 905.0, 610.0, 120.0, 70.0, "#e04030");
+        let mut ghost = Node::new(
+            "ghost",
+            Shape::Text(klad_core::generators::Text {
+                text: "gone".into(),
+                font: "Missing.ttf".into(),
+                ..Default::default()
+            }),
+        );
+        ghost.visible = false;
+        let empty = Node::new("empty", Shape::Group { children: Vec::new() });
+        let nodes = vec![mist, empty, ghost, chip];
+        let mut moved = nodes.clone();
+        moved[3].transform.x = 37.5;
+        moved[3].transform.y = -21.25;
+        moved.remove(2);
+        let without_ghost: Vec<Node> = nodes.iter().filter(|n| n.id != "ghost").cloned().collect();
+        let dirty = changed_tiles(&nodes, &moved, w, h).unwrap().unwrap();
+        assert!(
+            dirty.iter().all(|&i| i % 6 >= 3 && i / 6 >= 2),
+            "the dirty tiles sit away from the origin: {dirty:?}"
+        );
+        let mut patched = rasterize_nodes(&without_ghost, w, h).unwrap();
+        rasterize_tiles(&moved, w, h, &dirty)
+            .unwrap()
+            .into_iter()
+            .for_each(|(i, tile)| match tile {
+                Some(tile) => patched.put(i, tile.into_boxed_slice()),
+                None => patched.clear(i),
+            });
+        assert!(patched.differs(&rasterize_nodes(&moved, w, h).unwrap()).is_empty());
     }
 
     #[test]
