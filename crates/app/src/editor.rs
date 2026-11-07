@@ -28,6 +28,8 @@ mod tweens;
 #[cfg(test)]
 pub(crate) use commands::install_job;
 #[cfg(test)]
+mod drag_time;
+#[cfg(test)]
 mod ui_tests;
 
 use crate::color::{self, Hsva};

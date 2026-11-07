@@ -78,3 +78,6 @@ ui-pictures:
 
 ui-time:
     cargo test --release -p klad-app -- --ignored ui_time_per_frame --nocapture
+
+drag-time bundle="":
+    KLAD_DRAG_BUNDLE={{bundle}} cargo test --release -p klad-app -- --ignored drag_time --nocapture
