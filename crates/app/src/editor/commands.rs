@@ -308,7 +308,10 @@ impl Editor {
     pub(crate) fn menu_state(&self) -> crate::menus::Shown {
         crate::menus::Shown {
             off: Cmd::ALL.into_iter().filter(|c| self.can_run(*c).is_some()).collect(),
-            on: Cmd::ALL.into_iter().filter(|c| self.is_on(*c) == Some(true)).collect(),
+            on: Cmd::ALL
+                .into_iter()
+                .filter(|c| c.ticks() && self.is_on(*c) == Some(true))
+                .collect(),
         }
     }
 

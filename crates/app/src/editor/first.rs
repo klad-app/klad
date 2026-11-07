@@ -95,7 +95,7 @@ impl Editor {
                     ui.add(
                         egui::Label::new(
                             RichText::new(
-                                "Done. File > Close the drawing shows the samples to look at; Help > Every key lists the keys.",
+                                "Done. File > Close shows the samples to look at; Help > Keyboard shortcuts lists the keys.",
                             )
                             .color(theme::DONE),
                         )

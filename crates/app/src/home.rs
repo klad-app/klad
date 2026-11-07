@@ -660,7 +660,7 @@ mod tests {
         h.state_mut().editor.as_mut().unwrap().wants = None;
         document_menu(&h).click();
         h.run_steps(2);
-        h.get_by_label(&format!("{} copy path", theme::icon::COPY)).click();
+        h.get_by_label(&format!("{} Copy path", theme::icon::COPY)).click();
         h.run_steps(1);
         let copied = h
             .output()
@@ -733,11 +733,11 @@ mod tests {
         document_menu(&h).click();
         h.run_steps(2);
         assert!(
-            h.query_by_label(&format!("{} install the klad command", theme::icon::DOWNLOAD))
+            h.query_by_label(&format!("{} Install the klad command", theme::icon::DOWNLOAD))
                 .is_some()
         );
         assert_eq!(crate::editor::install_job().args, ["install"]);
-        h.get_by_label(&format!("{} about and licences", theme::icon::INFO))
+        h.get_by_label(&format!("{} About klad and licences", theme::icon::INFO))
             .click();
         h.run_steps(3);
         assert!(

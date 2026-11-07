@@ -314,14 +314,8 @@ impl Editor {
                 ui.separator();
                 self.panel_checks(ui);
                 ui.separator();
-                [
-                    (Cmd::Palette, "find a command"),
-                    (Cmd::Numbers, "numbers"),
-                    (Cmd::Settings, "settings"),
-                ]
-                .into_iter()
-                .for_each(|(cmd, label)| {
-                    if self.command_button(ui, cmd, Some(label)).clicked() {
+                [Cmd::Palette, Cmd::Numbers, Cmd::Settings].into_iter().for_each(|cmd| {
+                    if self.command_button(ui, cmd, Some(cmd.menu())).clicked() {
                         ui.close();
                     }
                 });
@@ -378,9 +372,15 @@ impl Editor {
     fn menu_entry(&mut self, ui: &mut egui::Ui, cmd: Cmd) {
         let label = commands::menu_label(cmd);
         let can = self.can_run(cmd).is_none();
-        let response = match self.is_on(cmd) {
-            Some(mut on) => ui.add_enabled(can, egui::Checkbox::new(&mut on, label)),
-            None => ui.add_enabled(can, egui::Button::new(label).shortcut_text(self.bindings.label(cmd))),
+        let keys = self.bindings.menu_key(cmd);
+        let response = match (self.is_on(cmd).filter(|_| cmd.ticks()), keys.is_empty()) {
+            (Some(mut on), true) => ui.add_enabled(can, egui::Checkbox::new(&mut on, label)),
+            (Some(mut on), false) => ui.add_enabled(
+                can,
+                egui::Checkbox::new(&mut on, (label, egui::Atom::grow(), RichText::new(keys).weak())),
+            ),
+            (None, true) => ui.add_enabled(can, egui::Button::new(label)),
+            (None, false) => ui.add_enabled(can, egui::Button::new(label).shortcut_text(keys)),
         }
         .hint(self.command_hint(cmd));
         if response.clicked() {
@@ -415,19 +415,19 @@ impl Editor {
         ui.label(RichText::new(&name).strong());
         ui.separator();
         [
-            (Cmd::NewDocument, "new drawing"),
-            (Cmd::OpenDocument, "open"),
-            (Cmd::OpenRecent, "recent"),
-            (Cmd::Export, "export"),
-            (Cmd::AddFont, "add a font"),
-            (Cmd::CopyPath, "copy path"),
-            (Cmd::InstallCommand, "install the klad command"),
-            (Cmd::ReportProblem, "report a problem"),
-            (Cmd::About, "about and licences"),
+            Cmd::NewDocument,
+            Cmd::OpenDocument,
+            Cmd::OpenRecent,
+            Cmd::Export,
+            Cmd::AddFont,
+            Cmd::CopyPath,
+            Cmd::InstallCommand,
+            Cmd::ReportProblem,
+            Cmd::About,
         ]
         .into_iter()
-        .for_each(|(cmd, label)| {
-            if self.command_button(ui, cmd, Some(label)).clicked() {
+        .for_each(|cmd| {
+            if self.command_button(ui, cmd, Some(cmd.menu())).clicked() {
                 ui.close();
             }
         });
@@ -487,17 +487,17 @@ impl Editor {
 
     fn panel_checks(&mut self, ui: &mut egui::Ui) {
         [
-            (Cmd::ToolPane, Pane::Tool),
-            (Cmd::LayersPane, Pane::Layers),
-            (Cmd::InspectorPane, Pane::Inspector),
-            (Cmd::NotesPane, Pane::Notes),
-            (Cmd::HistoryPane, Pane::History),
+            Cmd::ToolPane,
+            Cmd::LayersPane,
+            Cmd::InspectorPane,
+            Cmd::NotesPane,
+            Cmd::HistoryPane,
+            Cmd::Timeline,
         ]
         .into_iter()
-        .for_each(|(cmd, pane)| {
-            self.command_check(ui, cmd, pane.title());
+        .for_each(|cmd| {
+            self.command_check(ui, cmd, cmd.menu());
         });
-        self.command_check(ui, Cmd::Timeline, "timeline");
     }
 
     fn panels_menu(&mut self, ui: &mut egui::Ui, size: egui::Vec2, glyph: f32) {

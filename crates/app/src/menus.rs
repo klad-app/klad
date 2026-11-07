@@ -252,7 +252,7 @@ mod mac {
 
     fn command(mtm: MainThreadMarker, target: &Target, cmd: Cmd, bindings: &Bindings) -> Retained<NSMenuItem> {
         let (key, mask) = equivalent(&bindings.keys(cmd));
-        let entry = item(mtm, &menu_label(cmd), Some(sel!(kladRun:)), &key, mask);
+        let entry = item(mtm, menu_label(cmd), Some(sel!(kladRun:)), &key, mask);
         unsafe { entry.setTarget(Some(target)) };
         entry.setTag(Cmd::ALL.iter().position(|c| *c == cmd).unwrap_or_default() as isize);
         entry
@@ -360,37 +360,36 @@ mod mac {
         klad.addItem(&NSMenuItem::separatorItem(mtm));
         klad.addItem(&self::command(mtm, &target, Cmd::Quit, bindings));
         bar.addItem(&holding(mtm, &klad));
-        let window = menu(mtm, "Window", None);
-        window.addItem(&system(mtm, "Minimize", sel!(performMiniaturize:), "m", command));
-        window.addItem(&system(
-            mtm,
-            "Zoom",
-            sel!(performZoom:),
-            "",
-            NSEventModifierFlags::empty(),
-        ));
-        window.addItem(&NSMenuItem::separatorItem(mtm));
-        window.addItem(&system(
-            mtm,
-            "Bring all to front",
-            sel!(arrangeInFront:),
-            "",
-            NSEventModifierFlags::empty(),
-        ));
         MENUS.iter().for_each(|m| {
-            if m.title == "Help" {
-                bar.addItem(&holding(mtm, &window));
-            }
             let built = menu(mtm, m.title, Some(&target));
             fill(mtm, &built, m.items, &target, bindings, recent);
-            bar.addItem(&holding(mtm, &built));
-            if m.title == "Help" {
-                app.setHelpMenu(Some(&built));
+            match m.title {
+                "Window" => {
+                    built.addItem(&NSMenuItem::separatorItem(mtm));
+                    built.addItem(&system(mtm, "Minimize", sel!(performMiniaturize:), "m", command));
+                    built.addItem(&system(
+                        mtm,
+                        "Zoom",
+                        sel!(performZoom:),
+                        "",
+                        NSEventModifierFlags::empty(),
+                    ));
+                    built.addItem(&system(
+                        mtm,
+                        "Bring all to front",
+                        sel!(arrangeInFront:),
+                        "",
+                        NSEventModifierFlags::empty(),
+                    ));
+                    app.setWindowsMenu(Some(&built));
+                }
+                "Help" => app.setHelpMenu(Some(&built)),
+                _ => {}
             }
+            bar.addItem(&holding(mtm, &built));
         });
         app.setMainMenu(Some(&bar));
         app.setServicesMenu(Some(&services));
-        app.setWindowsMenu(Some(&window));
         super::NATIVE.store(true, Ordering::Relaxed);
     }
 }

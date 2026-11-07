@@ -202,7 +202,7 @@ fn the_strip_shrinks_then_folds_its_foot_when_the_window_is_short() {
     );
     short.get_by_role_and_label(Role::Button, theme::icon::MORE).click();
     short.run_steps(2);
-    short.get_by_label_contains("settings").click();
+    short.get_by_label_contains("Settings…").click();
     short.run_steps(2);
     assert!(
         short.state().windows.settings,
@@ -2665,7 +2665,10 @@ fn first_steps_tick_as_a_shape_is_drawn_filled_and_handed_to_an_agent() {
     h.get_by_label_contains("copy a request").click();
     h.run_steps(2);
     assert!(h.state().first.handed, "copying the request ticks the third");
-    assert!(h.query_by_label_contains("Done. File > Close the drawing").is_some());
+    assert!(
+        h.query_by_label_contains("Done. File > Close shows the samples")
+            .is_some()
+    );
     assert!(super::first::prompt(&path).contains(&format!("klad render \"{}\"", path.display())));
     h.state_mut().invoke(Cmd::FirstSteps).unwrap();
     h.run_steps(2);
@@ -2685,30 +2688,30 @@ fn the_menu_bar_reaches_commands_shows_their_state_and_greys_what_cannot_run() {
     };
     h.get_by_label("File").click();
     h.run_steps(2);
-    assert!(h.query_by_label_contains("Close the drawing").is_some());
-    h.get_by_label("Export").click();
+    assert!(h.query_by_label("Close cmd W").is_some(), "items carry their keys");
+    h.get_by_label("Export… cmd E").click();
     h.run_steps(3);
-    assert!(h.state().windows.export, "File > Export opens the export window");
+    assert!(h.state().windows.export, "File > Export… opens the export window");
     assert!(h.state().settings.layout.timeline);
-    h.get_by_label("View").click();
+    h.get_by_label("Window").click();
     h.run_steps(2);
     h.get_by_label("Timeline").click();
     h.run_steps(3);
-    assert!(!h.state().settings.layout.timeline, "View > Timeline hides it");
+    assert!(!h.state().settings.layout.timeline, "Window > Timeline hides it");
     h.get_by_label("Edit").click();
     h.run_steps(2);
-    h.hover_at(item(&h, "Selection").center());
+    h.hover_at(item(&h, "Strokes").center());
     h.run_steps(3);
     let recolour = h
-        .query_all_by_label_contains("Recolour the selected strokes")
+        .query_all_by_label("Recolour")
         .next()
-        .expect("the selection submenu opens");
+        .expect("the strokes submenu opens");
     assert!(recolour.accesskit_node().is_disabled(), "nothing selected greys it out");
     h.key_press(Key::Escape);
     h.run_steps(2);
     h.get_by_label("File").click();
     h.run_steps(2);
-    h.get_by_label_contains("Close the drawing").click();
+    h.get_by_label("Close cmd W").click();
     h.run_steps(2);
     assert_eq!(h.state().wants, Some(super::Want::Close));
     let _ = std::fs::remove_dir_all(&path);
