@@ -377,6 +377,7 @@ impl Editor {
             Cmd::HideDock => !layout.dock,
             Cmd::LayersPane => layout.dock && layout.is_open(Pane::Layers),
             Cmd::ToolPane => layout.dock && layout.is_open(Pane::Tool),
+            Cmd::BrushPane => layout.dock && layout.is_open(Pane::Brush),
             Cmd::InspectorPane => layout.dock && layout.is_open(Pane::Inspector),
             Cmd::NotesPane => layout.dock && layout.is_open(Pane::Notes),
             Cmd::HistoryPane => layout.dock && layout.is_open(Pane::History),
@@ -832,6 +833,7 @@ impl Editor {
             }
             Cmd::LayersPane => self.pane(Pane::Layers),
             Cmd::ToolPane => self.pane(Pane::Tool),
+            Cmd::BrushPane => self.pane(Pane::Brush),
             Cmd::InspectorPane => self.pane(Pane::Inspector),
             Cmd::NotesPane => self.pane(Pane::Notes),
             Cmd::HistoryPane => self.pane(Pane::History),

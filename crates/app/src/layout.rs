@@ -15,6 +15,7 @@ pub const CANVAS_MIN: Vec2 = Vec2::new(320.0, 200.0);
 #[serde(rename_all = "lowercase")]
 pub enum Pane {
     Tool,
+    Brush,
     Layers,
     Inspector,
     Notes,
@@ -24,7 +25,8 @@ pub enum Pane {
 impl Pane {
     pub fn title(self) -> &'static str {
         match self {
-            Pane::Tool => "Colour and brush",
+            Pane::Tool => "Colour",
+            Pane::Brush => "Brush",
             Pane::Layers => "Layers",
             Pane::Inspector => "Layer settings",
             Pane::Notes => "Notes for the agent",
@@ -34,7 +36,8 @@ impl Pane {
 
     pub fn min_body(self) -> f32 {
         match self {
-            Pane::Tool => 160.0,
+            Pane::Tool => 230.0,
+            Pane::Brush => 80.0,
             Pane::Layers => 130.0,
             Pane::Inspector => 110.0,
             Pane::Notes => 60.0,
@@ -44,7 +47,8 @@ impl Pane {
 
     fn default_body(self) -> f32 {
         match self {
-            Pane::Tool => 360.0,
+            Pane::Tool => 260.0,
+            Pane::Brush => 150.0,
             Pane::Layers => 240.0,
             Pane::Inspector => 220.0,
             Pane::Notes => 90.0,
@@ -88,6 +92,7 @@ impl Default for Layout {
             numbers: false,
             panes: [
                 (Pane::Tool, false),
+                (Pane::Brush, false),
                 (Pane::Layers, false),
                 (Pane::Inspector, false),
                 (Pane::Notes, true),
@@ -110,11 +115,20 @@ impl Layout {
     pub fn repaired(mut self) -> Self {
         let known: Vec<Pane> = self.panes.iter().map(|p| p.pane).collect();
         self.panes.dedup_by_key(|p| p.pane);
-        Layout::default()
-            .panes
-            .into_iter()
-            .filter(|p| !known.contains(&p.pane))
-            .for_each(|p| self.panes.push(p));
+        let order = Layout::default().panes;
+        order
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| !known.contains(&p.pane))
+            .for_each(|(i, p)| {
+                let after = i
+                    .checked_sub(1)
+                    .and_then(|k| self.panes.iter().position(|q| q.pane == order[k].pane));
+                match after {
+                    Some(k) => self.panes.insert(k + 1, p.clone()),
+                    None => self.panes.push(p.clone()),
+                }
+            });
         self.panes
             .iter_mut()
             .for_each(|p| p.body = p.body.max(p.pane.min_body()));
@@ -245,17 +259,17 @@ mod tests {
     fn panes_fit_the_dock_and_the_last_one_takes_what_is_left() {
         let layout = Layout::default();
         let bodies = layout.bodies(1200.0);
-        assert_eq!(bodies.len(), 5);
-        let used: f32 = bodies.iter().map(|(_, b)| b.unwrap_or(0.0)).sum::<f32>() + 5.0 * TITLE;
+        assert_eq!(bodies.len(), 6);
+        let used: f32 = bodies.iter().map(|(_, b)| b.unwrap_or(0.0)).sum::<f32>() + 6.0 * TITLE;
         assert!((used - 1200.0).abs() < 0.01, "{used}");
-        assert_eq!(bodies[3], (Pane::Notes, None));
-        assert!(bodies[2].1.unwrap() > Pane::Inspector.default_body());
-        let small = layout.bodies(560.0);
+        assert_eq!(bodies[4], (Pane::Notes, None));
+        assert!(bodies[3].1.unwrap() > Pane::Inspector.default_body());
+        let small = layout.bodies(800.0);
         small.iter().filter_map(|(p, b)| b.map(|b| (p, b))).for_each(|(p, b)| {
             assert!(b >= p.min_body() - 0.01, "{p:?} {b}");
         });
-        let used: f32 = small.iter().map(|(_, b)| b.unwrap_or(0.0)).sum::<f32>() + 5.0 * TITLE;
-        assert!((used - 560.0).abs() < 0.01);
+        let used: f32 = small.iter().map(|(_, b)| b.unwrap_or(0.0)).sum::<f32>() + 6.0 * TITLE;
+        assert!((used - 800.0).abs() < 0.01);
         let tiny = layout.bodies(200.0);
         assert!(tiny.iter().all(|(p, b)| b.is_none_or(|b| b == p.min_body())));
     }
@@ -265,7 +279,7 @@ mod tests {
         let mut layout = Layout::default();
         layout.toggle(Pane::Layers);
         assert!(!layout.is_open(Pane::Layers));
-        assert_eq!(layout.bodies(900.0).len(), 4);
+        assert_eq!(layout.bodies(900.0).len(), 5);
         layout.toggle(Pane::Notes);
         layout.toggle(Pane::Notes);
         assert!(layout.is_open(Pane::Notes) && !layout.pane(Pane::Notes).unwrap().collapsed);
@@ -321,7 +335,7 @@ mod tests {
         )
         .unwrap()
         .repaired();
-        assert_eq!(old.panes.len(), 5);
+        assert_eq!(old.panes.len(), 6);
         assert_eq!(old.panes[0].pane, Pane::Layers);
         assert_eq!(old.panes[0].body, Pane::Layers.min_body());
     }

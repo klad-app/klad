@@ -203,7 +203,7 @@ impl Editor {
                 });
             })
             .response
-            .hint("the brush; the colour and brush panel shows them with a sample stroke");
+            .hint("the brush; the brush panel shows them with a sample stroke");
         if let Some(id) = picked {
             self.pick(&id);
         }

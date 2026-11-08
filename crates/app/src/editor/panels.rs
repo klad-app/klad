@@ -501,6 +501,7 @@ impl Editor {
     fn panel_checks(&mut self, ui: &mut egui::Ui) {
         [
             Cmd::ToolPane,
+            Cmd::BrushPane,
             Cmd::LayersPane,
             Cmd::InspectorPane,
             Cmd::NotesPane,
@@ -610,9 +611,8 @@ impl Editor {
 
     fn pane_body(&mut self, ui: &mut egui::Ui, pane: Pane) -> Result<()> {
         match pane {
-            Pane::Tool => {
-                self.colour_panel(ui)?;
-                ui.separator();
+            Pane::Tool => self.colour_panel(ui),
+            Pane::Brush => {
                 self.brush_tiles(ui);
                 Ok(())
             }

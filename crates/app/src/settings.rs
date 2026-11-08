@@ -251,7 +251,7 @@ mod tests {
         assert_eq!(settings.ui_scale, 1.25);
         assert_eq!(settings.documents, ["/w/a.klad"]);
         assert_eq!(settings.layout.dock_width, 400.0);
-        assert_eq!(settings.layout.panes.len(), 5);
+        assert_eq!(settings.layout.panes.len(), 6);
         assert_eq!(settings.layout.panes[0].pane, crate::layout::Pane::Layers);
         fs::remove_dir_all(&dir).unwrap();
     }

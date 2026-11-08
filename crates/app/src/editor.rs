@@ -2675,7 +2675,7 @@ impl Editor {
     fn shaped(&self) -> Result<(String, BrushDef)> {
         let base = self.brushes.def(&self.brush).ok_or_else(|| {
             anyhow!(
-                "the brush {} is not there any more: pick another one in the colour and brush panel",
+                "the brush {} is not there any more: pick another one in the brush panel",
                 self.brush
             )
         })?;

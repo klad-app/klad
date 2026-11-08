@@ -112,6 +112,7 @@ pub enum Cmd {
     HideDock,
     LayersPane,
     ToolPane,
+    BrushPane,
     InspectorPane,
     NotesPane,
     HistoryPane,
@@ -491,7 +492,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 164] = [
+    pub const ALL: [Cmd; 165] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -600,6 +601,7 @@ impl Cmd {
         Cmd::HideDock,
         Cmd::LayersPane,
         Cmd::ToolPane,
+        Cmd::BrushPane,
         Cmd::InspectorPane,
         Cmd::NotesPane,
         Cmd::HistoryPane,
@@ -1634,8 +1636,17 @@ impl Cmd {
             ),
             Cmd::ToolPane => spec(
                 "panel.tool",
-                "colour and brush panel",
+                "colour panel",
                 icon::PALETTE,
+                G::Panels,
+                T::None,
+                R::No,
+                "show or hide it in the dock",
+            ),
+            Cmd::BrushPane => spec(
+                "panel.brushes",
+                "brush panel",
+                icon::BRUSH,
                 G::Panels,
                 T::None,
                 R::No,
@@ -2242,7 +2253,8 @@ impl Cmd {
             Cmd::HideAll => "Hide panels",
             Cmd::HideDock => "Hide dock",
             Cmd::LayersPane => "Layers",
-            Cmd::ToolPane => "Colour and brush",
+            Cmd::ToolPane => "Colour",
+            Cmd::BrushPane => "Brush",
             Cmd::InspectorPane => "Layer settings",
             Cmd::NotesPane => "Notes",
             Cmd::HistoryPane => "History",
@@ -2566,6 +2578,7 @@ pub const MENUS: [Menu; 9] = [
             Run(Cmd::HideDock),
             Line,
             Run(Cmd::ToolPane),
+            Run(Cmd::BrushPane),
             Run(Cmd::LayersPane),
             Run(Cmd::InspectorPane),
             Run(Cmd::NotesPane),
