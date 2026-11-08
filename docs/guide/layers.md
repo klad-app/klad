@@ -1,40 +1,35 @@
+_Last updated: 2026-11-08 14:50_
+
 # Layers, masks and clipping
+
+Keep lines, colour and shading on their own layers, and decide where each one shows.
 
 ## Add a layer
 
-The buttons at the top of the Layers pane add a layer above the active one:
+At the top of the Layers pane, click **paint** for brush strokes or **vector** for [shapes and text](shapes-and-text.md). Drag a row to move the layer, and double click its name to rename it.
 
-- **paint** for brush strokes and fills;
-- **vector** for rectangles, ellipses, paths and text ([Shapes, paths and text](shapes-and-text.md));
-- **group** to hold other layers;
-- **adjust** for an adjustment layer: it starts as curves, and layer settings switch it to levels, hue, colour balance, a gradient map or a colour fill. It changes what is under it in its group.
+## Shade inside flat colour
 
-The same pane duplicates the active layer, puts it in a new group and deletes it. cmd Z brings a deleted layer back.
+1. Put the flat colour on one layer.
+2. Add a paint layer above it and tick **clip to layer below** in layer settings.
+3. Set the new layer's blend mode to **multiply** in the Layers pane's title row and paint the shadows. They stay inside the colour.
 
-## Pick, rename and reorder layers
+## Recolour line art
 
-Click a row to make that layer the active one. Double-click its name to rename it: Return keeps the new name, Esc leaves the old one. Drag a row to move the layer: drop it on the top or bottom half of another row to put it above or below, or on the middle of a group to put it inside.
+1. Select the lines layer and tick **lock alpha** in layer settings.
+2. Paint over the lines with a big soft brush. Only the lines take the colour.
+3. Untick **lock alpha** when you're done, or your next strokes on that layer won't show.
 
-## Show, hide and lock
+## Hide part of a layer
 
-The eye shows and hides a layer. Alt click an eye to see only that layer; alt click it again and everything comes back as it was. A locked layer can't be picked or painted on.
+1. In layer settings, click **add mask**.
+2. Paint where the layer should be hidden, and erase to bring it back. Hidden parts show red.
+3. Click **back to the layer** to paint on the layer itself again.
 
-## Opacity and blend mode
+## See one layer alone
 
-The active layer's opacity and blend mode sit in the Layers pane's title row. Multiply is the usual one for shading, screen and add for light.
-
-## Clip a layer to the one below
-
-Tick "clip to layer below" in layer settings and the layer only shows where the layer under it has paint. This is how shading stays inside flat colour: flat colours on one layer, a multiply layer for the shadows and a layer for the rim light above it, both clipped.
-
-## Paint only where there's paint already
-
-"lock alpha" in layer settings makes new strokes and fills land only where the layer already has paint. A big soft stroke over line art then recolours just the lines. Turn it off again when you're done, or your next strokes on that layer will seem to vanish.
-
-## Hide parts of a layer with a mask
-
-"add mask" gives the layer an empty mask, and "add mask hiding all" one that hides everything. While you paint on the mask, your strokes hide the layer and the eraser shows it again, and what's hidden is tinted red so you can see it. The mask has a chip in the layer's row: click it to paint on the mask, and use "back to the layer" to paint on the layer itself again. Alt click the chip to turn the mask off and on.
+Alt click its eye in the Layers pane. Alt click it again to bring the others back.
 
 ## Trace over a picture
 
-"import a picture" in the File menu (or dropping a PNG or JPEG on the window) places it on a new layer. Tick "reference" in its layer settings: you keep seeing it while you draw, but it stays out of exports.
+Drop a PNG or JPEG on the window and tick **reference** in its layer settings. You keep seeing it while you draw, and exports leave it out.

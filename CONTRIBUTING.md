@@ -28,6 +28,7 @@ These come from `CLAUDE.md`, which is also the guide for coding agents working o
 - Every feature has a CLI form and an editor form: a new command or op also gets its place in the editor, and an editor feature gets its command or op, with tests on both sides. The ops that draw from shapes (`ink`, `light`, `hatch`, `paint`, `scatter`) are the exception and stay CLI only.
 - New behaviour comes with tests in the crate that owns it. `just lint` and `just test` are clean before a pull request.
 - No em-dashes in docs or messages; every doc in `docs/` starts with a `_Last updated:_` line.
+- Guides in `docs/guide/` are short how-to pages: one task per section, titled as the goal, done the shortest way in numbered steps, under about 300 words a page, with no catalogues of options.
 
 ## Sending a change
 

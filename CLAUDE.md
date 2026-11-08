@@ -1,4 +1,4 @@
-_Last updated: 2026-11-07 15:10_
+_Last updated: 2026-11-08 14:52_
 
 _Last updated: 2026-11-04 19:41_
 
@@ -15,6 +15,7 @@ Agent-first 2D art application in Rust: a `klad` CLI for agents and a native edi
 ## Working
 
 - Every doc in `docs/` starts with a `_Last updated: YYYY-MM-DD HH:MM_` line; update it when the doc changes.
+- Guides in `docs/guide/` are short how-to pages for people in the editor. A page opens with one sentence on what it lets you do and stays under about 300 words; each section is one task titled as the goal, verb first, done the shortest way in numbered steps of one action each (where, then what, then what happens), at most five. No option catalogues, no alternatives, no explaining how klad works inside: the editor names its options and `?` lists the keys. Keys and editor labels in bold, labels exactly as the editor writes them. Getting started is the one tutorial: a single path from a new drawing to changing a stroke.
 - Never commit build output or binaries, and check `git status` before `git add -A`. `samples/` holds generators only; the bundles and pictures they make stay out of git.
 - Commit messages and docs name no one: say what changed and why.
 
