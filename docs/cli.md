@@ -2122,7 +2122,9 @@ Options:
 ## klad bone
 
 ```text
-Bones go on a paint layer or a group (a group's skeleton poses every paint layer in it together). A bone has a name, an optional parent, a head and a tail in canvas px; a child usually starts where its parent ends. --chain adds several bones at once, each the child of the one before and starting where it ends, through one more point than bones (the editor's bone tool draws chains the same way). Removing a bone removes its children (and the IK on them, its poses keeping their look). Moving a tail takes the heads of the children that start there along; --by moves a bone with all its children.
+Bones are a preview: these commands may still change in later versions, and drawings keep their rigs when they do.
+
+Bones go on a bones layer (klad add <bundle> layer bones, or Layer > New bones layer), which draws nothing; klad attach rigs paint layers to them. A bone has a name, an optional parent, a head and a tail in canvas px; a child usually starts where its parent ends. --chain adds several bones at once, each the child of the one before and starting where it ends, through one more point than bones (the editor's bone tool draws chains the same way). Removing a bone removes its children (and the IK on them, its poses keeping their look). Moving a tail takes the heads of the children that start there along; --by moves a bone with all its children.
 
   klad bone art.klad body --add hip --head 400,500 --tail 400,420
   klad bone art.klad body --add thigh --parent hip --head 400,500 --tail 410,620
@@ -2200,6 +2202,8 @@ Options:
 ## klad ik
 
 ```text
+Bones are a preview: these commands may still change in later versions, and drawings keep their rigs when they do.
+
 An IK turns bones so the end of a limb reaches a target, instead of turning each bone by hand. A limb (--chain 2, when the bone has a parent) turns the bone and its parent so the bone's tail lands on the target, the joint between them bending --bend clockwise or counterclockwise on screen (by default the way it bends in the rest drawing; flip turns it over); out of reach it points straight at the target. An aim (--chain 1) turns the bone to point at the target. --softness (px) eases the limb into full stretch so a knee does not snap straight: it starts slowing that far before full reach and is straight that far past it. Targets are set per pose (klad pose --target), in canvas px, and stay put when the root moves, so a foot stays planted while the body moves; a pose without a target for an IK leaves that limb to its turns. IKs are solved parent first: a foot's aim after its leg's limb.
 
   klad ik art.klad body --add shin
@@ -2259,6 +2263,8 @@ Options:
 ## klad attach
 
 ```text
+Bones are a preview: these commands may still change in later versions, and drawings keep their rigs when they do.
+
 Bones live on bones layers (klad add <bundle> layer bones, or Layer > New bones layer); a bones layer draws nothing. Any paint layer in the drawing can be rigged to one: attached to a bone (--bone), it moves rigidly with that bone when posed, the way a cut-out arm follows its upper arm, so a character drawn in pieces (upper arm, forearm, hand on their own layers) needs no weights; set to bend (--bend), each of its points moves by the skeleton's weights, for a layer drawn in one piece across a joint. --off unrigs it: posing leaves it as it is. --skeleton names the bones layer when the drawing has more than one (with --bone, the one that has that bone is found).
 
   klad attach art.klad forearm --bone fore
@@ -2418,7 +2424,9 @@ Options:
 ## klad pose
 
 ```text
-A pose is a turn per bone (degrees from its rest angle, children follow their parent), a move of the whole (--root), and a target per IK (--target, canvas px; see klad ik): the IK's limb turns so its end reaches the target, and the target stays put when the root moves. --mix blends an IK's limb from its turns (0) to reaching the target (1, the default). Every paint layer under the skeleton gets a new drawing at --to: a layer attached to a bone (klad attach) moves with that bone alone; in the others each stroke point and fill moves by its bones' weighted blend, the same way Godot's Skeleton2D bends a Polygon2D. The pose is kept on the drawing; posing that frame again re-poses it from the same rest drawing, and posing from a posed drawing starts from its rest drawing. klad inbetween between two poses of one rest drawing turns the bones instead of matching strokes, and moves the targets in straight lines, so a foot planted in both keys stays planted.
+Bones are a preview: these commands may still change in later versions, and drawings keep their rigs when they do.
+
+A pose is a turn per bone (degrees from its rest angle, children follow their parent), a move of the whole (--root), and a target per IK (--target, canvas px; see klad ik): the IK's limb turns so its end reaches the target, and the target stays put when the root moves. --mix blends an IK's limb from its turns (0) to reaching the target (1, the default). Every paint layer rigged to the skeleton (klad attach) gets a new drawing at --to: a layer attached to a bone moves with that bone alone; in a layer set to bend each stroke point and fill moves by its bones' weighted blend, the same way Godot's Skeleton2D bends a Polygon2D. The pose is kept on the drawing; posing that frame again re-poses it from the same rest drawing, and posing from a posed drawing starts from its rest drawing. klad inbetween between two poses of one rest drawing turns the bones instead of matching strokes, and moves the targets in straight lines, so a foot planted in both keys stays planted.
 
   klad pose art.klad body --from 0 --to 4 --bone thigh=25 --bone shin=-40 --root 0,6
   klad pose art.klad body --from 0 --to 8 --target shin=410,740 --root 20,6

@@ -3695,14 +3695,18 @@ fn the_bone_options_stay_one_row_whatever_is_picked() {
             h.key_press(Key::J);
             h.run_steps(3);
             let top = h.state().canvas_rect.min.y;
-            ["thigh", "shin"].into_iter().for_each(|bone| {
-                h.state_mut().pick_bone(Some(bone.into()));
-                h.run_steps(3);
-                assert_eq!(
-                    h.state().canvas_rect.min.y,
-                    top,
-                    "{size:?}: picking {bone} keeps the canvas where it is"
-                );
+            use super::bones::Mode;
+            [Mode::Draw, Mode::Weights, Mode::Pose].into_iter().for_each(|mode| {
+                h.state_mut().bones.mode = mode;
+                ["thigh", "shin"].into_iter().for_each(|bone| {
+                    h.state_mut().pick_bone(Some(bone.into()));
+                    h.run_steps(3);
+                    assert_eq!(
+                        h.state().canvas_rect.min.y,
+                        top,
+                        "{size:?}: picking {bone} in {mode:?} keeps the canvas where it is"
+                    );
+                });
             });
         });
     let _ = std::fs::remove_dir_all(&path);
@@ -3723,6 +3727,14 @@ fn a_bones_layer_takes_any_layers_in_the_drawing() {
     );
     h.key_press(Key::J);
     h.run_steps(2);
+    assert!(
+        h.query_by_label("preview").is_some(),
+        "the bone tool says bones are a preview"
+    );
+    assert!(
+        Cmd::NewBonesLayer.spec().about.contains("preview"),
+        "and so does Layer > New bones layer"
+    );
     let (a, b) = (canvas_at(&h, 60.0, 60.0), canvas_at(&h, 200.0, 120.0));
     drag(&mut h, a, b);
     h.run_steps(2);

@@ -4,6 +4,8 @@ _Last updated: 2026-11-08_
 
 Draw a character once, give it a skeleton and pose it on each frame instead of redrawing it. The skeleton goes on a bones layer of its own, and you tell each drawing layer which bone moves it.
 
+Bones are a preview: posing may still change in later versions, and your drawings keep their rigs when it does.
+
 ![The rig sample's skeleton in the bone tool, with the forearm bone picked](../images/guide-bones.png)
 
 ## Draw a skeleton
@@ -26,7 +28,7 @@ Draw each part that stays stiff, like an upper arm, a forearm or the head, on it
 Optional, for a part drawn in one piece over a joint, like a sleeve or a tail.
 
 1. In the layers panel, click the layer's bone button and pick **bends with bones**.
-2. Pick **weights** in the bar and click **automatic weights**.
+2. Pick **weights** in the bar and click **automatic**.
 3. Cmd click a bone, then paint where it should move the drawing. Alt paints weight away.
 
 ## Pose it

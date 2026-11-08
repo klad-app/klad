@@ -1850,7 +1850,7 @@ impl Cmd {
                 G::Layers,
                 T::None,
                 R::No,
-                "a skeleton of its own above the active layer: draw its bones with the bone tool, then attach layers to them",
+                "a skeleton of its own above the active layer: draw its bones with the bone tool, then attach layers to them. Bones are a preview: posing may still change",
             ),
             Cmd::DuplicateLayer => spec(
                 "layer.duplicate",

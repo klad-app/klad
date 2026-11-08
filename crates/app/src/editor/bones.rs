@@ -11,6 +11,9 @@ use klad_core::rig::{
     target_for_end, tips, weights_for,
 };
 use std::collections::BTreeMap;
+
+pub(crate) const PREVIEW: &str =
+    "Bones are a preview: posing may still change in later versions. Drawings keep their rigs when it does.";
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1137,7 +1140,8 @@ impl Editor {
                 self.bones.posing = None;
             }
         });
-        ui.separator();
+        ui.label(RichText::new("preview").small().color(theme::WEAK))
+            .hint(PREVIEW);
         if let Some(later) = self.skeleton_list(ui) {
             run = Some(later);
         }
@@ -1194,7 +1198,14 @@ impl Editor {
                     )),
                 };
                 if let Some((hint, more)) = said {
-                    ui.label(RichText::new(hint).color(theme::WEAK)).hint(more);
+                    let room = ui.available_size_before_wrap().x;
+                    if room > 48.0 {
+                        ui.add_sized(
+                            [room, ui.spacing().interact_size.y],
+                            egui::Label::new(RichText::new(hint).color(theme::WEAK)).truncate(),
+                        )
+                        .hint(more);
+                    }
                 }
             }
             Mode::Weights if !self.bends() => {
@@ -1202,17 +1213,22 @@ impl Editor {
                     .hint("weights are for a layer drawn in one piece across a joint; detach one (draw mode, the picked bone's layers menu, or the bone in its layers row) to paint its weights");
             }
             Mode::Weights => {
+                ui.spacing_mut().slider_width = 56.0;
                 ui.add(
                     egui::Slider::new(&mut self.bones.radius, 4.0..=200.0)
                         .logarithmic(true)
                         .text("size"),
                 )
                 .hint("the weight brush's radius in px");
-                ui.add(egui::Slider::new(&mut self.bones.strength, 0.0..=1.0).text("weight"))
-                    .hint("the weight a dab paints; alt paints 0");
+                ui.add(
+                    egui::Slider::new(&mut self.bones.strength, 0.0..=1.0)
+                        .fixed_decimals(2)
+                        .text("weight"),
+                )
+                .hint("the weight a dab paints; alt paints 0");
                 if ui
-                    .button("automatic weights")
-                    .hint("start again from the bones, by distance")
+                    .button("automatic")
+                    .hint("automatic weights: start again from the bones, by distance")
                     .clicked()
                 {
                     run = Some(Box::new(|e| {
@@ -1244,17 +1260,9 @@ impl Editor {
                         })
                     }));
                 }
-                ui.label(
-                    RichText::new(
-                        self.bones
-                            .selected
-                            .as_deref()
-                            .map_or("pick a bone: cmd click it, or pick it in the list".to_string(), |b| {
-                                format!("painting {b}")
-                            }),
-                    )
-                    .color(theme::WEAK),
-                );
+                if self.bones.selected.is_none() {
+                    ui.label(RichText::new("pick a bone: cmd click it, or pick it in the list").color(theme::WEAK));
+                }
             }
             Mode::Pose => {
                 if ui
@@ -1299,7 +1307,7 @@ impl Editor {
                             }
                         }
                         if let Some(r) = self.bones.reach.get_mut(&end) {
-                            ui.spacing_mut().slider_width = 70.0;
+                            ui.spacing_mut().slider_width = 56.0;
                             ui.add(egui::Slider::new(&mut r.mix, 0.0..=1.0).text("mix"))
                                 .hint("0: the limb's own turns; 1: it reaches the target");
                         }
