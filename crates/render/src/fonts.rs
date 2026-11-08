@@ -114,16 +114,24 @@ pub fn shipped_dir() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("KLAD_FONTS") {
         return Some(PathBuf::from(dir)).filter(|d| d.join(MANIFEST).is_file());
     }
-    let exe = std::env::current_exe().ok()?;
-    let dir = exe.parent()?;
-    [
-        dir.join("fonts"),
-        dir.join("../Resources/fonts"),
-        dir.join("../share/klad/fonts"),
-    ]
-    .into_iter()
-    .chain(dir.ancestors().skip(1).take(5).map(|a| a.join("fonts")))
-    .find(|d| d.join(MANIFEST).is_file())
+    found_from(&std::env::current_exe().ok()?)
+}
+
+fn found_from(exe: &Path) -> Option<PathBuf> {
+    let real = exe.canonicalize().ok();
+    std::iter::once(exe.to_path_buf())
+        .chain(real)
+        .filter_map(|e| e.parent().map(Path::to_path_buf))
+        .flat_map(|dir| {
+            let near = [
+                dir.join("fonts"),
+                dir.join("../Resources/fonts"),
+                dir.join("../share/klad/fonts"),
+            ];
+            let above: Vec<PathBuf> = dir.ancestors().skip(1).take(5).map(|a| a.join("fonts")).collect();
+            near.into_iter().chain(above)
+        })
+        .find(|d| d.join(MANIFEST).is_file())
 }
 
 pub fn user_dir() -> Option<PathBuf> {
@@ -481,6 +489,30 @@ mod tests {
         );
         assert!(find("Barlow Wobbly").is_none());
         assert!(find("Nope Sans").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fonts_are_found_in_the_app_when_klad_runs_through_a_link() {
+        let root = std::env::temp_dir().join(format!("klad-fonts-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (bin, fonts, path) = (
+            root.join("klad.app/Contents/MacOS"),
+            root.join("klad.app/Contents/Resources/fonts"),
+            root.join("bin"),
+        );
+        [&bin, &fonts, &path]
+            .iter()
+            .for_each(|d| std::fs::create_dir_all(d).unwrap());
+        std::fs::write(bin.join("klad"), b"").unwrap();
+        std::fs::write(fonts.join(MANIFEST), b"{}").unwrap();
+        std::os::unix::fs::symlink(bin.join("klad"), path.join("klad")).unwrap();
+        let found = found_from(&path.join("klad"))
+            .expect("found through the link")
+            .canonicalize()
+            .unwrap();
+        assert_eq!(found, fonts.canonicalize().unwrap());
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
