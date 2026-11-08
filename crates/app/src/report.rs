@@ -32,7 +32,8 @@ pub fn job_failed(name: &str, why: &str) -> String {
         Some((_, rest)) => {
             let what = rest.split(". KLAD_BACKTRACE").next().unwrap_or(rest);
             format!(
-                "something went wrong inside klad ({name}: {what}). Everything up to your last edit is saved; Help > Report a problem copies what an issue needs"
+                "something went wrong inside klad ({name}: {what}). Everything up to your last edit is saved; Help > Report a problem sends it to {} or to klad's issues",
+                klad_core::contact::SUPPORT
             )
         }
         None => format!("{name} did not finish: {why}"),
@@ -49,7 +50,8 @@ pub fn is_bug(e: &anyhow::Error) -> bool {
 
 pub fn bug_message(e: &anyhow::Error) -> String {
     format!(
-        "something went wrong inside klad ({e:#}). Everything up to your last edit is saved; Help > Report a problem copies what an issue needs"
+        "something went wrong inside klad ({e:#}). Everything up to your last edit is saved; Help > Report a problem sends it to {} or to klad's issues",
+        klad_core::contact::SUPPORT
     )
 }
 
@@ -331,7 +333,7 @@ mod tests {
         );
         let crashed = job_failed(
             "pose at frame 4",
-            "error: klad hit a bug: index out of bounds at crates/core/src/rig.rs:10. KLAD_BACKTRACE=1 shows the details; please report it at https://github.com/klad-app/klad/issues",
+            "error: klad hit a bug: index out of bounds at crates/core/src/rig.rs:10. KLAD_BACKTRACE=1 shows the details; please report it to hello@klad.studio or at https://github.com/klad-app/klad/issues",
         );
         assert!(crashed.starts_with(
             "something went wrong inside klad (pose at frame 4: index out of bounds at crates/core/src/rig.rs:10)"

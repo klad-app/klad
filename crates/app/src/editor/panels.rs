@@ -484,6 +484,16 @@ impl Editor {
         ui.label(RichText::new(format!("klad {}", crate::VERSION)).strong());
         self.update_rows(ui);
         ui.label("Source-available licence, copyright Indicode BV. Built on the open source work listed below; klad licences prints the same.");
+        ui.horizontal(|ui| {
+            ui.hyperlink_to("klad.studio", klad_core::contact::SITE)
+                .hint("klad's website: the guides, what's new and your download");
+            ui.label(RichText::new("·").color(theme::WEAK));
+            ui.hyperlink_to(
+                klad_core::contact::SUPPORT,
+                format!("mailto:{}", klad_core::contact::SUPPORT),
+            )
+            .hint("support, by email");
+        });
         ui.add_space(6.0);
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
         let row = ui.text_style_height(&egui::TextStyle::Small);

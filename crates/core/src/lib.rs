@@ -1,6 +1,7 @@
 pub mod brushes;
 pub mod bundle;
 pub mod color;
+pub mod contact;
 pub mod cut;
 pub mod doc;
 pub mod fill;

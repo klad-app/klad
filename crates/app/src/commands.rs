@@ -153,6 +153,7 @@ pub enum Cmd {
     CopyPath,
     InstallCommand,
     ReportProblem,
+    ContactSupport,
     PaintOver,
     CompareReference,
     About,
@@ -493,7 +494,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 166] = [
+    pub const ALL: [Cmd; 167] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -650,6 +651,7 @@ impl Cmd {
         Cmd::CopyPath,
         Cmd::InstallCommand,
         Cmd::ReportProblem,
+        Cmd::ContactSupport,
         Cmd::About,
         Cmd::Export,
         Cmd::AddFont,
@@ -2129,7 +2131,16 @@ impl Cmd {
                 G::File,
                 T::None,
                 R::No,
-                "copies the version, the system and the last messages, to paste into an issue on GitHub",
+                "the version, the system and the last messages, to email to support or paste into an issue on GitHub",
+            ),
+            Cmd::ContactSupport => spec(
+                "help.contact",
+                "contact support",
+                icon::NOTE,
+                G::File,
+                T::None,
+                R::No,
+                "an email to klad's support in your email app, with the version and your system filled in",
             ),
             Cmd::InstallCommand => spec(
                 "file.install-command",
@@ -2305,6 +2316,7 @@ impl Cmd {
             Cmd::CopyPath => "Copy path",
             Cmd::InstallCommand => "Install the klad command",
             Cmd::ReportProblem => "Report a problem…",
+            Cmd::ContactSupport => "Contact support",
             Cmd::PaintOver => "Paint over…",
             Cmd::CompareReference => "Compare with reference",
             Cmd::About => "About klad and licences",
@@ -2609,6 +2621,7 @@ pub const MENUS: [Menu; 9] = [
             Run(Cmd::Palette),
             Run(Cmd::Keys),
             Line,
+            Run(Cmd::ContactSupport),
             Run(Cmd::ReportProblem),
             Run(Cmd::About),
         ],

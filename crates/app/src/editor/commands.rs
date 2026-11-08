@@ -671,6 +671,7 @@ impl Editor {
             Cmd::ShowArcs => self.show_arcs()?,
             Cmd::InstallCommand => self.start_job(install_job()),
             Cmd::ReportProblem => self.windows.report = !self.windows.report,
+            Cmd::ContactSupport => self.contact_support(),
             Cmd::CopyPath => {
                 let path = self.scene.bundle.root.display().to_string();
                 self.ctx.copy_text(path.clone());
@@ -1035,16 +1036,32 @@ impl Editor {
         .text()
     }
 
+    pub(crate) fn open_link(&mut self, url: String) {
+        #[cfg(test)]
+        self.opened.push(url.clone());
+        self.ctx.open_url(egui::OpenUrl::new_tab(url));
+    }
+
+    fn contact_support(&mut self) {
+        let body = format!(
+            "What I need help with:\n\n\n\nklad {}, {}\n",
+            crate::VERSION,
+            crate::report::system()
+        );
+        self.open_link(klad_core::contact::mailto(&format!("klad {}", crate::VERSION), &body));
+    }
+
     pub(super) fn report_panel(&mut self, ui: &mut egui::Ui) {
         ui.add(
-            egui::Label::new(
-                "Paste this into a new issue on klad's GitHub page. It holds klad's version, your system, the last messages and the last lines of klad's log; klad sends nothing by itself.",
-            )
+            egui::Label::new(format!(
+                "Email this to support ({}) or paste it into a new issue on klad's GitHub page. It holds klad's version, your system, the last messages and the last lines of klad's log; klad sends nothing by itself.",
+                klad_core::contact::SUPPORT
+            ))
             .wrap(),
         );
         ui.checkbox(
             &mut self.report_drawing,
-            "include the drawing: a zip next to it, to attach to the issue",
+            "include the drawing: a zip next to it, to attach",
         )
         .hint("the drawing without its cache, so whoever reads the issue sees what you see");
         let text = self.problem_report(None);
@@ -1059,21 +1076,61 @@ impl Editor {
             {
                 self.copy_report();
             }
+            if ui
+                .button("email it to support")
+                .hint(format!(
+                    "opens an email to {} with the report in it",
+                    klad_core::contact::SUPPORT
+                ))
+                .clicked()
+            {
+                self.email_report();
+            }
             ui.hyperlink_to("open klad's issues", crate::report::ISSUES)
                 .hint("a new issue on GitHub, in your browser");
         });
     }
 
-    fn copy_report(&mut self) {
-        let attached = match self.report_drawing {
+    fn report_zip(&mut self) -> Result<Option<std::path::PathBuf>, ()> {
+        match self.report_drawing {
             true => match crate::report::zip_beside(&self.scene.bundle.root) {
-                Ok(zip) => Some(zip),
+                Ok(zip) => Ok(Some(zip)),
                 Err(e) => {
                     self.failed(e.context("the drawing could not be zipped for the report"));
-                    return;
+                    Err(())
                 }
             },
-            false => None,
+            false => Ok(None),
+        }
+    }
+
+    fn email_report(&mut self) {
+        let Ok(attached) = self.report_zip() else {
+            return;
+        };
+        let report = self.problem_report(attached.as_deref());
+        self.open_link(klad_core::contact::mailto(
+            &format!("klad {}: a problem", crate::VERSION),
+            &report,
+        ));
+        match attached {
+            Some(zip) => self.say(
+                Tone::Done,
+                format!(
+                    "your email app opens with the report: attach {} and send it",
+                    zip.display()
+                ),
+            ),
+            None => self.say(
+                Tone::Done,
+                "your email app opens with the report: add what happened and send it",
+            ),
+        }
+    }
+
+    fn copy_report(&mut self) {
+        let Ok(attached) = self.report_zip() else {
+            return;
         };
         self.ctx.copy_text(self.problem_report(attached.as_deref()));
         match attached {

@@ -653,6 +653,8 @@ pub(crate) struct Editor {
     first: first::FirstSteps,
     settings_section: prefs::Section,
     report_drawing: bool,
+    #[cfg(test)]
+    pub(crate) opened: Vec<String>,
     soloed: Option<(String, Vec<(String, bool)>)>,
     strip_tools: [f32; 2],
     strip_foot: [f32; 2],
@@ -829,6 +831,8 @@ impl Editor {
             first: first::FirstSteps::default(),
             settings_section: prefs::Section::default(),
             report_drawing: false,
+            #[cfg(test)]
+            opened: Vec::new(),
             soloed: None,
             strip_tools: [570.0, 480.0],
             strip_foot: [186.0, 166.0],

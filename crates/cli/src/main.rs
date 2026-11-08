@@ -1996,8 +1996,10 @@ fn bug(info: &std::panic::PanicHookInfo) -> String {
         .map(|l| format!(" at {}:{}", l.file(), l.line()))
         .unwrap_or_default();
     format!(
-        "klad hit a bug: {}{place}. KLAD_BACKTRACE=1 shows the details; please report it at https://github.com/klad-app/klad/issues",
-        what.replace('\n', " ")
+        "klad hit a bug: {}{place}. KLAD_BACKTRACE=1 shows the details; please report it to {} or at {}",
+        what.replace('\n', " "),
+        klad_core::contact::SUPPORT,
+        klad_core::contact::ISSUES
     )
 }
 

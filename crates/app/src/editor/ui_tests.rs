@@ -4113,7 +4113,7 @@ fn a_forced_error_reads_as_a_sentence_and_lands_in_the_report_with_the_drawing()
     let said = h.state().messages.log().last().unwrap().text.clone();
     assert!(
         said.starts_with("something went wrong inside klad (the frames could not be prepared: a test forced this)")
-            && said.ends_with("Help > Report a problem copies what an issue needs"),
+            && said.ends_with("Help > Report a problem sends it to hello@klad.studio or to klad's issues"),
         "{said}"
     );
     assert!(
@@ -4132,6 +4132,13 @@ fn a_forced_error_reads_as_a_sentence_and_lands_in_the_report_with_the_drawing()
         path.file_stem().unwrap().to_string_lossy()
     ));
     assert!(zip.is_file(), "the drawing is zipped next to it");
+    h.get_by_label("email it to support").click();
+    h.run_steps(2);
+    let mail = h.state().opened.last().cloned().unwrap_or_default();
+    assert!(
+        mail.starts_with("mailto:hello@klad.studio?subject=klad%20") && mail.contains("a%20test%20forced%20this"),
+        "the report goes into an email to support: {mail}"
+    );
     let names = crate::report::unzip_names(&std::fs::read(&zip).unwrap());
     assert!(names.iter().any(|(n, ok)| n.ends_with("/doc.json") && *ok));
     let report = h.state().problem_report(Some(&zip));
@@ -4277,4 +4284,33 @@ fn guide_pictures() {
         h.render().unwrap().save(out.join(format!("{name}.png"))).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
     });
+}
+
+#[test]
+fn help_reaches_support_by_email_and_about_links_the_site() {
+    let path = sample("support");
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    h.state_mut().invoke(Cmd::ContactSupport).unwrap();
+    h.run_steps(1);
+    let mail = h.state().opened.last().cloned().unwrap_or_default();
+    let encoded = |text: &str| {
+        klad_core::contact::mailto("", text)
+            .split("body=")
+            .nth(1)
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert!(mail.starts_with("mailto:hello@klad.studio?subject=klad%20"), "{mail}");
+    assert!(
+        mail.contains(&encoded(crate::VERSION)) && mail.contains(&encoded(&crate::report::system())),
+        "the email holds the version and the system: {mail}"
+    );
+    h.state_mut().invoke(Cmd::About).unwrap();
+    h.run_steps(2);
+    assert!(h.query_by_label("klad.studio").is_some(), "About links the website");
+    assert!(
+        h.query_by_label("hello@klad.studio").is_some(),
+        "and the support address"
+    );
+    let _ = std::fs::remove_dir_all(&path);
 }
