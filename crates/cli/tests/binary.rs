@@ -275,23 +275,26 @@ fn a_chain_and_its_ik_are_set_up_and_posed_from_the_command_line() {
         "--size",
         "6",
     ]);
+    klad(&["add", path, "layer", "bones", "name=bones"]);
     let made = klad(&[
         "bone",
         path,
-        "l1",
+        "bones",
         "--chain",
         "thigh,shin",
         "--through",
         "100,100 100,200 100,300",
     ]);
     assert!(made.contains("chain thigh, shin"), "{made}");
-    let ik = klad(&["ik", path, "l1", "--add", "shin", "--softness", "4"]);
+    let rigged = klad(&["attach", path, "l1", "--bend", "--skeleton", "bones"]);
+    assert!(rigged.contains("bends with bones"), "{rigged}");
+    let ik = klad(&["ik", path, "bones", "--add", "shin", "--softness", "4"]);
     assert!(ik.contains("a limb with thigh") && ik.contains("softness 4"), "{ik}");
-    klad(&["ik", path, "l1", "--set", "shin", "--bend", "flip"]);
+    klad(&["ik", path, "bones", "--set", "shin", "--bend", "flip"]);
     klad(&[
         "pose",
         path,
-        "l1",
+        "bones",
         "--from",
         "0",
         "--to",
@@ -316,7 +319,7 @@ fn a_chain_and_its_ik_are_set_up_and_posed_from_the_command_line() {
         .args([
             "pose",
             path,
-            "l1",
+            "bones",
             "--from",
             "0",
             "--to",

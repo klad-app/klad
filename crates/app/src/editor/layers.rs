@@ -35,8 +35,8 @@ pub(super) struct LayerRow {
     pub mask: bool,
     pub folded: bool,
     pub cel: Option<String>,
-    pub skeleton: Vec<String>,
-    pub bone: Option<String>,
+    pub skeletons: Vec<(String, String, Vec<String>)>,
+    pub rig: Option<klad_core::rig::Link>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -155,13 +155,20 @@ impl Editor {
             mask,
             folded,
             cel,
-            skeleton: match (mask, layer.kind()) {
-                (false, Kind::Paint) => klad_core::rig::skeleton_of(&self.scene.bundle.doc, path)
-                    .map(|s| s.bones.iter().map(|b| b.name.clone()).collect())
-                    .unwrap_or_default(),
+            skeletons: match (mask, layer.kind()) {
+                (false, Kind::Paint) => klad_core::rig::skeletons(&self.scene.bundle.doc)
+                    .iter()
+                    .map(|s| {
+                        (
+                            s.id.clone(),
+                            s.name.clone(),
+                            s.bones.iter().map(|b| b.name.clone()).collect(),
+                        )
+                    })
+                    .collect(),
                 _ => Vec::new(),
             },
-            bone: layer.bone.clone(),
+            rig: layer.rig.clone(),
         }
     }
 
@@ -306,6 +313,7 @@ impl Editor {
         let kind = match (row.mask, row.kind) {
             (true, _) => icon::MASK,
             (_, Kind::Group) => icon::LAYERS,
+            (_, Kind::Bones) => icon::BONE,
             (_, Kind::Adjust) => icon::ADJUST,
             (_, Kind::Vector) => icon::POINTS,
             _ => icon::BRUSH,
@@ -416,35 +424,60 @@ impl Editor {
                     self.timeline.masks.insert(row.id.clone());
                 }
             }
-            if place == Where::Panel && !row.skeleton.is_empty() {
-                let glyph = RichText::new(icon::BONE).size(14.0).color(match row.bone {
+            if place == Where::Panel && !row.skeletons.is_empty() {
+                let glyph = RichText::new(icon::BONE).size(14.0).color(match row.rig {
                     Some(_) => theme::ACCENT,
                     None => theme::WEAK,
                 });
                 let button = egui::Button::new(glyph).frame(false).min_size(vec2(22.0, theme::TARGET));
-                egui::containers::menu::MenuButton::from_button(button).ui(ui, |ui| {
-                    let mut chosen = None;
-                    row.skeleton.iter().for_each(|b| {
-                        if ui.radio(row.bone.as_ref() == Some(b), format!("follows {b}")).clicked() {
-                            chosen = Some(Some(b.clone()));
+                egui::containers::menu::MenuButton::from_button(button)
+                    .ui(ui, |ui| {
+                        let mut chosen = None;
+                        let link = |skeleton: &str, bone: Option<&str>| klad_core::rig::Link {
+                            skeleton: skeleton.to_string(),
+                            bone: bone.map(str::to_string),
+                        };
+                        row.skeletons.iter().for_each(|(id, name, bones)| {
+                            if row.skeletons.len() > 1 {
+                                ui.label(RichText::new(name).color(theme::WEAK));
+                            }
+                            bones.iter().for_each(|b| {
+                                let here = link(id, Some(b));
+                                if ui.radio(row.rig.as_ref() == Some(&here), format!("follows {b}")).clicked() {
+                                    chosen = Some(Some(here));
+                                }
+                            });
+                            let bend = link(id, None);
+                            if ui
+                                .radio(row.rig.as_ref() == Some(&bend), format!("bends with {name}"))
+                                .clicked()
+                            {
+                                chosen = Some(Some(bend));
+                            }
+                        });
+                        if ui.radio(row.rig.is_none(), "not rigged").clicked() {
+                            chosen = Some(None);
                         }
+                        if let Some(link) = chosen {
+                            ui.close();
+                            ops.push(Op::Attach(klad_core::ops::AttachSpec {
+                                layer: row.id.clone(),
+                                skeleton: link.as_ref().map(|l| l.skeleton.clone()),
+                                bone: link.and_then(|l| l.bone),
+                            }));
+                        }
+                    })
+                    .0
+                    .hint(match &row.rig {
+                        Some(klad_core::rig::Link { bone: Some(b), .. }) => {
+                            format!("{} follows {b}: posed, it moves with that bone alone", row.name)
+                        }
+                        Some(_) => format!("{} bends with its skeleton, by the weights", row.name),
+                        None => format!(
+                            "{} is not rigged: attach it to a bone, or let it bend with a skeleton",
+                            row.name
+                        ),
                     });
-                    if ui.radio(row.bone.is_none(), "bends by the weights").clicked() {
-                        chosen = Some(None);
-                    }
-                    if let Some(bone) = chosen {
-                        ui.close();
-                        ops.push(Op::Attach(klad_core::ops::AttachSpec {
-                            layer: row.id.clone(),
-                            bone,
-                        }));
-                    }
-                })
-                .0
-                .hint(match &row.bone {
-                    Some(b) => format!("{} follows {b}: posed, it moves with that bone alone", row.name),
-                    None => format!("{} bends by the weights: attach it to a bone to move with that bone alone", row.name),
-                });
             }
             [(row.clip, icon::CLIP, "clipped to the layer below"), (row.lock_alpha, icon::LOCK, "alpha locked")]
                 .iter()
@@ -605,6 +638,7 @@ impl Editor {
                 (Cmd::NewPaintLayer, Some("paint")),
                 (Cmd::NewVectorLayer, Some("vector")),
                 (Cmd::NewGroupLayer, Some("group")),
+                (Cmd::NewBonesLayer, Some("bones")),
                 (Cmd::NewAdjustLayer, Some("adjust")),
                 (Cmd::DuplicateLayer, None),
                 (Cmd::GroupLayer, None),
@@ -729,8 +763,8 @@ mod tests {
             mask,
             folded: false,
             cel: None,
-            skeleton: Vec::new(),
-            bone: None,
+            skeletons: Vec::new(),
+            rig: None,
         }
     }
 

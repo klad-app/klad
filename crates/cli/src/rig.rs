@@ -2,18 +2,21 @@ use anyhow::{Context, Result, anyhow, bail};
 use klad_core::bundle::Bundle;
 use klad_core::doc::{Document, Layer};
 use klad_core::ops::{Applied, Op, PoseSpec, PosedCel, apply, rig_owner};
-use klad_core::rig::{Bone, CELL, Ik, Pose, Rig, Weights, applied, between, family, painted, tips, weights_for};
+use klad_core::rig::{Bone, CELL, Ik, Pose, Rig, Weights, applied, between, painted, tips, weights_for};
 use klad_core::stroke::Mark;
 use klad_render::overlay::Heat;
 use serde_json::json;
 use std::collections::BTreeMap;
 
 pub fn owners(doc: &Document) -> Vec<&Layer> {
-    doc.all_layers().into_iter().filter(|l| !l.bones.is_empty()).collect()
+    klad_core::rig::skeletons(doc)
+        .into_iter()
+        .filter(|l| !l.bones.is_empty())
+        .collect()
 }
 
-fn pose_at(owner: &Layer, frame: u32) -> Pose {
-    painted(owner)
+fn pose_at(doc: &Document, owner: &Layer, frame: u32) -> Pose {
+    painted(doc, &owner.id)
         .iter()
         .find_map(|l| l.content_at(frame).and_then(|c| c.pose.clone()))
         .unwrap_or_default()
@@ -23,7 +26,7 @@ pub fn bones_at(bundle: &Bundle, frame: u32) -> Result<Vec<klad_render::overlay:
     Ok(owners(&bundle.doc)
         .into_iter()
         .flat_map(|owner| {
-            let pose = pose_at(owner, frame);
+            let pose = pose_at(&bundle.doc, owner, frame);
             owner
                 .bones
                 .iter()
@@ -38,7 +41,7 @@ pub fn targets_at(bundle: &Bundle, frame: u32) -> Vec<([f32; 2], [f32; 2])> {
     owners(&bundle.doc)
         .into_iter()
         .flat_map(|owner| {
-            let pose = pose_at(owner, frame);
+            let pose = pose_at(&bundle.doc, owner, frame);
             let shown = tips(&owner.bones, &owner.ik, &pose);
             pose.ik
                 .iter()
@@ -103,7 +106,7 @@ fn posed(bundle: &Bundle, doc: &mut Document, spec: &PoseSpec, weights: &Weights
         );
     }
     let canvas = (doc.canvas.width, doc.canvas.height);
-    let layers: Vec<Layer> = painted(&owner).into_iter().cloned().collect();
+    let layers: Vec<Layer> = painted(doc, &owner.id).into_iter().cloned().collect();
     layers
         .iter()
         .filter_map(|layer| rest_of(layer, spec.from).map(|rest| (layer, rest)))
@@ -116,7 +119,7 @@ fn posed(bundle: &Bundle, doc: &mut Document, spec: &PoseSpec, weights: &Weights
             };
             let marks = bundle.read_marks(&layer.id, &rest)?;
             let made = Rig::new(&owner.bones, &owner.ik, weights, &pose)
-                .following(layer.bone.as_deref())
+                .following(layer.follows())
                 .pose(&marks, canvas);
             let here = layer.cels().iter().find(|c| c.frame == spec.to);
             let (cel, fresh) = match here {
@@ -214,8 +217,8 @@ pub fn list(bundle: &Bundle, as_json: bool) -> Result<()> {
                     "bend": c.bend,
                     "softness": c.softness,
                 })).collect::<Vec<_>>(),
-                "layers": painted(o).iter().map(|l| json!({"layer": l.id, "name": l.name, "bone": l.bone})).collect::<Vec<_>>(),
-                "poses": painted(o).iter().flat_map(|l| l.cels().iter().filter_map(|c| c.pose.as_ref().map(|p| {
+                "layers": painted(doc, &o.id).iter().map(|l| json!({"layer": l.id, "name": l.name, "bone": l.follows()})).collect::<Vec<_>>(),
+                "poses": painted(doc, &o.id).iter().flat_map(|l| l.cels().iter().filter_map(|c| c.pose.as_ref().map(|p| {
                     let mut entry = json!({"cel": c.id, "frame": c.frame, "rest": p.rest, "angles": p.angles, "root": p.root});
                     if !p.ik.is_empty() {
                         entry["ik"] = json!(p.ik);
@@ -236,7 +239,7 @@ pub fn list(bundle: &Bundle, as_json: bool) -> Result<()> {
     owners(doc).iter().for_each(|o| {
         println!("{} ({})", o.name, o.id);
         let weights = bundle.read_weights(&o.id).ok();
-        let bending = painted(o).iter().any(|l| l.bone.is_none());
+        let bending = painted(doc, &o.id).iter().any(|l| l.follows().is_none());
         o.bones.iter().for_each(|b: &Bone| {
             let painted = !bending || weights.as_ref().is_some_and(|w| w.maps.contains_key(&b.name));
             println!(
@@ -268,11 +271,18 @@ pub fn list(bundle: &Bundle, as_json: bool) -> Result<()> {
                 _ => println!("  ik {}: an aim", c.bone),
             }
         });
-        painted(o).iter().for_each(|l| match &l.bone {
+        let linked = painted(doc, &o.id);
+        if linked.is_empty() {
+            println!(
+                "  no layers attached yet: klad attach <bundle> <layer> --bone <bone> (or --bend --skeleton {})",
+                o.name
+            );
+        }
+        linked.iter().for_each(|l| match l.follows() {
             Some(b) => println!("  layer {} follows {b}", l.name),
             None => println!("  layer {} bends by the weights", l.name),
         });
-        painted(o).iter().for_each(|l| {
+        linked.iter().for_each(|l| {
             l.cels()
                 .iter()
                 .filter_map(|c| c.pose.as_ref().map(|p| (c, p)))
@@ -346,7 +356,7 @@ pub fn posed_pair(bundle: &Bundle, layer: &str, a: &str, b: &str) -> Result<Opti
     }
     let Some(owner) = owners(doc)
         .into_iter()
-        .find(|o| family(o).iter().any(|l| l.id == layer))
+        .find(|o| paint.rig.as_ref().is_some_and(|r| r.skeleton == o.id))
     else {
         return Ok(None);
     };
@@ -359,7 +369,7 @@ pub fn posed_pair(bundle: &Bundle, layer: &str, a: &str, b: &str) -> Result<Opti
         bones: owner.bones.clone(),
         ik: owner.ik.clone(),
         weights,
-        bone: paint.bone.clone(),
+        bone: paint.follows().map(str::to_string),
         a: pa.clone(),
         b: pb,
         rest: bundle.read_marks(layer, &pa.rest)?,
@@ -386,12 +396,17 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("klad-rig-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let mut doc = Document::new(600, 400);
-        doc.layers = vec![Layer::paint("l1", "arm", "c1")];
+        doc.layers = vec![Layer::group(
+            "g9",
+            "figure",
+            vec![Layer::paint("l1", "arm", "c1"), Layer::skeleton("b1", "bones")],
+        )];
         doc.timeline.frames = 9;
         doc.next_id = 10;
         Bundle::create(&dir, doc).unwrap();
         let ops = r##"{"op":"stroke","layer":"l1","brush":"ink","size":20,"color":"#c06a3a","path":"M100 200 L 300 200 L 480 200","part":"arm"}
-{"op":"fill","layer":"l1","polygon":[[470,185],[520,188],[522,212],[470,215]],"color":"#e0b080","part":"hand"}"##;
+{"op":"fill","layer":"l1","polygon":[[470,185],[520,188],[522,212],[470,215]],"color":"#e0b080","part":"hand"}
+{"op":"attach","layer":"l1","skeleton":"b1"}"##;
         crate::agent::edit(&dir, &parse_lines(ops).unwrap(), &quiet()).unwrap();
         dir
     }
@@ -408,40 +423,57 @@ mod tests {
     }
 
     #[test]
-    fn an_attached_layer_moves_rigidly_with_its_bone_and_keeps_it_through_renames() {
+    fn layers_anywhere_follow_the_bones_layer_and_keep_it_through_renames() {
         let dir = std::env::temp_dir().join(format!("klad-rig-attach-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let mut doc = Document::new(600, 400);
-        doc.layers = vec![Layer::group(
-            "g1",
-            "body",
-            vec![
-                Layer::paint("l1", "upper arm", "c1"),
-                Layer::paint("l2", "forearm", "c2"),
-            ],
-        )];
+        doc.layers = vec![
+            Layer::paint("l1", "upper arm", "c1"),
+            Layer::group("g1", "front", vec![Layer::paint("l2", "forearm", "c2")]),
+            Layer::skeleton("b1", "bones"),
+        ];
         doc.timeline.frames = 9;
         doc.next_id = 10;
         Bundle::create(&dir, doc).unwrap();
+        assert!(
+            format!(
+                "{:#}",
+                edit(
+                    &dir,
+                    r#"{"op":"bone","layer":"l1","add":"upper","head":[0,0],"tail":[1,1]}"#
+                )
+                .unwrap_err()
+            )
+            .contains("bones layer"),
+            "bones go on a bones layer only"
+        );
         edit(
             &dir,
             r##"{"op":"stroke","layer":"l1","brush":"ink","size":20,"color":"#c06a3a","path":"M100 200 L 290 200"}
 {"op":"stroke","layer":"l2","brush":"ink","size":20,"color":"#c06a3a","path":"M260 200 L 480 200"}
-{"op":"bone","layer":"g1","chain":["upper","fore"],"through":[[100,200],[300,200],[480,200]]}"##,
+{"op":"bone","layer":"b1","chain":["upper","fore"],"through":[[100,200],[300,200],[480,200]]}"##,
         )
         .unwrap();
         assert!(
             edit(&dir, r#"{"op":"attach","layer":"l2","bone":"wing"}"#).is_err(),
-            "only a bone the skeleton has"
+            "only a bone the drawing has"
         );
         edit(
             &dir,
             r#"{"op":"attach","layer":"l1","bone":"upper"}
 {"op":"attach","layer":"l2","bone":"fore"}
-{"op":"pose","layer":"g1","from":0,"to":4,"bones":{"fore":90}}"#,
+{"op":"pose","layer":"b1","from":0,"to":4,"bones":{"fore":90}}"#,
         )
         .unwrap();
         let bundle = Bundle::open(&dir).unwrap();
+        assert_eq!(
+            bundle.doc.layer("l2").unwrap().rig,
+            Some(klad_core::rig::Link {
+                skeleton: "b1".into(),
+                bone: Some("fore".into())
+            }),
+            "a layer in another group is rigged to the bones layer"
+        );
         let line = |l: &str, f: u32| {
             let cel = bundle.doc.layer(l).unwrap().content_at(f).unwrap().id.clone();
             let marks = bundle.read_marks(l, &cel).unwrap();
@@ -462,25 +494,37 @@ mod tests {
             (end.0 - 300.0).abs() < 0.5 && (end.1 - 380.0).abs() < 0.5,
             "and its end swings a quarter turn round the elbow: {end:?}"
         );
-        edit(&dir, r#"{"op":"bone","layer":"g1","rename":"fore","as":"forearm"}"#).unwrap();
+        edit(&dir, r#"{"op":"bone","layer":"b1","rename":"fore","as":"forearm"}"#).unwrap();
         let bundle = Bundle::open(&dir).unwrap();
-        assert_eq!(bundle.doc.layer("l2").unwrap().bone.as_deref(), Some("forearm"));
-        edit(&dir, r#"{"op":"bone","layer":"g1","rm":"upper"}"#).unwrap();
+        assert_eq!(bundle.doc.layer("l2").unwrap().follows(), Some("forearm"));
+        edit(&dir, r#"{"op":"bone","layer":"b1","rm":"upper"}"#).unwrap();
         let bundle = Bundle::open(&dir).unwrap();
         assert!(
-            ["l1", "l2"].iter().all(|l| bundle.doc.layer(l).unwrap().bone.is_none()),
-            "removing a bone (and the bones on it) lets their layers bend again"
+            ["l1", "l2"].iter().all(|l| bundle.doc.layer(l).unwrap().rig.is_none()),
+            "removing a bone (and the bones on it) unrigs their layers"
         );
         edit(
             &dir,
-            r#"{"op":"bone","layer":"g1","chain":["upper","fore"],"through":[[100,200],[300,200],[480,200]]}
-{"op":"attach","layer":"l2","bone":"fore"}
-{"op":"attach","layer":"l2"}"#,
+            r#"{"op":"bone","layer":"b1","chain":["upper","fore"],"through":[[100,200],[300,200],[480,200]]}
+{"op":"attach","layer":"l2","skeleton":"bones"}"#,
         )
         .unwrap();
+        let bundle = Bundle::open(&dir).unwrap();
+        assert_eq!(
+            bundle
+                .doc
+                .layer("l2")
+                .unwrap()
+                .rig
+                .as_ref()
+                .map(|r| (r.skeleton.as_str(), r.bone.is_none())),
+            Some(("b1", true)),
+            "a skeleton without a bone bends"
+        );
+        edit(&dir, r#"{"op":"rm","ids":["b1"]}"#).unwrap();
         assert!(
-            Bundle::open(&dir).unwrap().doc.layer("l2").unwrap().bone.is_none(),
-            "no bone detaches"
+            Bundle::open(&dir).unwrap().doc.layer("l2").unwrap().rig.is_none(),
+            "removing the bones layer unrigs its layers"
         );
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -490,19 +534,19 @@ mod tests {
         let dir = arm("ik");
         edit(
             &dir,
-            r#"{"op":"bone","layer":"l1","chain":["upper","fore","hand"],"through":[[100,200],[300,200],[480,200],[520,200]]}
-{"op":"ik","layer":"l1","add":"fore"}
-{"op":"weights","layer":"l1","auto":true}"#,
+            r#"{"op":"bone","layer":"b1","chain":["upper","fore","hand"],"through":[[100,200],[300,200],[480,200],[520,200]]}
+{"op":"ik","layer":"b1","add":"fore"}
+{"op":"weights","layer":"b1","auto":true}"#,
         )
         .unwrap();
         let bundle = Bundle::open(&dir).unwrap();
-        let owner = bundle.doc.layer("l1").unwrap().clone();
+        let owner = bundle.doc.layer("b1").unwrap().clone();
         assert_eq!(owner.ik.len(), 1);
         assert_eq!(owner.bones[1].parent.as_deref(), Some("upper"));
         assert!(
             edit(
                 &dir,
-                r#"{"op":"pose","layer":"l1","from":0,"to":4,"ik":{"hand":{"target":[1,1]}}}"#
+                r#"{"op":"pose","layer":"b1","from":0,"to":4,"ik":{"hand":{"target":[1,1]}}}"#
             )
             .is_err(),
             "a target needs an IK on that bone"
@@ -510,8 +554,8 @@ mod tests {
         let target = [400.0, 300.0];
         edit(
             &dir,
-            r#"{"op":"pose","layer":"l1","from":0,"to":4,"ik":{"fore":{"target":[400,300]}}}
-{"op":"pose","layer":"l1","from":0,"to":8,"root":[40,-30],"ik":{"fore":{"target":[400,300]}}}"#,
+            r#"{"op":"pose","layer":"b1","from":0,"to":4,"ik":{"fore":{"target":[400,300]}}}
+{"op":"pose","layer":"b1","from":0,"to":8,"root":[40,-30],"ik":{"fore":{"target":[400,300]}}}"#,
         )
         .unwrap();
         edit(&dir, r#"{"op":"inbetween","layers":["l1"],"from":4,"to":8}"#).unwrap();
@@ -582,7 +626,7 @@ mod tests {
             text.contains("NodePath(\"Skeleton2D/upper:position\")") && text.contains("Vector2(140, 170)"),
             "the root move goes to Godot too, so the planted end stays put there"
         );
-        edit(&dir, r#"{"op":"ik","layer":"l1","rm":"fore"}"#).unwrap();
+        edit(&dir, r#"{"op":"ik","layer":"b1","rm":"fore"}"#).unwrap();
         let bundle = Bundle::open(&dir).unwrap();
         let kept = bundle
             .doc
@@ -604,9 +648,9 @@ mod tests {
         let dir = arm("again");
         edit(
             &dir,
-            r#"{"op":"bone","layer":"l1","chain":["upper","fore"],"through":[[100,200],[300,200],[480,200]]}
-{"op":"weights","layer":"l1","auto":true}
-{"op":"pose","layer":"l1","from":0,"to":4,"bones":{"fore":-60}}"#,
+            r#"{"op":"bone","layer":"b1","chain":["upper","fore"],"through":[[100,200],[300,200],[480,200]]}
+{"op":"weights","layer":"b1","auto":true}
+{"op":"pose","layer":"b1","from":0,"to":4,"bones":{"fore":-60}}"#,
         )
         .unwrap();
         let make = r#"{"op":"inbetween","layers":["l1"],"from":0,"to":4}"#;
@@ -643,7 +687,7 @@ mod tests {
         edit(&dir, make).expect("made again over the same keys, nobody drew on them");
         edit(
             &dir,
-            r#"{"op":"pose","layer":"l1","from":4,"to":4,"bones":{"fore":-90}}"#,
+            r#"{"op":"pose","layer":"b1","from":4,"to":4,"bones":{"fore":-90}}"#,
         )
         .unwrap();
         edit(&dir, r#"{"op":"inbetween","redo":true}"#).expect("redone after the key changed");
@@ -688,32 +732,43 @@ mod tests {
         let dir = arm("shift");
         edit(
             &dir,
-            r#"{"op":"bone","layer":"l1","chain":["upper","fore","hand"],"through":[[100,200],[300,200],[480,200],[520,200]]}
-{"op":"ik","layer":"l1","add":"fore"}
-{"op":"weights","layer":"l1","auto":true}
-{"op":"pose","layer":"l1","from":0,"to":4,"ik":{"fore":{"target":[400,300]}}}"#,
+            r#"{"op":"bone","layer":"b1","chain":["upper","fore","hand"],"through":[[100,200],[300,200],[480,200],[520,200]]}
+{"op":"ik","layer":"b1","add":"fore"}
+{"op":"weights","layer":"b1","auto":true}
+{"op":"pose","layer":"b1","from":0,"to":4,"ik":{"fore":{"target":[400,300]}}}"#,
         )
         .unwrap();
         let before = Bundle::open(&dir).unwrap();
         let (rest, posed) = (end_of(&before, 0), end_of(&before, 4));
         let strongest = |b: &Bundle, at: [f32; 2]| {
-            let layer = b.doc.layer("l1").unwrap();
-            let w = b.read_weights("l1").unwrap().at(&layer.bones, at);
+            let layer = b.doc.layer("b1").unwrap();
+            let w = b.read_weights("b1").unwrap().at(&layer.bones, at);
             (0..w.len()).max_by(|x, y| w[*x].total_cmp(&w[*y])).unwrap()
         };
         let held = strongest(&before, [200.0, 200.0]);
-        edit(&dir, r#"{"op":"transform","layer":"l1","x":12,"y":20}"#).unwrap();
+        edit(&dir, r#"{"op":"transform","layer":"g9","x":12,"y":20}"#).unwrap();
         let after = Bundle::open(&dir).unwrap();
         let moved = |a: (f32, f32), b: (f32, f32)| (b.0 - a.0 - 12.0).abs() < 0.01 && (b.1 - a.1 - 20.0).abs() < 0.01;
         assert!(moved(rest, end_of(&after, 0)), "the rest drawing moves");
         assert!(moved(posed, end_of(&after, 4)), "and the posed one");
-        let layer = after.doc.layer("l1").unwrap();
-        assert_eq!(layer.bones[0].head, [112.0, 220.0], "the bones move along");
-        let pose = layer.content_at(4).unwrap().pose.clone().unwrap();
+        assert_eq!(
+            after.doc.layer("b1").unwrap().bones[0].head,
+            [112.0, 220.0],
+            "the bones move along"
+        );
+        let pose = after
+            .doc
+            .layer("l1")
+            .unwrap()
+            .content_at(4)
+            .unwrap()
+            .pose
+            .clone()
+            .unwrap();
         assert_eq!(pose.ik["fore"].target, [412.0, 320.0], "so does the pose's target");
         assert_eq!(strongest(&after, [212.0, 220.0]), held, "and the weights");
         let was = end_of(&after, 0);
-        edit(&dir, r#"{"op":"transform","layer":"l1","rotate":90,"pivot":[300,200]}"#).unwrap();
+        edit(&dir, r#"{"op":"transform","layer":"g9","rotate":90,"pivot":[300,200]}"#).unwrap();
         let turned = end_of(&Bundle::open(&dir).unwrap(), 0);
         let want = (300.0 - (was.1 - 200.0), 200.0 + (was.0 - 300.0));
         assert!(
@@ -722,13 +777,13 @@ mod tests {
         );
         let once = Bundle::open(&dir).unwrap();
         let (zero, four) = (end_of(&once, 0), end_of(&once, 4));
-        edit(&dir, r#"{"op":"transform","layer":"l1","x":5,"only":4}"#).unwrap();
+        edit(&dir, r#"{"op":"transform","layer":"g9","x":5,"only":4}"#).unwrap();
         let only = Bundle::open(&dir).unwrap();
         assert_eq!(end_of(&only, 0), zero, "only the drawing at frame 4 moves");
         assert!((end_of(&only, 4).0 - four.0 - 5.0).abs() < 0.01);
         assert_eq!(
-            only.doc.layer("l1").unwrap().bones,
-            once.doc.layer("l1").unwrap().bones,
+            only.doc.layer("b1").unwrap().bones,
+            once.doc.layer("b1").unwrap().bones,
             "and the bones stay"
         );
         std::fs::remove_dir_all(&dir).unwrap();
@@ -760,35 +815,35 @@ mod tests {
         let dir = arm("pose");
         edit(
             &dir,
-            r#"{"op":"bone","layer":"l1","add":"upper","head":[100,200],"tail":[300,200]}
-{"op":"bone","layer":"l1","add":"fore","parent":"upper","head":[300,200],"tail":[480,200]}
-{"op":"bone","layer":"l1","add":"hand","parent":"fore","head":[480,200],"tail":[520,200]}"#,
+            r#"{"op":"bone","layer":"b1","add":"upper","head":[100,200],"tail":[300,200]}
+{"op":"bone","layer":"b1","add":"fore","parent":"upper","head":[300,200],"tail":[480,200]}
+{"op":"bone","layer":"b1","add":"hand","parent":"fore","head":[480,200],"tail":[520,200]}"#,
         )
         .unwrap();
         assert!(
             edit(
                 &dir,
-                r#"{"op":"bone","layer":"l1","add":"fore","head":[0,0],"tail":[1,1]}"#
+                r#"{"op":"bone","layer":"b1","add":"fore","head":[0,0],"tail":[1,1]}"#
             )
             .is_err()
         );
         edit(
             &dir,
-            r#"{"op":"weights","layer":"l1","auto":true}
-{"op":"weights","layer":"l1","bone":"hand","part":"hand"}"#,
+            r#"{"op":"weights","layer":"b1","auto":true}
+{"op":"weights","layer":"b1","bone":"hand","part":"hand"}"#,
         )
         .unwrap();
         let bundle = Bundle::open(&dir).unwrap();
-        let w = bundle.read_weights("l1").unwrap();
+        let w = bundle.read_weights("b1").unwrap();
         assert_eq!(w.maps.len(), 3);
-        let bones = &bundle.doc.layer("l1").unwrap().bones;
+        let bones = &bundle.doc.layer("b1").unwrap().bones;
         assert!(
             w.at(bones, [500.0, 200.0])[2] > 0.99,
             "the hand part is the hand bone's alone"
         );
         edit(
             &dir,
-            r#"{"op":"pose","layer":"l1","from":0,"to":4,"bones":{"fore":-90}}"#,
+            r#"{"op":"pose","layer":"b1","from":0,"to":4,"bones":{"fore":-90}}"#,
         )
         .unwrap();
         let bundle = Bundle::open(&dir).unwrap();
@@ -801,7 +856,7 @@ mod tests {
         assert_eq!(posed.pose.as_ref().unwrap().rest, "c1");
         edit(
             &dir,
-            r#"{"op":"pose","layer":"l1","from":4,"to":4,"bones":{"fore":-45}}"#,
+            r#"{"op":"pose","layer":"b1","from":4,"to":4,"bones":{"fore":-45}}"#,
         )
         .unwrap();
         let bundle = Bundle::open(&dir).unwrap();
@@ -821,9 +876,9 @@ mod tests {
             (reach - 180.0).abs() < 4.0,
             "the forearm keeps its length on bones: {reach}"
         );
-        edit(&dir, r#"{"op":"bone","layer":"l1","rename":"fore","as":"forearm"}"#).unwrap();
+        edit(&dir, r#"{"op":"bone","layer":"b1","rename":"fore","as":"forearm"}"#).unwrap();
         let bundle = Bundle::open(&dir).unwrap();
-        assert!(bundle.read_weights("l1").unwrap().maps.contains_key("forearm"));
+        assert!(bundle.read_weights("b1").unwrap().maps.contains_key("forearm"));
         assert!(
             bundle
                 .doc
@@ -840,18 +895,18 @@ mod tests {
         let mut bundle = Bundle::open(&dir).unwrap();
         klad_core::history::step(&mut bundle, klad_core::history::Stack::Undo).unwrap();
         assert!(
-            bundle.read_weights("l1").unwrap().maps.contains_key("fore"),
+            bundle.read_weights("b1").unwrap().maps.contains_key("fore"),
             "undo restores the weights file"
         );
-        edit(&dir, r#"{"op":"bone","layer":"l1","move":"fore","tail":[470,230]}"#).unwrap();
-        let bones = Bundle::open(&dir).unwrap().doc.layer("l1").unwrap().bones.clone();
+        edit(&dir, r#"{"op":"bone","layer":"b1","move":"fore","tail":[470,230]}"#).unwrap();
+        let bones = Bundle::open(&dir).unwrap().doc.layer("b1").unwrap().bones.clone();
         assert_eq!(
             bones[2].head,
             [470.0, 230.0],
             "the hand starts where the forearm now ends"
         );
-        edit(&dir, r#"{"op":"bone","layer":"l1","move":"upper","by":[0,-20]}"#).unwrap();
-        let lifted = Bundle::open(&dir).unwrap().doc.layer("l1").unwrap().bones.clone();
+        edit(&dir, r#"{"op":"bone","layer":"b1","move":"upper","by":[0,-20]}"#).unwrap();
+        let lifted = Bundle::open(&dir).unwrap().doc.layer("b1").unwrap().bones.clone();
         assert!(
             lifted
                 .iter()
@@ -859,9 +914,9 @@ mod tests {
                 .all(|(a, b)| a.head == [b.head[0], b.head[1] - 20.0] && a.tail == [b.tail[0], b.tail[1] - 20.0]),
             "by moves a bone with its children: {lifted:?}"
         );
-        edit(&dir, r#"{"op":"bone","layer":"l1","rm":"upper"}"#).unwrap();
+        edit(&dir, r#"{"op":"bone","layer":"b1","rm":"upper"}"#).unwrap();
         assert!(
-            Bundle::open(&dir).unwrap().doc.layer("l1").unwrap().bones.is_empty(),
+            Bundle::open(&dir).unwrap().doc.layer("b1").unwrap().bones.is_empty(),
             "removing a bone removes its children"
         );
         std::fs::remove_dir_all(&dir).unwrap();

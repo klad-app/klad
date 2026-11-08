@@ -152,13 +152,17 @@ fn source(cel: &Cel) -> String {
 }
 
 fn paint_layers(doc: &Document, keys: &[String]) -> Result<Vec<String>> {
-    fn walk(layer: &Layer, out: &mut Vec<String>) -> Result<()> {
+    fn walk(doc: &Document, layer: &Layer, out: &mut Vec<String>) -> Result<()> {
         match layer.kind() {
             Kind::Paint => {
                 out.push(layer.id.clone());
                 Ok(())
             }
-            Kind::Group => layer.children().iter().try_for_each(|c| walk(c, out)),
+            Kind::Group => layer.children().iter().try_for_each(|c| walk(doc, c, out)),
+            Kind::Bones => {
+                out.extend(klad_core::rig::painted(doc, &layer.id).iter().map(|l| l.id.clone()));
+                Ok(())
+            }
             Kind::Vector => bail!("{} is a vector layer; in-betweens are made on paint layers", layer.id),
             Kind::Adjust => bail!(
                 "{} is an adjustment layer; in-betweens are made on paint layers",
@@ -167,7 +171,7 @@ fn paint_layers(doc: &Document, keys: &[String]) -> Result<Vec<String>> {
         }
     }
     let mut out = Vec::new();
-    keys.iter().try_for_each(|k| walk(doc.find_layer(k)?, &mut out))?;
+    keys.iter().try_for_each(|k| walk(doc, doc.find_layer(k)?, &mut out))?;
     let mut seen = BTreeSet::new();
     out.retain(|id| seen.insert(id.clone()));
     Ok(out)

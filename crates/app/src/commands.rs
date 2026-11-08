@@ -135,6 +135,7 @@ pub enum Cmd {
     NudgeUp,
     NudgeDown,
     NewGroupLayer,
+    NewBonesLayer,
     NewAdjustLayer,
     DuplicateLayer,
     DeleteLayer,
@@ -492,7 +493,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 165] = [
+    pub const ALL: [Cmd; 166] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -624,6 +625,7 @@ impl Cmd {
         Cmd::NudgeUp,
         Cmd::NudgeDown,
         Cmd::NewGroupLayer,
+        Cmd::NewBonesLayer,
         Cmd::NewAdjustLayer,
         Cmd::DuplicateLayer,
         Cmd::DeleteLayer,
@@ -1841,6 +1843,15 @@ impl Cmd {
                 R::No,
                 "an empty group above the active layer; drag layers into it",
             ),
+            Cmd::NewBonesLayer => spec(
+                "layer.new-bones",
+                "new bones layer",
+                icon::BONE,
+                G::Layers,
+                T::None,
+                R::No,
+                "a skeleton of its own above the active layer: draw its bones with the bone tool, then attach layers to them",
+            ),
             Cmd::DuplicateLayer => spec(
                 "layer.duplicate",
                 "duplicate the layer",
@@ -2276,6 +2287,7 @@ impl Cmd {
             Cmd::NudgeUp => "Nudge up",
             Cmd::NudgeDown => "Nudge down",
             Cmd::NewGroupLayer => "New group",
+            Cmd::NewBonesLayer => "New bones layer",
             Cmd::NewAdjustLayer => "New adjustment layer",
             Cmd::DuplicateLayer => "Duplicate",
             Cmd::DeleteLayer => "Delete",
@@ -2440,6 +2452,7 @@ pub const MENUS: [Menu; 9] = [
             Run(Cmd::NewVectorLayer),
             Run(Cmd::NewAdjustLayer),
             Run(Cmd::NewGroupLayer),
+            Run(Cmd::NewBonesLayer),
             Line,
             Run(Cmd::DuplicateLayer),
             Run(Cmd::RenameLayer),

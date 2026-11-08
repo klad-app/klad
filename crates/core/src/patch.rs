@@ -111,6 +111,7 @@ fn layer_shell(layer: &Layer) -> Layer {
         LayerContent::Vector { .. } => LayerContent::Vector { cels: Vec::new() },
         LayerContent::Group { .. } => LayerContent::Group { children: Vec::new() },
         LayerContent::Adjust { adjust } => LayerContent::Adjust { adjust: adjust.clone() },
+        LayerContent::Bones {} => LayerContent::Bones {},
     };
     Layer {
         id: layer.id.clone(),
@@ -128,7 +129,7 @@ fn layer_shell(layer: &Layer) -> Layer {
         reference: layer.reference,
         bones: layer.bones.clone(),
         ik: layer.ik.clone(),
-        bone: layer.bone.clone(),
+        rig: layer.rig.clone(),
         keys: layer.keys.clone(),
     }
 }
@@ -188,7 +189,8 @@ fn layer(out: &mut Out, at: &str, a: &Layer, b: &Layer) -> Result<()> {
             LayerContent::Paint { cels: x } | LayerContent::Vector { cels: x },
             LayerContent::Paint { cels: y } | LayerContent::Vector { cels: y },
         ) => list(out, &format!("{at}/cels"), x, y, same_cel, cel),
-        (LayerContent::Adjust { .. }, LayerContent::Adjust { .. }) => Ok(()),
+        (LayerContent::Adjust { .. }, LayerContent::Adjust { .. })
+        | (LayerContent::Bones {}, LayerContent::Bones {}) => Ok(()),
         _ => bail!("layer {} changed kind", a.id),
     }
 }
@@ -240,7 +242,9 @@ fn step<'a>(target: Target<'a>, part: &str) -> Result<Target<'a>> {
         (Target::Layers(list), part) => Target::Layer(nth(list, part)?),
         (Target::Layer(layer), "cels") => match &mut layer.content {
             LayerContent::Paint { cels } | LayerContent::Vector { cels } => Target::Cels(cels),
-            LayerContent::Group { .. } | LayerContent::Adjust { .. } => bail!("layer {} has no cels", layer.id),
+            LayerContent::Group { .. } | LayerContent::Adjust { .. } | LayerContent::Bones {} => {
+                bail!("layer {} has no cels", layer.id)
+            }
         },
         (Target::Layer(layer), "children") => match &mut layer.content {
             LayerContent::Group { children } => Target::Layers(children),
@@ -309,7 +313,7 @@ fn lists(content: &mut LayerContent) -> (Option<&mut Vec<Cel>>, Option<&mut Vec<
     match content {
         LayerContent::Paint { cels } | LayerContent::Vector { cels } => (Some(cels), None),
         LayerContent::Group { children } => (None, Some(children)),
-        LayerContent::Adjust { .. } => (None, None),
+        LayerContent::Adjust { .. } | LayerContent::Bones {} => (None, None),
     }
 }
 

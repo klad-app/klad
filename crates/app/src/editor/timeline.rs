@@ -1157,6 +1157,11 @@ impl Editor {
         if layer.kind() == Kind::Adjust {
             return format!("{name} is an adjustment layer: it changes what is under it; pick a paint layer to draw");
         }
+        if layer.kind() == Kind::Bones {
+            return format!(
+                "{name} is a bones layer: it holds a skeleton (the bone tool, J); pick a paint layer to draw"
+            );
+        }
         let span = |start: u32, end: u32| match end.min(frames) - start {
             1 => format!("frame {start}"),
             _ => format!("frames {start} to {}", end.min(frames) - 1),

@@ -289,7 +289,7 @@ fn paint_marks(bundle: &Bundle, layers: &[Layer], frame: u32, out: &mut Vec<Mark
                 Ok(())
             }
             Kind::Group => paint_marks(bundle, layer.children(), frame, out),
-            Kind::Vector | Kind::Adjust => Ok(()),
+            Kind::Vector | Kind::Adjust | Kind::Bones => Ok(()),
         })
 }
 
@@ -320,7 +320,7 @@ fn layer_box(bundle: &Bundle, layer: &Layer, frame: u32) -> Result<Option<[f32; 
         Kind::Group => layer.children().iter().try_fold(None, |acc, c| {
             Ok::<_, anyhow::Error>(union(acc, layer_box(bundle, c, frame)?))
         })?,
-        Kind::Adjust => None,
+        Kind::Adjust | Kind::Bones => None,
     })
 }
 
@@ -696,6 +696,9 @@ fn layer_summary(bundle: &Bundle, layer: &Layer, frame: u32) -> Result<Value> {
     if layer.locked {
         value["locked"] = json!(true);
     }
+    if let Some(rig) = &layer.rig {
+        value["rig"] = json!(rig);
+    }
     if let Some(mask) = &layer.mask {
         let mut summary = layer_summary(bundle, mask, frame)?;
         summary["role"] = json!("mask");
@@ -727,6 +730,16 @@ fn layer_summary(bundle: &Bundle, layer: &Layer, frame: u32) -> Result<Value> {
                 .fold(None, |acc, b| union(acc, Some(b)));
             value["children"] = Value::Array(children);
             bounds
+        }
+        Kind::Bones => {
+            value["bones"] = json!(layer.bones.iter().map(|b| &b.name).collect::<Vec<_>>());
+            value["attached"] = json!(
+                klad_core::rig::painted(&bundle.doc, &layer.id)
+                    .iter()
+                    .map(|l| &l.id)
+                    .collect::<Vec<_>>()
+            );
+            None
         }
         Kind::Adjust => {
             if let Some(adjust) = layer.adjustment() {

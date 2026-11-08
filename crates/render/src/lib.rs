@@ -330,6 +330,7 @@ fn may_draw(layer: &Layer, ctx: Ctx, window: IRect) -> bool {
         || match &layer.content {
             LayerContent::Group { children } => children.iter().any(|c| may_draw(c, ctx, window)),
             LayerContent::Adjust { .. } => true,
+            LayerContent::Bones {} => false,
             LayerContent::Paint { .. } | LayerContent::Vector { .. } => {
                 layer.content_at(ctx.frame).is_some_and(|cel| {
                     let swapped = ctx.swap.filter(|s| s.cel == cel.id).is_some_and(|s| {
@@ -770,6 +771,7 @@ fn draw_unmoved(canvas: &Canvas, layer: &Layer, ctx: Ctx) -> Result<()> {
                 })
         }
         LayerContent::Group { children } => draw_layers(canvas, children, ctx.nested()),
+        LayerContent::Bones {} => Ok(()),
         LayerContent::Adjust {
             adjust: Adjustment::Fill(fill),
         } => {

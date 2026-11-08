@@ -87,6 +87,12 @@ fn activate(h: &mut Harness<'static, Editor>, name: &str) {
     ready(h);
 }
 
+fn skeleton(h: &Harness<'static, Editor>) -> Layer {
+    klad_core::rig::skeletons(&h.state().scene.bundle.doc)
+        .first()
+        .map_or_else(|| Layer::skeleton("", ""), |l| (*l).clone())
+}
+
 fn ready(h: &mut Harness<'static, Editor>) {
     let start = std::time::Instant::now();
     while !h.state().canvas_current() && start.elapsed() < std::time::Duration::from_secs(20) {
@@ -3377,9 +3383,17 @@ fn bones_are_drawn_weighted_and_posed_on_the_canvas() {
     drag(&mut h, b, c);
     h.event(egui::Event::ModifiersChanged(Modifiers::NONE));
     h.run_steps(2);
-    let bones = |h: &Harness<'static, Editor>| h.state().scene.bundle.doc.layer("l6").unwrap().bones.clone();
+    let bones = |h: &Harness<'static, Editor>| skeleton(h).bones;
     let made = bones(&h);
     assert_eq!(made.len(), 2, "{made:?}");
+    assert_eq!(
+        (
+            skeleton(&h).name.as_str(),
+            h.state().scene.active_layer().map(|l| l.name.clone())
+        ),
+        ("bones", Some("bones".to_string())),
+        "the first bone makes a bones layer, which becomes the active one"
+    );
     assert_eq!(
         made[1].parent.as_deref(),
         Some("bone 1"),
@@ -3402,7 +3416,7 @@ fn bones_are_drawn_weighted_and_posed_on_the_canvas() {
     let (dab, more) = (canvas_at(&h, 250.0, 170.0), canvas_at(&h, 260.0, 175.0));
     drag(&mut h, dab, more);
     h.run_steps(2);
-    let weights = h.state().scene.bundle.read_weights("l6").unwrap();
+    let weights = h.state().scene.bundle.read_weights(&skeleton(&h).id).unwrap();
     assert!(
         weights.maps.contains_key("shin"),
         "painting weights writes the bone's map"
@@ -3507,7 +3521,7 @@ fn bones_are_drawn_as_a_chain_that_fans_ends_and_takes_back_its_last_bone() {
     activate(&mut h, "lines");
     h.key_press(Key::J);
     h.run_steps(2);
-    let bones = |h: &Harness<'static, Editor>| h.state().scene.bundle.doc.layer("l6").unwrap().bones.clone();
+    let bones = |h: &Harness<'static, Editor>| skeleton(h).bones;
     let points = [[40.0, 40.0], [120.0, 80.0], [200.0, 90.0], [260.0, 150.0]];
     let screen: Vec<egui::Pos2> = points.iter().map(|p| canvas_at(&h, p[0], p[1])).collect();
     drag(&mut h, screen[0], screen[1]);
@@ -3595,13 +3609,14 @@ fn bones_are_drawn_as_a_chain_that_fans_ends_and_takes_back_its_last_bone() {
         .unwrap()
         .apply(
             &parse_lines(&format!(
-                r#"{{"op":"bone","layer":"l6","chain":["bone 1","bone 2","bone 3"],"through":{}}}"#,
+                r#"{{"op":"add","layer":{{"id":"sk","kind":"bones","name":"bones"}}}}
+{{"op":"bone","layer":"sk","chain":["bone 1","bone 2","bone 3"],"through":{}}}"#,
                 serde_json::to_string(&[drawn[0].head, drawn[0].tail, drawn[1].tail, redrawn[2].tail]).unwrap()
             ))
             .unwrap(),
         )
         .unwrap();
-    let made = Bundle::open(&cli).unwrap().doc.layer("l6").unwrap().bones.clone();
+    let made = Bundle::open(&cli).unwrap().doc.layer("sk").unwrap().bones.clone();
     assert_eq!(made[..2], redrawn[..2], "the editor's chain is klad bone --chain");
     assert_eq!(made[2], redrawn[2]);
     let _ = std::fs::remove_dir_all(&path);
@@ -3615,7 +3630,7 @@ fn a_bone_renamed_while_its_chain_is_drawn_stays_the_parent_of_the_next() {
     activate(&mut h, "lines");
     h.key_press(Key::J);
     h.run_steps(2);
-    let bones = |h: &Harness<'static, Editor>| h.state().scene.bundle.doc.layer("l6").unwrap().bones.clone();
+    let bones = |h: &Harness<'static, Editor>| skeleton(h).bones;
     let (a, b, c) = (
         canvas_at(&h, 40.0, 40.0),
         canvas_at(&h, 120.0, 80.0),
@@ -3664,8 +3679,10 @@ fn the_bone_options_stay_one_row_whatever_is_picked() {
         .unwrap()
         .apply(
             &parse_lines(
-                r#"{"op":"bone","layer":"l6","chain":["thigh","shin"],"through":[[100,60],[100,160],[110,260]]}
-{"op":"ik","layer":"l6","add":"shin"}"#,
+                r#"{"op":"add","layer":{"id":"sk","kind":"bones","name":"bones"}}
+{"op":"attach","layer":"l6","skeleton":"sk"}
+{"op":"bone","layer":"sk","chain":["thigh","shin"],"through":[[100,60],[100,160],[110,260]]}
+{"op":"ik","layer":"sk","add":"shin"}"#,
             )
             .unwrap(),
         )
@@ -3692,13 +3709,59 @@ fn the_bone_options_stay_one_row_whatever_is_picked() {
 }
 
 #[test]
+fn a_bones_layer_takes_any_layers_in_the_drawing() {
+    let path = sample("bones-layer");
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    activate(&mut h, "lines");
+    h.state_mut().invoke(Cmd::NewBonesLayer).unwrap();
+    h.run_steps(2);
+    let made = skeleton(&h);
+    assert_eq!(
+        h.state().scene.active_layer().map(|l| (l.id.clone(), l.kind())),
+        Some((made.id.clone(), klad_core::doc::Kind::Bones)),
+        "Layer > New bones layer makes one and makes it active"
+    );
+    h.key_press(Key::J);
+    h.run_steps(2);
+    let (a, b) = (canvas_at(&h, 60.0, 60.0), canvas_at(&h, 200.0, 120.0));
+    drag(&mut h, a, b);
+    h.run_steps(2);
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    assert_eq!(skeleton(&h).bones.len(), 1, "the bone goes on the bones layer");
+    h.state_mut().pick_bone(Some("bone 1".into()));
+    h.run_steps(2);
+    ["colour", "lines"].into_iter().enumerate().for_each(|(n, layer)| {
+        h.get_by_role_and_label(Role::Button, &format!("layers: {n}")).click();
+        h.run_steps(2);
+        h.get_by_role_and_label(Role::CheckBox, layer).click();
+        h.run_steps(3);
+    });
+    let doc = &h.state().scene.bundle.doc;
+    ["colour", "lines"].into_iter().for_each(|name| {
+        let layer = doc.find_layer(name).unwrap();
+        assert_eq!(
+            layer.rig,
+            Some(klad_core::rig::Link {
+                skeleton: made.id.clone(),
+                bone: Some("bone 1".into())
+            }),
+            "{name}, a layer next to the bones layer, follows its bone"
+        );
+    });
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn a_layer_attached_to_a_bone_moves_with_it_live_in_pose_mode() {
     let path = sample("attach-live");
     Bundle::open(&path)
         .unwrap()
         .apply(
             &parse_lines(
-                r#"{"op":"bone","layer":"l6","chain":["thigh","shin"],"through":[[100,60],[100,160],[110,260]]}"#,
+                r#"{"op":"add","layer":{"id":"sk","kind":"bones","name":"bones"}}
+{"op":"attach","layer":"l6","skeleton":"sk"}
+{"op":"bone","layer":"sk","chain":["thigh","shin"],"through":[[100,60],[100,160],[110,260]]}"#,
             )
             .unwrap(),
         )
@@ -3711,10 +3774,10 @@ fn a_layer_attached_to_a_bone_moves_with_it_live_in_pose_mode() {
     h.run_steps(2);
     h.get_by_role_and_label(Role::Button, "layers: 0").click();
     h.run_steps(2);
-    h.get_by_role_and_label(Role::CheckBox, "lines").click();
+    h.get_by_role_and_label(Role::CheckBox, "lines (bends)").click();
     h.run_steps(3);
     assert_eq!(
-        h.state().scene.bundle.doc.layer("l6").unwrap().bone.as_deref(),
+        h.state().scene.bundle.doc.layer("l6").unwrap().follows(),
         Some("shin"),
         "the picked bone's layers menu attaches a layer"
     );
@@ -3774,7 +3837,9 @@ fn a_leg_gets_its_ik_in_the_options_and_its_foot_is_dragged_and_planted_in_pose_
         .unwrap()
         .apply(
             &parse_lines(
-                r#"{"op":"bone","layer":"l6","chain":["thigh","shin"],"through":[[100,60],[100,160],[110,260]]}"#,
+                r#"{"op":"add","layer":{"id":"sk","kind":"bones","name":"bones"}}
+{"op":"attach","layer":"l6","skeleton":"sk"}
+{"op":"bone","layer":"sk","chain":["thigh","shin"],"through":[[100,60],[100,160],[110,260]]}"#,
             )
             .unwrap(),
         )
@@ -3789,7 +3854,7 @@ fn a_leg_gets_its_ik_in_the_options_and_its_foot_is_dragged_and_planted_in_pose_
     h.run_steps(2);
     h.get_by_label("limb: shin and thigh").click();
     h.run_steps(3);
-    let ik = h.state().scene.bundle.doc.layer("l6").unwrap().ik.clone();
+    let ik = h.state().scene.bundle.doc.layer("sk").unwrap().ik.clone();
     assert_eq!(ik.len(), 1, "{ik:?}");
     assert_eq!((ik[0].bone.as_str(), ik[0].chain), ("shin", 2));
     assert!(
@@ -3800,7 +3865,7 @@ fn a_leg_gets_its_ik_in_the_options_and_its_foot_is_dragged_and_planted_in_pose_
     h.run_steps(2);
     let shown = |h: &Harness<'static, Editor>| {
         let ed = h.state();
-        let layer = ed.scene.bundle.doc.layer("l6").unwrap();
+        let layer = ed.scene.bundle.doc.layer("sk").unwrap();
         let pose = klad_core::rig::Pose {
             angles: ed.bones.pose.clone(),
             root: ed.bones.root,
@@ -3883,26 +3948,26 @@ fn bones_are_picked_from_the_list_and_the_canvas_and_edited_in_place() {
         .unwrap()
         .apply(
             &parse_lines(
-                r#"{"op":"bone","layer":"l6","add":"thigh","head":[100,60],"tail":[100,160]}
-{"op":"bone","layer":"l6","add":"shin","parent":"thigh","head":[100,160],"tail":[100,260]}
-{"op":"bone","layer":"l6","add":"tail","head":[300,100],"tail":[400,100]}"#,
+                r#"{"op":"add","layer":{"id":"sk","kind":"bones","name":"bones"}}
+{"op":"attach","layer":"l6","skeleton":"sk"}
+{"op":"bone","layer":"sk","add":"thigh","head":[100,60],"tail":[100,160]}
+{"op":"bone","layer":"sk","add":"shin","parent":"thigh","head":[100,160],"tail":[100,260]}
+{"op":"bone","layer":"sk","add":"tail","head":[300,100],"tail":[400,100]}"#,
             )
             .unwrap(),
         )
         .unwrap();
     let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
-    let bones = |h: &Harness<'static, Editor>| h.state().scene.bundle.doc.layer("l6").unwrap().bones.clone();
+    let bones = |h: &Harness<'static, Editor>| skeleton(h).bones;
     let bone = |h: &Harness<'static, Editor>, name: &str| bones(h).into_iter().find(|b| b.name == name).unwrap();
     activate(&mut h, "colour");
     h.key_press(Key::J);
     h.run_steps(2);
-    assert!(
-        h.query_by_label_contains("colour has no bones").is_some(),
-        "a layer without bones says where the skeletons are"
+    assert_eq!(
+        h.state().rig_owner().as_deref(),
+        Some("sk"),
+        "with any layer active, the bone tool works on the drawing's bones layer"
     );
-    h.get_by_label(&format!("{} lines", theme::icon::BONE)).click();
-    h.run_steps(3);
-    assert_eq!(h.state().scene.active_layer().unwrap().name, "lines");
     h.get_by_label_contains("pick a bone").click();
     h.run_steps(2);
     h.get_by_label("shin").click();

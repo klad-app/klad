@@ -33,8 +33,14 @@ pub fn resolve(bundle: &Bundle, ops: &mut [Op]) -> Result<()> {
     })
 }
 
+fn family(root: &Layer) -> Vec<&Layer> {
+    let mut out = vec![root];
+    klad_core::doc::walk_children(root, &mut out);
+    out
+}
+
 pub fn moved_cels(root: &Layer, only: Option<u32>) -> Vec<(&Layer, &Cel)> {
-    rig::family(root)
+    family(root)
         .into_iter()
         .filter(|l| matches!(l.kind(), Kind::Paint | Kind::Vector))
         .flat_map(|l| {
@@ -80,9 +86,19 @@ pub fn targets(bundle: &Bundle, layer: &str, only: Option<u32>) -> Result<Target
     if let Some(r) = vector::nodes_bounds(&nodes)? {
         boxes.push([r.left, r.top, r.right, r.bottom]);
     }
+    if only.is_none() {
+        family(root).iter().flat_map(|l| l.bones.iter()).for_each(|b| {
+            boxes.push([
+                b.head[0].min(b.tail[0]),
+                b.head[1].min(b.tail[1]),
+                b.head[0].max(b.tail[0]),
+                b.head[1].max(b.tail[1]),
+            ])
+        });
+    }
     let weights = match only {
         Some(_) => Vec::new(),
-        None => rig::family(root)
+        None => family(root)
             .into_iter()
             .filter(|l| !l.bones.is_empty())
             .map(|l| bundle.read_weights(&l.id).map(|w| (l.id.clone(), w)))

@@ -771,6 +771,14 @@ impl Weights {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Link {
+    pub skeleton: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bone: Option<String>,
+}
+
 pub struct Rig<'a> {
     pub bones: &'a [Bone],
     pub weights: &'a Weights,
@@ -966,21 +974,33 @@ pub fn moved_weights(w: &Weights, back: crate::markedit::Affine) -> Weights {
     }
 }
 
-pub fn skeleton_of<'a>(doc: &'a Document, path: &[usize]) -> Option<&'a Layer> {
-    (1..=path.len())
-        .rev()
-        .map(|n| doc.layer_at(&path[..n]))
-        .find(|l| !l.bones.is_empty())
-}
-
-pub fn family(layer: &Layer) -> Vec<&Layer> {
-    std::iter::once(layer)
-        .chain(layer.children().iter().flat_map(family))
+pub fn skeletons(doc: &Document) -> Vec<&Layer> {
+    doc.all_layers()
+        .into_iter()
+        .filter(|l| l.kind() == Kind::Bones)
         .collect()
 }
 
-pub fn painted(owner: &Layer) -> Vec<&Layer> {
-    family(owner).into_iter().filter(|l| l.kind() == Kind::Paint).collect()
+pub fn painted<'a>(doc: &'a Document, skeleton: &str) -> Vec<&'a Layer> {
+    doc.all_layers()
+        .into_iter()
+        .filter(|l| l.kind() == Kind::Paint && l.rig.as_ref().is_some_and(|r| r.skeleton == skeleton))
+        .collect()
+}
+
+pub fn painted_paths(doc: &Document, skeleton: &str) -> Vec<Vec<usize>> {
+    painted(doc, skeleton)
+        .iter()
+        .filter_map(|l| match doc.locate(&l.id) {
+            Some(crate::doc::Loc::Layer(path)) => Some(path),
+            _ => None,
+        })
+        .collect()
+}
+
+pub fn linked<'a>(doc: &'a Document, layer: &Layer) -> Option<&'a Layer> {
+    let link = layer.rig.as_ref()?;
+    doc.layer(&link.skeleton).filter(|s| s.kind() == Kind::Bones)
 }
 
 pub fn weights_for(
@@ -1025,7 +1045,7 @@ pub fn weights_for(
     if let Some(part) = &spec.part {
         let b = bone()?;
         let mut cells = Vec::new();
-        painted(owner).iter().try_for_each(|layer| -> Result<()> {
+        painted(doc, &owner.id).iter().try_for_each(|layer| -> Result<()> {
             let Some(cel) = layer.content_at(spec.frame) else {
                 return Ok(());
             };

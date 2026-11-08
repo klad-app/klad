@@ -283,7 +283,7 @@ pub fn rig(path: &Path, dir: Option<PathBuf>) -> Result<Vec<PathBuf>> {
         };
         let name = file_safe(&owner.name);
         let mut parts: Vec<Part> = Vec::new();
-        klad_core::rig::painted(owner).iter().try_for_each(|layer| -> Result<()> {
+        klad_core::rig::painted(doc, &owner.id).iter().try_for_each(|layer| -> Result<()> {
             let Some(rest) = rest_cel(layer) else {
                 return Ok(());
             };
@@ -335,7 +335,7 @@ pub fn rig(path: &Path, dir: Option<PathBuf>) -> Result<Vec<PathBuf>> {
                     origin: [x0 as f32, y0 as f32],
                     vertices,
                     triangles,
-                    bone: layer.bone.as_ref().and_then(|b| bones.iter().position(|o| &o.name == b)),
+                    bone: layer.follows().and_then(|b| bones.iter().position(|o| o.name == b)),
                 });
                 Ok(())
             })
@@ -364,7 +364,10 @@ pub fn rig(path: &Path, dir: Option<PathBuf>) -> Result<Vec<PathBuf>> {
                 .map(|c| (c.name.clone(), c.from, c.to, c.looping, c.fps.map_or(fps, |f| f as f32)))
                 .collect(),
         };
-        let first = klad_core::rig::painted(owner).into_iter().next().context("no paint layer under the bones")?;
+        let first = klad_core::rig::painted(doc, &owner.id)
+            .into_iter()
+            .next()
+            .context("no layer is attached to the bones: klad attach a layer to them first")?;
         let mut unposed = Vec::new();
         let animations: Vec<String> = clips
             .iter()
@@ -560,7 +563,7 @@ var scene: Node
 var camera: Camera2D
 
 func _initialize():
-	var rig = load("res://art/arm-arm-rig.tscn").instantiate()
+	var rig = load("res://art/arm-arm_bones-rig.tscn").instantiate()
 	root.add_child(rig)
 	var player: AnimationPlayer = rig.get_node("AnimationPlayer")
 	var bone: Bone2D = rig.get_node("Skeleton2D/upper/fore")
@@ -621,7 +624,11 @@ func _process(_delta):
         let mut doc = Document::new(600, 400);
         doc.canvas.background = Some("#f0e8dc".into());
         doc.timeline.frames = 8;
-        doc.layers = vec![Layer::paint("far", "far", "c1"), Layer::paint("arm", "arm", "c2")];
+        doc.layers = vec![
+            Layer::paint("far", "far", "c1"),
+            Layer::paint("arm", "arm", "c2"),
+            Layer::skeleton("rig", "arm bones"),
+        ];
         doc.layers[0].depth = Some(3.0);
         doc.next_id = 10;
         Bundle::create(&path, doc).unwrap();
@@ -629,14 +636,15 @@ func _process(_delta):
         edit(
             r##"{"op":"fill","layer":"far","polygon":[[0,250],[600,250],[600,400],[0,400]],"color":"#8090a0"}
 {"op":"stroke","layer":"arm","brush":"ink","size":24,"color":"#c06a3a","path":"M100 200 L 300 200 L 480 200"}
-{"op":"clip","add":"wave","from":0,"to":7,"loop":true}"##,
+{"op":"clip","add":"wave","from":0,"to":7,"loop":true}
+{"op":"attach","layer":"arm","skeleton":"rig"}"##,
         );
         edit(
-            r#"{"op":"bone","layer":"arm","add":"upper","head":[100,200],"tail":[300,200]}
-{"op":"bone","layer":"arm","add":"fore","parent":"upper","head":[300,200],"tail":[480,200]}"#,
+            r#"{"op":"bone","layer":"rig","add":"upper","head":[100,200],"tail":[300,200]}
+{"op":"bone","layer":"rig","add":"fore","parent":"upper","head":[300,200],"tail":[480,200]}"#,
         );
-        edit(r#"{"op":"weights","layer":"arm","auto":true}"#);
-        edit(r#"{"op":"pose","layer":"arm","from":0,"to":4,"bones":{"fore":-70}}"#);
+        edit(r#"{"op":"weights","layer":"rig","auto":true}"#);
+        edit(r#"{"op":"pose","layer":"rig","from":0,"to":4,"bones":{"fore":-70}}"#);
         let made = rig(&path, Some(project.join("art"))).unwrap();
         let text = fs::read_to_string(made.last().unwrap()).unwrap();
         assert!(text.contains("type=\"Skeleton2D\"") && text.contains("NodePath(\"Skeleton2D/upper/fore:rotation\")"));

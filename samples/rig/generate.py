@@ -35,6 +35,7 @@ def drawing():
         layer("figure", "group"),
         layer("colour", "paint", "figure"),
         layer("lines", "paint", "figure"),
+        layer("bones", "bones", "figure"),
         layer("lantern", "vector"),
         fill("sky", [[0, 560], [800, 540], [800, 800], [0, 800]], "#6f7f6a", "hill"),
         fill("sky", ellipse(620, 160, 60, 60), "#f4e4b0", "moon"),
@@ -57,7 +58,7 @@ def drawing():
 
 
 def rig():
-    bone = lambda name, parent, head, tail: {"op": "bone", "layer": "figure", "add": name, "head": head, "tail": tail,
+    bone = lambda name, parent, head, tail: {"op": "bone", "layer": "bones", "add": name, "head": head, "tail": tail,
                                             **({"parent": parent} if parent else {})}
     return [
         bone("body", None, [400, 590], [400, 360]),
@@ -65,22 +66,24 @@ def rig():
         bone("upper", "body", [452, 392], [560, 360]),
         bone("fore", "upper", [560, 360], [650, 330]),
         bone("hand", "fore", [650, 330], [694, 316]),
+        {"op": "attach", "layer": "colour", "skeleton": "bones"},
+        {"op": "attach", "layer": "lines", "skeleton": "bones"},
     ]
 
 
 def weights():
     return [
-        {"op": "weights", "layer": "figure", "auto": True},
-        {"op": "weights", "layer": "figure", "bone": "head", "part": "head"},
-        {"op": "weights", "layer": "figure", "bone": "body", "part": "body"},
-        {"op": "weights", "layer": "figure", "bone": "hand", "part": "hand"},
+        {"op": "weights", "layer": "bones", "auto": True},
+        {"op": "weights", "layer": "bones", "bone": "head", "part": "head"},
+        {"op": "weights", "layer": "bones", "bone": "body", "part": "body"},
+        {"op": "weights", "layer": "bones", "bone": "hand", "part": "hand"},
     ]
 
 
 def poses():
     wave = [(4, {"upper": -35, "fore": -55, "hand": -10}), (8, {"upper": -50, "fore": -20, "hand": 25}),
             (12, {"upper": -35, "fore": -55, "hand": -10}), (16, {"upper": -50, "fore": -20, "hand": 25})]
-    return [{"op": "pose", "layer": "figure", "from": 0, "to": f, "bones": b, "hold": 8 if f == 16 else 4} for f, b in wave]
+    return [{"op": "pose", "layer": "bones", "from": 0, "to": f, "bones": b, "hold": 8 if f == 16 else 4} for f, b in wave]
 
 
 def keys():

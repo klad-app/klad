@@ -497,7 +497,7 @@ enum Command {
         #[arg(help = "layer, cel, mask, rect, ellipse, path, group, rays, image, scatter, repeat, mirror or text")]
         what: String,
         #[arg(
-            help = "For layers the kind first (paint, vector, group, image with src=photo.jpg, or adjust and its type: hsl, levels, curves, balance, gradient-map, fill), then key=value pairs"
+            help = "For layers the kind first (paint, vector, group, bones, image with src=photo.jpg, or adjust and its type: hsl, levels, curves, balance, gradient-map, fill), then key=value pairs"
         )]
         rest: Vec<String>,
         #[command(flatten)]
@@ -1236,15 +1236,27 @@ enum Command {
         flags: EditFlags,
     },
     #[command(
-        about = "Attach a layer to a bone, so it moves with that bone alone when posed",
-        long_about = "Attach a paint layer under a skeleton to one of its bones: posed, the whole layer moves rigidly with that bone, the way a cut-out arm follows its upper arm. Draw a character in pieces (upper arm, forearm, hand on their own layers), attach each to its bone and no weights are needed. A layer not attached bends by the weights instead (by distance to the bones, or as painted in the bone tool's weights mode): use that for a layer drawn in one piece across a joint. --off detaches a layer, so it bends again.\n\n  klad attach art.klad forearm --bone fore\n  klad attach art.klad forearm --off\n\nAlso an attach op: {\"op\":\"attach\",\"layer\":\"forearm\",\"bone\":\"fore\"}; without \"bone\" the layer bends by the weights. Renaming the bone keeps the layer on it; removing it leaves the layer bending."
+        about = "Rig a layer: attach it to a bone, let it bend with a skeleton, or unrig it",
+        long_about = "Bones live on bones layers (klad add <bundle> layer bones, or Layer > New bones layer); a bones layer draws nothing. Any paint layer in the drawing can be rigged to one: attached to a bone (--bone), it moves rigidly with that bone when posed, the way a cut-out arm follows its upper arm, so a character drawn in pieces (upper arm, forearm, hand on their own layers) needs no weights; set to bend (--bend), each of its points moves by the skeleton's weights, for a layer drawn in one piece across a joint. --off unrigs it: posing leaves it as it is. --skeleton names the bones layer when the drawing has more than one (with --bone, the one that has that bone is found).\n\n  klad attach art.klad forearm --bone fore\n  klad attach art.klad sleeve --bend --skeleton bones\n  klad attach art.klad forearm --off\n\nAlso an attach op: {\"op\":\"attach\",\"layer\":\"forearm\",\"bone\":\"fore\"}; {\"op\":\"attach\",\"layer\":\"sleeve\",\"skeleton\":\"bones\"} bends; without either it unrigs. Renaming a bone keeps its layers on it; removing it unrigs them."
     )]
     Attach {
         bundle: PathBuf,
         layer: String,
-        #[arg(long, conflicts_with = "off", required_unless_present = "off")]
+        #[arg(long, conflicts_with_all = ["off", "bend"], required_unless_present_any = ["off", "bend"])]
         bone: Option<String>,
-        #[arg(long, help = "detach: the layer bends by the weights again")]
+        #[arg(
+            long,
+            conflicts_with = "off",
+            help = "bend with the skeleton by its weights, instead of following one bone"
+        )]
+        bend: bool,
+        #[arg(
+            long,
+            help = "the bones layer, when there is more than one",
+            required_if_eq("bend", "true")
+        )]
+        skeleton: Option<String>,
+        #[arg(long, help = "unrig: posing leaves the layer as it is")]
         off: bool,
         #[command(flatten)]
         flags: EditFlags,
@@ -2992,11 +3004,14 @@ fn run() -> Result<()> {
             bundle,
             layer,
             bone,
+            bend: _,
+            skeleton,
             off: _,
             flags,
         } => {
             let spec = klad_core::ops::AttachSpec {
                 layer: layer_id(&bundle, &layer)?,
+                skeleton,
                 bone,
             };
             agent::edit(&bundle, &[Op::Attach(spec)], &output(&flags, 0))?;

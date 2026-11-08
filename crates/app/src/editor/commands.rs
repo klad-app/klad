@@ -221,7 +221,11 @@ impl Editor {
                         .then(|| "the timeline has one frame: insert a frame first (I)".to_string())
                 }
             }),
-            Cmd::NewPaintLayer | Cmd::NewVectorLayer | Cmd::NewGroupLayer | Cmd::NewAdjustLayer => self.timeline_edit(),
+            Cmd::NewPaintLayer
+            | Cmd::NewVectorLayer
+            | Cmd::NewGroupLayer
+            | Cmd::NewBonesLayer
+            | Cmd::NewAdjustLayer => self.timeline_edit(),
             Cmd::Unwrap => match self.selection.as_deref().map(|id| self.scene.bundle.doc.item(id)) {
                 Some(Some(klad_core::doc::Item::Node(_, _, n))) if n.shape.generates() => None,
                 _ => Some("select a repeat, scatter or mirror with V first".to_string()),
@@ -621,6 +625,9 @@ impl Editor {
             }
             Cmd::NewPaintLayer => self.add_layer("paint")?,
             Cmd::NewGroupLayer => self.new_group(false)?,
+            Cmd::NewBonesLayer => {
+                self.new_skeleton()?;
+            }
             Cmd::NewAdjustLayer => {
                 self.add_layer_value(json!({"kind": "adjust", "name": "curves", "adjust": {"curves": {}}}))?
             }

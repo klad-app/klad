@@ -45,7 +45,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad foliage`](#klad-foliage): Paint closed shapes as clumps of leaves, lit as forms
 - [`klad bone`](#klad-bone): Add, remove, rename, move or reparent a bone of a layer's or group's skeleton
 - [`klad ik`](#klad-ik): Add, change or remove an IK on a bone: a limb (the bone and its parent) or an aim reaches for a target set per pose
-- [`klad attach`](#klad-attach): Attach a layer to a bone, so it moves with that bone alone when posed
+- [`klad attach`](#klad-attach): Rig a layer: attach it to a bone, let it bend with a skeleton, or unrig it
 - [`klad solo`](#klad-solo): Show only one layer: hide every other layer (its groups stay shown, its own layers as they are)
 - [`klad bones`](#klad-bones): List the skeletons, their bones and weights, and the posed drawings
 - [`klad weights`](#klad-weights): Set how much each bone moves each part of the drawing: automatic, painted dabs, a whole part, smoothed
@@ -848,7 +848,7 @@ Arguments:
           layer, cel, mask, rect, ellipse, path, group, rays, image, scatter, repeat, mirror or text
 
   [REST]...
-          For layers the kind first (paint, vector, group, image with src=photo.jpg, or adjust and its type: hsl, levels, curves, balance, gradient-map, fill), then key=value pairs
+          For layers the kind first (paint, vector, group, bones, image with src=photo.jpg, or adjust and its type: hsl, levels, curves, balance, gradient-map, fill), then key=value pairs
 
 Options:
       --in <INTO>
@@ -2259,12 +2259,13 @@ Options:
 ## klad attach
 
 ```text
-Attach a paint layer under a skeleton to one of its bones: posed, the whole layer moves rigidly with that bone, the way a cut-out arm follows its upper arm. Draw a character in pieces (upper arm, forearm, hand on their own layers), attach each to its bone and no weights are needed. A layer not attached bends by the weights instead (by distance to the bones, or as painted in the bone tool's weights mode): use that for a layer drawn in one piece across a joint. --off detaches a layer, so it bends again.
+Bones live on bones layers (klad add <bundle> layer bones, or Layer > New bones layer); a bones layer draws nothing. Any paint layer in the drawing can be rigged to one: attached to a bone (--bone), it moves rigidly with that bone when posed, the way a cut-out arm follows its upper arm, so a character drawn in pieces (upper arm, forearm, hand on their own layers) needs no weights; set to bend (--bend), each of its points moves by the skeleton's weights, for a layer drawn in one piece across a joint. --off unrigs it: posing leaves it as it is. --skeleton names the bones layer when the drawing has more than one (with --bone, the one that has that bone is found).
 
   klad attach art.klad forearm --bone fore
+  klad attach art.klad sleeve --bend --skeleton bones
   klad attach art.klad forearm --off
 
-Also an attach op: {"op":"attach","layer":"forearm","bone":"fore"}; without "bone" the layer bends by the weights. Renaming the bone keeps the layer on it; removing it leaves the layer bending.
+Also an attach op: {"op":"attach","layer":"forearm","bone":"fore"}; {"op":"attach","layer":"sleeve","skeleton":"bones"} bends; without either it unrigs. Renaming a bone keeps its layers on it; removing it unrigs them.
 
 Usage: klad attach [OPTIONS] <BUNDLE> <LAYER>
 
@@ -2279,8 +2280,14 @@ Options:
       --bone <BONE>
 
 
+      --bend
+          bend with the skeleton by its weights, instead of following one bone
+
+      --skeleton <SKELETON>
+          the bones layer, when there is more than one
+
       --off
-          detach: the layer bends by the weights again
+          unrig: posing leaves the layer as it is
 
       --render
           Render a preview after the edit and print its path

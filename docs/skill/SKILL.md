@@ -219,14 +219,16 @@ klad prepare art.klad                                                           
 
 ## Bones, poses and keys
 
-Draw a character once and pose it, instead of redrawing every frame. Put its paint layers (lines, colour, shading) in a group and give the group bones: the skeleton poses every layer in it together. Name parts as you draw (`"part"` on strokes and fills): they are what weights and the rig export use.
+Draw a character once and pose it, instead of redrawing every frame. Its skeleton goes on a bones layer of its own (it draws nothing), and its paint layers join it with `klad attach`: each follows one bone rigidly, or bends with the skeleton by the weights. Name parts as you draw (`"part"` on strokes and fills): they are what weights and the rig export use.
 
 ```bash
+klad add art.klad layer bones name=figure                    # the bones layer; the commands below name it
 klad bone art.klad figure --add body --head 400,590 --tail 400,360
 klad bone art.klad figure --add upper --parent body --head 452,392 --tail 560,360    # a child starts at its parent's end, or anywhere
 klad bone art.klad figure --chain thigh,shin,foot --through '390,590 395,700 385,810 425,815' --parent body   # each the child of the one before
 klad ik art.klad figure --add shin                           # a limb: shin and thigh reach for a target, bending as drawn
 klad attach art.klad forearm --bone fore                     # a layer drawn as its own piece moves with one bone, no weights
+klad attach art.klad lines --bend --skeleton figure          # a layer drawn in one piece bends by the weights
 klad weights art.klad figure --auto                          # blend from the bones, for layers that bend
 klad weights art.klad figure --bone head --part head         # a part held rigidly by one bone
 klad weights art.klad figure --bone upper --set '470,380,20,1 500,370,16,0.8'    # soft dabs: x,y,radius,weight
@@ -241,7 +243,7 @@ klad export art.klad --godot-rig game/art --godot-scene game/art
 - Angles are degrees from the rest pose, positive turning clockwise on screen; a child follows its parent. Pose from the rest drawing (`--from` its frame); posing a frame again re-poses it.
 - Fix a skeleton in place: `--move upper --tail 570,350` moves an end (children that start at that tail come along), `--move upper --by 10,0` moves a bone with all its children, `--reparent hand --parent fore` changes a parent. The user does the same in the bone tool: the skeleton list picks a bone, its ends and middle drag, a drag on empty canvas draws a chain (each click adds the next bone; Esc ends it), alt drag from an end starts a chain from there.
 - IK poses a limb by where its end goes: `klad ik --add shin` makes the shin and its parent a limb (`--chain 1` an aim: the bone alone points at the target), `--bend clockwise|counterclockwise|flip` picks the side the joint bends to (by default as drawn), `--softness 8` keeps a knee from snapping straight. Each pose then sets targets (`--target shin=x,y`, canvas px): the limb turns so the shin's tail lands there, and the target ignores `--root`, so a planted foot stays planted while the body bobs; `--mix shin=0.5` blends between the bones' own turns and the target. In-betweens move targets in straight lines, so plant feet with the same target in both keys and swing free limbs with turns instead. `klad bones` lists the constraints, each pose's targets and its solved turns.
-- Two ways to move a layer: attached (`klad attach <layer> --bone <bone>`) it moves rigidly with that bone, as a cut-out piece; not attached it bends by the weights. Draw limbs on their own layers and attach them when they should stay stiff; keep a layer drawn in one piece across a joint (a sleeve, a tail) unattached and paint its weights. `klad bones` says which layers follow which bone.
+- A paint layer moves with the bones only once it is rigged: attached (`klad attach <layer> --bone <bone>`) it moves rigidly with that bone, as a cut-out piece; set to bend (`--bend --skeleton <bones layer>`) each point moves by the weights; not rigged, posing leaves it alone. Draw limbs on their own layers and attach them when they should stay stiff; let a layer drawn in one piece across a joint (a sleeve, a tail) bend and paint its weights. Rigged layers can sit anywhere in the layer tree. `klad bones` says which layers follow which bone.
 - Automatic weights bend joints over a short stretch; hold rigid things (head, hands, props) with `--part`, or a stiff limb with dabs at 1. Look at `--overlay weights:<bone>` before posing.
 - Keys move whole layers, groups and shapes (`x`, `y`, `rotate`, `sx`, `sy`, `scale`, `opacity`) between frames with an ease (`linear`, `in`, `out`, `in-out`, `step`, or a curve `x1,y1,x2,y2`); a segment follows its first key's ease. A lantern that floats, a glow that pulses, a far plane that drifts: no drawing per frame.
 - Godot: `--godot` exports frames (always works), `--godot-rig` a Skeleton2D with Polygon2D parts and an AnimationPlayer per clip (only frames that are poses of the rest drawing; the others are listed), `--godot-scene` one Parallax2D per top-level layer scrolling by its depth. `samples/rig` builds all of it.

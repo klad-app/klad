@@ -412,7 +412,7 @@ fn layer_marks(layer: &Layer, frame: u32, depth: usize, out: &mut Vec<Mark>) -> 
             .children()
             .iter()
             .try_for_each(|c| layer_marks(c, frame, depth, out)),
-        Kind::Paint | Kind::Adjust => Ok(()),
+        Kind::Paint | Kind::Adjust | Kind::Bones => Ok(()),
     }
 }
 
@@ -548,7 +548,7 @@ fn layer_hits(layer: &Layer, frame: u32, point: (f32, f32), out: &mut Vec<(Strin
                 Ok(())
             })
         }
-        Kind::Paint | Kind::Adjust => Ok(()),
+        Kind::Paint | Kind::Adjust | Kind::Bones => Ok(()),
     }
 }
 

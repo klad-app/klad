@@ -1,4 +1,4 @@
-_Last updated: 2026-11-08 (format `klad/3`, stroke files `KLST` version 1, brushes `klad-brush/1`)_
+_Last updated: 2026-11-08 (format `klad/4`, stroke files `KLST` version 1, brushes `klad-brush/1`)_
 
 # The klad drawing format
 
@@ -16,7 +16,7 @@ klad is the reference: when this text and klad's renders disagree, klad is right
 | `brushes/images/<name>.png` | pictures that brushes use as tips or grain | when a brush names one klad does not have built in |
 | `images/<file>` | pictures placed by `image` nodes (PNG) | for every `src` |
 | `fonts/<file>` | fonts used by `text` nodes, with their licence files | for every `font` |
-| `weights/<owner>.weights` | how much each bone of a skeleton moves each part of the drawing | for every layer or group with `bones` |
+| `weights/<owner>.weights` | how much each bone of a skeleton moves each part of the drawing | for every bones layer with `bones` |
 | `.gitignore` | `.cache/`, so a drawing can live in a git repository | no |
 | `.cache/` | rebuildable pixels, the undo history, the editor's selection and pinned notes | no: never read it as data |
 
@@ -30,13 +30,13 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
 - **Colours** are `"#rrggbb"` or `"#rrggbbaa"`: sRGB, straight (not premultiplied) alpha.
 - **Ids** are unique across the whole document and use letters, digits, `-` and `_`. klad makes new ones from a prefix (`l` layer, `c` cel, `n` node) and `nextId`. Ids are case sensitive.
 - **JSON** is UTF-8, written pretty with a stable key order. Keys at their default value are left out; readers must take the defaults listed below for missing keys. Most objects reject keys they do not know, so writers must not add their own.
-- **Versions.** `format` names the version of `doc.json` and everything it implies; this is `klad/3`. Each version opens the older `klad/` drawings and migrates them in memory (written back on the next change). A reader that meets a newer version than it knows should refuse to write the bundle. Drawings from before `klad/1` (`.draw` folders, formats `draw-anything/0` to `/9`) do not open.
+- **Versions.** `format` names the version of `doc.json` and everything it implies; this is `klad/4`. Each version opens the older `klad/` drawings and migrates them in memory (written back on the next change). A reader that meets a newer version than it knows should refuse to write the bundle. Drawings from before `klad/1` (`.draw` folders, formats `draw-anything/0` to `/9`) do not open.
 
 ## doc.json
 
 ```json
 {
-  "format": "klad/3",
+  "format": "klad/4",
   "rev": 42,
   "canvas": { "width": 2048, "height": 2048, "background": "#f4efe6" },
   "timeline": { "fps": 12, "frames": 24, "origin": [1024, 1800],
@@ -60,7 +60,7 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `format` | string | | `"klad/3"` |
+| `format` | string | | `"klad/4"` |
 | `rev` | integer | | grows by one on every write |
 | `canvas` | object | | `width`, `height` (px), `background` (a colour; none is transparent) |
 | `timeline` | object | 12 fps, 1 frame | see below |
@@ -88,7 +88,7 @@ A clip is `name` (unique), `from` and `to` (both included), `loop` (false) and `
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `id`, `name` | string | | |
-| `kind` | string | | `paint`, `vector`, `group` or `adjust` |
+| `kind` | string | | `paint`, `vector`, `group`, `adjust` or `bones` |
 | `cels` | array | `[]` | paint and vector layers: the drawings on the timeline |
 | `children` | array | `[]` | groups: the layers inside, bottom first |
 | `adjust` | object | | adjustment layers: one adjustment (below) |
@@ -102,9 +102,9 @@ A clip is `name` (unique), `from` and `to` (both included), `loop` (false) and `
 | `effects` | array | `[]` | applied in order when the layer composes (below) |
 | `depth` | number | none | on a top-level layer or group: how far the plane is (0 near); drives the atmosphere and parallax |
 | `reference` | bool | false | shown in the editor, left out of renders and exports (pictures to trace) |
-| `bones` | array | `[]` | a skeleton (paint layers and groups, below) |
-| `ik` | array | `[]` | the skeleton's IK constraints (below) |
-| `bone` | string | none | on a paint layer under a skeleton: the bone it is attached to (below) |
+| `bones` | array | `[]` | bones layers: the skeleton (below) |
+| `ik` | array | `[]` | bones layers: the skeleton's IK constraints (below) |
+| `rig` | object | none | paint layers: the bones layer they move with, and the bone they follow (below) |
 | `keys` | object | `{}` | animated properties (below) |
 
 Layers compose bottom to top. Groups compose their children into one image, then blend that with the group's opacity and blend. An **adjustment layer** changes what is under it inside its group (or, with `clip`, only its base).
@@ -211,7 +211,7 @@ A key is `frame`, `value` and `ease` (`linear` when absent; `in`, `out`, `in-out
 
 ### Skeletons
 
-A paint layer or a group may have `bones`: each a `name` (unique in the skeleton), a `parent` (a bone listed before it; none for a root), a `head` and a `tail` (`[x, y]` in canvas px, at rest). A group's skeleton moves every paint layer in it together. A paint layer with `bone` (a bone of the nearest skeleton holding it: its own, or its nearest group's with bones) is attached to that bone: posed, it moves rigidly with that bone's frame alone, the way a cut-out limb follows its bone, and the weights do not touch it. A layer without `bone` bends by the weights. Each skeleton has a weights file (below). Posed drawings store their marks already bent (see `pose` above), so bones and weights are only needed to make new poses.
+A skeleton lives on a **bones layer** (`kind` `bones`), which draws nothing and has no cels: its `bones` are each a `name` (unique in the skeleton), a `parent` (a bone listed before it; none for a root), a `head` and a `tail` (`[x, y]` in canvas px, at rest). A paint layer anywhere in the drawing moves with a bones layer through its `rig`: `{"skeleton": "<bones layer id>", "bone": "<name>"}` attaches it to that bone, so posed it moves rigidly with that bone's frame alone, the way a cut-out limb follows its bone, and the weights do not touch it; without `bone` it bends by the skeleton's weights. A paint layer without `rig` is not moved by any pose. Each skeleton has a weights file (below). Posed drawings store their marks already bent (see `pose` above), so bones and weights are only needed to make new poses.
 
 A pose turns each bone about its head by its angle, its children with it, and moves the root bones by `root`. A bone's world turn is its angle plus its parent's world turn; a child's head moves with its parent's frame.
 
@@ -335,3 +335,4 @@ Drawing a stroke: walk the samples, interpolate between them, stamp the tip ever
 | `klad/1` | the first `.klad` format (2026-11). Drawings from before it, `.draw` folders in formats `draw-anything/0` to `/9` with stroke files marked `DAST`, do not open. |
 | `klad/2` | skeletons get `ik` constraints and poses their `ik` targets (2026-11-07). `klad/1` drawings open unchanged. |
 | `klad/3` | paint layers under a skeleton get `bone`, attaching them to one bone (2026-11-08). `klad/1` and `klad/2` drawings open unchanged. |
+| `klad/4` | skeletons move to bones layers, and paint layers join one with `rig` (2026-11-08). Older drawings open without their bones, IK, weights links and the `pose` of their cels; the drawings themselves, posed ones too, stay. |

@@ -148,6 +148,7 @@ impl Editor {
         };
         let kind = match self.scene.bundle.doc.layer(&s.layer).map(|l| l.kind()) {
             Some(Kind::Group) => "group",
+            Some(Kind::Bones) => "bones layer",
             _ => "layer",
         };
         ui.label(RichText::new(format!("transforming the {kind} {}", s.found.name)).strong());

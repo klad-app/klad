@@ -163,17 +163,25 @@ pub(super) fn pose_args(bundle: &std::path::Path, owner: &str, frame: u32, pose:
 impl Editor {
     pub(super) fn rig_owner(&self) -> Option<String> {
         let doc = &self.scene.bundle.doc;
-        let path = self.scene.active.clone();
-        (1..=path.len())
-            .rev()
-            .map(|n| doc.layer_at(&path[..n]))
-            .find(|l| !l.bones.is_empty())
-            .or_else(|| match path.len() {
-                0 => None,
-                1 => Some(doc.layer_at(&path)).filter(|l| matches!(l.kind(), Kind::Paint | Kind::Group)),
-                _ => Some(doc.layer_at(&path[..1])),
-            })
+        let active = doc.locate_path(&self.scene.active);
+        active
+            .filter(|l| l.kind() == Kind::Bones)
+            .or_else(|| active.and_then(|l| klad_core::rig::linked(doc, l)))
+            .or_else(|| klad_core::rig::skeletons(doc).into_iter().next())
             .map(|l| l.id.clone())
+    }
+
+    pub(super) fn new_skeleton(&mut self) -> Result<String> {
+        let taken: Vec<String> = klad_core::rig::skeletons(&self.scene.bundle.doc)
+            .iter()
+            .map(|s| s.name.clone())
+            .collect();
+        let name = std::iter::once("bones".to_string())
+            .chain((2..).map(|n| format!("bones {n}")))
+            .find(|n| !taken.contains(n))
+            .unwrap_or_default();
+        self.add_layer_value(serde_json::json!({"kind": "bones", "name": name}))?;
+        self.rig_owner().context("the bones layer was not made")
     }
 
     fn rig_bones(&self) -> Vec<Bone> {
@@ -240,7 +248,7 @@ impl Editor {
             self.bones.rests = Some((doc.rev, owner.clone(), weights, BTreeMap::new()));
         }
         let frame = self.scene.frame;
-        let wanted: Vec<(String, String)> = painted(&skeleton)
+        let wanted: Vec<(String, String)> = painted(doc, &skeleton.id)
             .iter()
             .filter_map(|layer| {
                 let cel = layer.content_at(frame)?;
@@ -262,7 +270,7 @@ impl Editor {
             }
         });
         let (weights, rests) = (&*weights, &*marks);
-        let made: Vec<PosedCel> = painted(&skeleton)
+        let made: Vec<PosedCel> = painted(&self.scene.bundle.doc, &skeleton.id)
             .into_iter()
             .filter_map(|layer| {
                 let cel = layer.content_at(frame)?;
@@ -273,7 +281,7 @@ impl Editor {
                     ..shown.clone()
                 };
                 let marks = klad_core::rig::Rig::new(&skeleton.bones, &skeleton.ik, weights, &pose)
-                    .following(layer.bone.as_deref())
+                    .following(layer.follows())
                     .pose(marks, canvas);
                 Some(PosedCel {
                     layer: layer.id.clone(),
@@ -310,20 +318,15 @@ impl Editor {
     }
 
     fn bends(&self) -> bool {
-        self.rig_owner()
-            .and_then(|o| {
-                self.scene
-                    .bundle
-                    .doc
-                    .layer(&o)
-                    .map(|s| painted(s).iter().any(|l| l.bone.is_none()))
-            })
-            .unwrap_or(true)
+        self.rig_owner().is_none_or(|o| {
+            painted(&self.scene.bundle.doc, &o)
+                .iter()
+                .any(|l| l.follows().is_none())
+        })
     }
 
     fn stored_pose(&self, owner: &str) -> Option<Pose> {
-        let layer = self.scene.bundle.doc.layer(owner)?;
-        painted(layer)
+        painted(&self.scene.bundle.doc, owner)
             .iter()
             .find_map(|l| l.content_at(self.scene.frame).and_then(|c| c.pose.clone()))
     }
@@ -456,9 +459,10 @@ impl Editor {
     }
 
     fn add_bone(&mut self, parent: Option<String>, head: [f32; 2], tail: [f32; 2]) -> Result<Bone> {
-        let owner = self
-            .rig_owner()
-            .context("pick the layer or group the bones go on first")?;
+        let owner = match self.rig_owner() {
+            Some(o) => o,
+            None => self.new_skeleton()?,
+        };
         let taken = self.rig_bones();
         let name = (1..)
             .map(|n| format!("bone {n}"))
@@ -571,7 +575,7 @@ impl Editor {
             .find(|k| k.bone == end)
             .map(|k| limb_of(&bones, k))
             .unwrap_or_default();
-        painted(&owner)
+        painted(&self.scene.bundle.doc, &owner.id)
             .first()
             .and_then(|l| {
                 l.cels()
@@ -1315,31 +1319,50 @@ impl Editor {
 
     fn attach_menu(&mut self, ui: &mut egui::Ui, picked: &str) -> Option<Later> {
         let owner = self.rig_owner()?;
-        let skeleton = self.scene.bundle.doc.layer(&owner)?;
-        let layers: Vec<(String, String, Option<String>)> = painted(skeleton)
+        let doc = &self.scene.bundle.doc;
+        let masks: Vec<&str> = doc
+            .all_layers()
             .iter()
-            .map(|l| (l.id.clone(), l.name.clone(), l.bone.clone()))
+            .filter_map(|l| l.mask.as_deref().map(|m| m.id.as_str()))
             .collect();
-        let on = layers.iter().filter(|l| l.2.as_deref() == Some(picked)).count();
+        let layers: Vec<(String, String, Option<klad_core::rig::Link>)> = doc
+            .all_layers()
+            .iter()
+            .filter(|l| l.kind() == Kind::Paint && !masks.contains(&l.id.as_str()))
+            .map(|l| (l.id.clone(), l.name.clone(), l.rig.clone()))
+            .collect();
+        let mine = |link: &Option<klad_core::rig::Link>| {
+            link.as_ref()
+                .is_some_and(|k| k.skeleton == owner && k.bone.as_deref() == Some(picked))
+        };
+        let on = layers.iter().filter(|l| mine(&l.2)).count();
         let mut chosen = None;
         ui.menu_button(format!("layers: {on}"), |ui| {
-            layers.iter().for_each(|(id, name, bone)| {
-                let mut checked = bone.as_deref() == Some(picked);
-                let label = match bone {
-                    Some(b) if b != picked => format!("{name} (follows {b})"),
-                    _ => name.clone(),
+            layers.iter().for_each(|(id, name, link)| {
+                let mut checked = mine(link);
+                let label = match link.as_ref().filter(|_| !checked) {
+                    Some(klad_core::rig::Link { bone: Some(b), .. }) => format!("{name} (follows {b})"),
+                    Some(_) => format!("{name} (bends)"),
+                    None => name.clone(),
                 };
                 if ui.checkbox(&mut checked, label).changed() {
-                    chosen = Some((id.clone(), checked.then(|| picked.to_string())));
+                    chosen = Some((id.clone(), checked));
                 }
             });
         })
         .response
         .hint(format!(
-            "the layers that move with {picked} alone when posed; a layer attached to no bone bends by the weights"
+            "the layers that move with {picked} alone when posed; a layer's bone button in the layers panel can also make it bend with the skeleton"
         ));
-        chosen.map(|(layer, bone)| -> Later {
-            Box::new(move |e| e.apply(vec![Op::Attach(klad_core::ops::AttachSpec { layer, bone })]))
+        let (skeleton, bone) = (owner.clone(), picked.to_string());
+        chosen.map(|(layer, on)| -> Later {
+            Box::new(move |e| {
+                e.apply(vec![Op::Attach(klad_core::ops::AttachSpec {
+                    layer,
+                    skeleton: on.then_some(skeleton),
+                    bone: on.then_some(bone),
+                })])
+            })
         })
     }
 
@@ -1347,38 +1370,14 @@ impl Editor {
         let bones = self.rig_bones();
         let doc = &self.scene.bundle.doc;
         if bones.is_empty() {
-            let owners: Vec<(String, String)> = doc
-                .all_layers()
-                .into_iter()
-                .filter(|l| !l.bones.is_empty())
-                .map(|l| (l.id.clone(), l.name.clone()))
-                .collect();
-            if owners.is_empty() {
-                ui.label(RichText::new("no skeleton yet").color(theme::WEAK));
-                return None;
-            }
-            let here = self
-                .scene
-                .active_layer()
-                .map_or("this layer".to_string(), |l| l.name.clone());
-            ui.label(RichText::new(format!("{here} has no bones; skeletons are on")).color(theme::WEAK));
-            return owners.into_iter().fold(None, |run, (id, name)| {
-                let clicked = ui
-                    .button(format!("{} {name}", theme::icon::BONE))
-                    .hint(format!("make {name} the active layer to see and edit its bones"))
-                    .clicked();
-                run.or_else(|| {
-                    clicked.then(|| -> Later {
-                        Box::new(move |e| {
-                            let Some(klad_core::doc::Loc::Layer(path)) = e.scene.bundle.doc.locate(&id) else {
-                                bail!("that layer is gone");
-                            };
-                            e.pick_bone(None);
-                            e.activate(path)
-                        })
-                    })
-                })
-            });
+            match self.rig_owner().and_then(|o| doc.layer(&o)) {
+                Some(skeleton) => ui
+                    .label(RichText::new(format!("{} has no bones yet: drag on the canvas", skeleton.name)).color(theme::WEAK)),
+                None => ui
+                    .label(RichText::new("no bones layer yet: drawing a bone makes one").color(theme::WEAK))
+                    .hint("a bones layer holds a skeleton and draws nothing; every paint layer can follow one of its bones, or bend with it"),
+            };
+            return None;
         }
         let owner = self
             .rig_owner()

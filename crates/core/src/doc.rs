@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const FORMAT: &str = "klad/3";
+pub const FORMAT: &str = "klad/4";
 pub const MAX_SIZE: u32 = 16384;
 pub const MASK: usize = usize::MAX;
 
@@ -150,7 +150,7 @@ pub struct Layer {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ik: Vec<crate::rig::Ik>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bone: Option<String>,
+    pub rig: Option<crate::rig::Link>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub keys: crate::keys::Keys,
 }
@@ -173,6 +173,7 @@ pub enum LayerContent {
     Adjust {
         adjust: Adjustment,
     },
+    Bones {},
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -181,6 +182,7 @@ pub enum Kind {
     Vector,
     Group,
     Adjust,
+    Bones,
 }
 
 impl Kind {
@@ -190,6 +192,7 @@ impl Kind {
             Kind::Vector => "vector",
             Kind::Group => "group",
             Kind::Adjust => "adjust",
+            Kind::Bones => "bones",
         }
     }
 }
@@ -526,7 +529,7 @@ impl Layer {
             reference: false,
             bones: Vec::new(),
             ik: Vec::new(),
-            bone: None,
+            rig: None,
             keys: BTreeMap::new(),
         }
     }
@@ -555,12 +558,21 @@ impl Layer {
         Self::with(id, name, LayerContent::Adjust { adjust })
     }
 
+    pub fn skeleton(id: &str, name: &str) -> Self {
+        Self::with(id, name, LayerContent::Bones {})
+    }
+
+    pub fn follows(&self) -> Option<&str> {
+        self.rig.as_ref().and_then(|r| r.bone.as_deref())
+    }
+
     pub fn kind(&self) -> Kind {
         match self.content {
             LayerContent::Paint { .. } => Kind::Paint,
             LayerContent::Vector { .. } => Kind::Vector,
             LayerContent::Group { .. } => Kind::Group,
             LayerContent::Adjust { .. } => Kind::Adjust,
+            LayerContent::Bones {} => Kind::Bones,
         }
     }
 
@@ -578,14 +590,14 @@ impl Layer {
     pub fn cels(&self) -> &[Cel] {
         match &self.content {
             LayerContent::Paint { cels } | LayerContent::Vector { cels } => cels,
-            LayerContent::Group { .. } | LayerContent::Adjust { .. } => &[],
+            LayerContent::Group { .. } | LayerContent::Adjust { .. } | LayerContent::Bones {} => &[],
         }
     }
 
     pub fn cels_mut(&mut self) -> Option<&mut Vec<Cel>> {
         match &mut self.content {
             LayerContent::Paint { cels } | LayerContent::Vector { cels } => Some(cels),
-            LayerContent::Group { .. } | LayerContent::Adjust { .. } => None,
+            LayerContent::Group { .. } | LayerContent::Adjust { .. } | LayerContent::Bones {} => None,
         }
     }
 
@@ -1238,16 +1250,20 @@ impl Document {
                 .try_for_each(|(c, p)| {
                     crate::rig::check_pose(p).with_context(|| format!("layer {}: cel {}", layer.id, c.id))
                 })?;
-            if let Some(bone) = &layer.bone {
+            if let Some(link) = &layer.rig {
                 if layer.kind() != Kind::Paint {
-                    bail!("layer {}: only paint layers follow a bone", layer.id);
+                    bail!("layer {}: only paint layers are rigged", layer.id);
                 }
-                let Some(Loc::Layer(path)) = self.locate(&layer.id) else {
-                    bail!("layer {} is not in the drawing", layer.id);
-                };
-                let owner = crate::rig::skeleton_of(self, &path)
-                    .ok_or_else(|| anyhow!("layer {}: follows bone {bone}, but no skeleton holds it", layer.id))?;
-                if !owner.bones.iter().any(|b| &b.name == bone) {
+                let owner = crate::rig::linked(self, layer).ok_or_else(|| {
+                    anyhow!(
+                        "layer {}: rigged to {}, which is not a bones layer",
+                        layer.id,
+                        link.skeleton
+                    )
+                })?;
+                if let Some(bone) = &link.bone
+                    && !owner.bones.iter().any(|b| &b.name == bone)
+                {
                     bail!(
                         "layer {}: follows bone {bone}, which {} does not have",
                         layer.id,
@@ -1256,8 +1272,8 @@ impl Document {
                 }
             }
             if !layer.bones.is_empty() || !layer.ik.is_empty() {
-                if !matches!(layer.kind(), Kind::Paint | Kind::Group) {
-                    bail!("layer {}: bones go on a paint layer or a group", layer.id);
+                if layer.kind() != Kind::Bones {
+                    bail!("layer {}: bones go on a bones layer", layer.id);
                 }
                 crate::rig::check(&layer.bones).with_context(|| format!("layer {}", layer.id))?;
                 crate::rig::check_ik(&layer.bones, &layer.ik).with_context(|| format!("layer {}", layer.id))?;
