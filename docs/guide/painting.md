@@ -12,7 +12,7 @@ Press **B** and paint on a paint layer. **E** switches to the eraser and back, a
 
 ## Pick a brush and a colour
 
-Click a brush in the colour and brush pane: Inking pen, Pencil and Marker for lines, Oil, Loaded oil and the bristle brushes for paint. Hold **alt** and click the canvas to pick up a colour from it.
+Click a brush in the **Brush** pane: Inking pen, Pencil and Marker for lines, Oil, Loaded oil and the bristle brushes for paint. Hold **alt** and click the canvas to pick up a colour from it.
 
 ## Blend colours
 

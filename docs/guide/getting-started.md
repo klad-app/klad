@@ -23,7 +23,7 @@ There's no save command: klad writes every change to the drawing as you make it.
 
 1. Press **B** and paint a few strokes.
 2. Press **S** and click one of them.
-3. Pick another colour in the colour and brush pane.
+3. Pick another colour in the **Colour** pane.
 4. In the bar next to the selection, click the palette button. The stroke takes the new colour and keeps its shape and pressure.
 5. Press **cmd Z** to undo that, and **cmd shift Z** to redo it.
 
