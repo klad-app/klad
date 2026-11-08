@@ -21,7 +21,8 @@ struct Key {
     b: String,
     a_frame: u32,
     plan: Plan,
-    parts: Vec<String>,
+    names: Vec<String>,
+    parts: tween::Parts,
     unpaired: Unpaired,
 }
 
@@ -39,15 +40,7 @@ fn parts_of(doc: &Document, cel: &str) -> BTreeMap<String, Vec<u32>> {
     }
 }
 
-type Group = (Vec<u32>, Vec<u32>);
 type Line = Vec<(f32, f32)>;
-
-fn shared_parts(doc: &Document, a: &str, b: &str) -> (Vec<String>, Vec<Group>) {
-    let (pa, pb) = (parts_of(doc, a), parts_of(doc, b));
-    pa.iter()
-        .filter_map(|(name, xs)| pb.get(name).map(|ys| (name.clone(), (xs.clone(), ys.clone()))))
-        .unzip()
-}
 
 fn key(
     bundle: &Bundle,
@@ -56,7 +49,10 @@ fn key(
     a_frame: u32,
     (how, pairs, unpaired): (Match, &[[u32; 2]], Unpaired),
 ) -> Result<Key> {
-    let (names, groups) = shared_parts(&bundle.doc, a, b);
+    let parts = tween::Parts {
+        a: parts_of(&bundle.doc, a),
+        b: parts_of(&bundle.doc, b),
+    };
     Ok(Key {
         layer: layer.id.clone(),
         name: layer.name.clone(),
@@ -68,9 +64,10 @@ fn key(
             &bundle.read_marks(&layer.id, b)?,
             how,
             pairs,
-            &groups,
+            &parts,
         ),
-        parts: names,
+        names: parts.shared().into_iter().map(|(n, _, _)| n).collect(),
+        parts,
         unpaired,
     })
 }
@@ -215,23 +212,57 @@ fn pairing_notes(key: &Key, notes: &mut Vec<String>) {
         p.pairs.len(),
         key.plan.floods().len()
     );
-    if !key.parts.is_empty() {
-        line.push_str(&format!(", by part first: {}", key.parts.join(", ")));
+    if !key.names.is_empty() {
+        line.push_str(&format!(", by part first: {}", key.names.join(", ")));
     }
     let touching = key.plan.touching_ends();
     if touching > 0 {
         line.push_str(&format!(", {touching} line ends kept touching"));
     }
     notes.push(line);
-    let alone: Vec<String> = p
-        .alone_a
-        .iter()
-        .map(|id| format!("{} (only in the first key)", address(&key.a, *id)))
-        .chain(
-            p.alone_b
+    let (inside, joined) = key.plan.fill_rides();
+    if inside + joined > 0 {
+        notes.push(format!(
+            "  lasso fills riding the fills they overlap: {inside} inside another, {joined} joined to one"
+        ));
+    }
+    let by_part = |ids: &[u32], parts: &BTreeMap<String, Vec<u32>>, which: &str| -> Vec<String> {
+        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+        ids.iter().for_each(|id| {
+            let name = parts
                 .iter()
-                .map(|id| format!("{} (only in the second key)", address(&key.b, *id))),
-        )
+                .find(|(_, members)| members.contains(id))
+                .map_or("no part".to_string(), |(n, _)| format!("part {n:?}"));
+            *counts.entry(name).or_default() += 1;
+        });
+        counts
+            .into_iter()
+            .map(|(name, n)| {
+                format!(
+                    "{n} mark{} of {name} (only in the {which} key)",
+                    if n == 1 { "" } else { "s" }
+                )
+            })
+            .collect()
+    };
+    let lone: Vec<String> = match p.alone_a.len() + p.alone_b.len() > 12 {
+        true => by_part(&p.alone_a, &key.parts.a, "first")
+            .into_iter()
+            .chain(by_part(&p.alone_b, &key.parts.b, "second"))
+            .collect(),
+        false => p
+            .alone_a
+            .iter()
+            .map(|id| format!("{} (only in the first key)", address(&key.a, *id)))
+            .chain(
+                p.alone_b
+                    .iter()
+                    .map(|id| format!("{} (only in the second key)", address(&key.b, *id))),
+            )
+            .collect(),
+    };
+    let alone: Vec<String> = lone
+        .into_iter()
         .chain(p.clashes.iter().map(|(x, y)| {
             format!(
                 "{} and {} (one is a stroke or lasso fill, the other not)",

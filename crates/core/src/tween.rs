@@ -328,6 +328,11 @@ fn xy(points: &[P]) -> Vec<(f64, f64)> {
 
 pub type Lines = Vec<Vec<(f32, f32)>>;
 
+type Ring = Vec<(f64, f64)>;
+
+const RIDE: f64 = 1.5;
+const REACH: f64 = 60.0;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Anchor {
     pub line: usize,
@@ -617,7 +622,27 @@ fn shape_cost(a: &Mark, b: &Mark) -> (f64, bool) {
     }
 }
 
-pub type Groups = [(Vec<u32>, Vec<u32>)];
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Parts {
+    pub a: BTreeMap<String, Vec<u32>>,
+    pub b: BTreeMap<String, Vec<u32>>,
+}
+
+impl Parts {
+    pub fn shared(&self) -> Vec<(String, Vec<u32>, Vec<u32>)> {
+        self.a
+            .iter()
+            .filter_map(|(name, xs)| self.b.get(name).map(|ys| (name.clone(), xs.clone(), ys.clone())))
+            .collect()
+    }
+
+    fn named(parts: &BTreeMap<String, Vec<u32>>) -> BTreeMap<u32, &str> {
+        parts
+            .iter()
+            .flat_map(|(name, ids)| ids.iter().map(move |id| (*id, name.as_str())))
+            .collect()
+    }
+}
 
 fn nearest(free_a: &[&Mark], free_b: &[&Mark], xs: &[u32], ys: &[u32]) -> Vec<(u32, u32, bool)> {
     let mut costs: Vec<(f64, u32, u32, bool)> = free_a
@@ -652,10 +677,12 @@ fn nearest(free_a: &[&Mark], free_b: &[&Mark], xs: &[u32], ys: &[u32]) -> Vec<(u
 }
 
 pub fn pair(a: &[Mark], b: &[Mark], how: Match, forced: &[[u32; 2]]) -> Pairing {
-    pair_parts(a, b, how, forced, &[])
+    pair_parts(a, b, how, forced, &Parts::default())
 }
 
-pub fn pair_parts(a: &[Mark], b: &[Mark], how: Match, forced: &[[u32; 2]], parts: &Groups) -> Pairing {
+pub fn pair_parts(a: &[Mark], b: &[Mark], how: Match, forced: &[[u32; 2]], parts: &Parts) -> Pairing {
+    let (in_a, in_b) = (Parts::named(&parts.a), Parts::named(&parts.b));
+    let apart = |x: u32, y: u32| matches!((in_a.get(&x), in_b.get(&y)), (Some(p), Some(q)) if p != q);
     let mut out = Pairing::default();
     let mut free_a: Vec<&Mark> = a.iter().collect();
     let mut free_b: Vec<&Mark> = b.iter().collect();
@@ -681,7 +708,7 @@ pub fn pair_parts(a: &[Mark], b: &[Mark], how: Match, forced: &[[u32; 2]], parts
     forced
         .iter()
         .for_each(|[x, y]| take(&mut out, &mut free_a, &mut free_b, *x, *y, false));
-    parts.iter().for_each(|(xs, ys)| {
+    parts.shared().iter().for_each(|(_, xs, ys)| {
         [Sort::Stroke, Sort::Polygon, Sort::Flood].iter().for_each(|sort| {
             let mine = |free: &[&Mark], ids: &[u32]| -> Vec<u32> {
                 free.iter()
@@ -703,6 +730,7 @@ pub fn pair_parts(a: &[Mark], b: &[Mark], how: Match, forced: &[[u32; 2]], parts
         Match::Id => {
             let ids: Vec<u32> = free_a.iter().map(|m| m.id()).collect();
             ids.iter()
+                .filter(|&&id| !apart(id, id))
                 .for_each(|&id| take(&mut out, &mut free_a, &mut free_b, id, id, false));
         }
         Match::Order => {
@@ -711,6 +739,7 @@ pub fn pair_parts(a: &[Mark], b: &[Mark], how: Match, forced: &[[u32; 2]], parts
                 let ys: Vec<u32> = free_b.iter().filter(|m| sort_of(m) == *sort).map(|m| m.id()).collect();
                 xs.iter()
                     .zip(&ys)
+                    .filter(|(x, y)| !apart(**x, **y))
                     .for_each(|(&x, &y)| take(&mut out, &mut free_a, &mut free_b, x, y, false));
             });
         }
@@ -721,6 +750,7 @@ pub fn pair_parts(a: &[Mark], b: &[Mark], how: Match, forced: &[[u32; 2]], parts
             );
             nearest(&free_a, &free_b, &xs, &ys)
                 .into_iter()
+                .filter(|(x, y, _)| !apart(*x, *y))
                 .for_each(|(x, y, rev)| take(&mut out, &mut free_a, &mut free_b, x, y, rev));
         }
     }
@@ -749,8 +779,30 @@ struct StrokePlan {
     own: Sim,
     rel: Sim,
     parent: Option<usize>,
+    carrier: Option<Sim>,
     rest: Vec<(f64, f64)>,
     touches: [Option<Touch>; 2],
+}
+
+const TOUCH: f64 = 2.0;
+const INSIDE: f64 = 0.9;
+const ROUND: f64 = 0.5;
+const FITS: f64 = 0.15;
+const TURNS_WITH: f64 = 30.0;
+const SLACK: f64 = 0.1;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Ride {
+    Own,
+    Inside {
+        on: usize,
+        rel: Option<Sim>,
+    },
+    Joined {
+        on: usize,
+        at: ((f64, f64), (f64, f64)),
+        slack: f64,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -758,8 +810,174 @@ struct ShapePlan {
     a: Fill,
     b: Fill,
     pa: Vec<(f64, f64)>,
+    pb: Vec<(f64, f64)>,
     fit: Sim,
     rest: Vec<(f64, f64)>,
+    ride: Ride,
+}
+
+fn sq(v: f64) -> f64 {
+    v * v
+}
+
+fn ring(points: &[(f64, f64)]) -> &[(f64, f64)] {
+    &points[..points.len().saturating_sub(1)]
+}
+
+fn centre(points: &[(f64, f64)]) -> (f64, f64) {
+    let n = points.len().max(1) as f64;
+    points.iter().fold((0.0, 0.0), |(x, y), p| (x + p.0 / n, y + p.1 / n))
+}
+
+fn spread(points: &[(f64, f64)]) -> f64 {
+    let c = centre(points);
+    points.iter().map(|p| sq(p.0 - c.0) + sq(p.1 - c.1)).sum()
+}
+
+fn area(points: &[(f64, f64)]) -> f64 {
+    points
+        .iter()
+        .zip(points.iter().cycle().skip(1))
+        .map(|(p, q)| p.0 * q.1 - q.0 * p.1)
+        .sum::<f64>()
+        .abs()
+        / 2.0
+}
+
+fn roundness(points: &[(f64, f64)]) -> f64 {
+    let c = centre(points);
+    let (xx, yy, xy) = points.iter().fold((0.0, 0.0, 0.0), |(a, b, d), p| {
+        let (dx, dy) = (p.0 - c.0, p.1 - c.1);
+        (a + dx * dx, b + dy * dy, d + dx * dy)
+    });
+    let (half, det) = ((xx + yy) / 2.0, xx * yy - xy * xy);
+    let gap = libm::sqrt((half * half - det).max(0.0));
+    if half + gap <= 0.0 {
+        1.0
+    } else {
+        (half - gap) / (half + gap)
+    }
+}
+
+fn inside(at: (f64, f64), ring: &[(f64, f64)]) -> bool {
+    ring.iter()
+        .zip(ring.iter().cycle().skip(1))
+        .filter(|(p, q)| (p.1 > at.1) != (q.1 > at.1) && at.0 < p.0 + (at.1 - p.1) * (q.0 - p.0) / (q.1 - p.1))
+        .count()
+        % 2
+        == 1
+}
+
+fn edge(at: (f64, f64), ring: &[(f64, f64)]) -> f64 {
+    ring.iter()
+        .zip(ring.iter().cycle().skip(1))
+        .map(|(p, q)| {
+            let (dx, dy) = (q.0 - p.0, q.1 - p.1);
+            let span = dx * dx + dy * dy;
+            let t = if span < 1e-12 {
+                0.0
+            } else {
+                (((at.0 - p.0) * dx + (at.1 - p.1) * dy) / span).clamp(0.0, 1.0)
+            };
+            dist(at, (p.0 + dx * t, p.1 + dy * t))
+        })
+        .fold(f64::MAX, f64::min)
+}
+
+fn boxed(ring: &[(f64, f64)]) -> (f64, f64, f64, f64) {
+    ring.iter().fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |b, p| {
+        (b.0.min(p.0), b.1.min(p.1), b.2.max(p.0), b.3.max(p.1))
+    })
+}
+
+fn held(child: &[(f64, f64)], parent: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    let (x0, y0, x1, y1) = boxed(parent);
+    child
+        .iter()
+        .copied()
+        .filter(|p| p.0 >= x0 - TOUCH && p.0 <= x1 + TOUCH && p.1 >= y0 - TOUCH && p.1 <= y1 + TOUCH)
+        .filter(|&p| inside(p, parent) || edge(p, parent) <= TOUCH)
+        .collect()
+}
+
+fn share(child: &[(f64, f64)], parent: &[(f64, f64)]) -> f64 {
+    held(child, parent).len() as f64 / child.len().max(1) as f64
+}
+
+fn touching(x: &[(f64, f64)], y: &[(f64, f64)]) -> bool {
+    let (a, b) = (boxed(x), boxed(y));
+    let apart = a.0 > b.2 + TOUCH || b.0 > a.2 + TOUCH || a.1 > b.3 + TOUCH || b.1 > a.3 + TOUCH;
+    !apart && (!held(x, y).is_empty() || !held(y, x).is_empty())
+}
+
+fn meeting(child: &[(f64, f64)], parent: &[(f64, f64)]) -> (f64, f64) {
+    let found = held(child, parent);
+    match found.is_empty() {
+        false => centre(&found),
+        true => child
+            .iter()
+            .copied()
+            .min_by(|p, q| edge(*p, parent).total_cmp(&edge(*q, parent)))
+            .unwrap_or((0.0, 0.0)),
+    }
+}
+
+fn shifted(points: &[(f64, f64)], k: usize) -> Vec<(f64, f64)> {
+    let r = ring(points);
+    r[k..].iter().chain(&r[..k]).chain(r.get(k)).copied().collect()
+}
+
+fn misfits(pa: &[(f64, f64)], pb: &[(f64, f64)]) -> Vec<f64> {
+    let centred = |v: &[(f64, f64)]| {
+        let c = centre(v);
+        v.iter().map(|p| (p.0 - c.0, p.1 - c.1)).collect::<Vec<_>>()
+    };
+    let (a, b) = (centred(ring(pa)), centred(ring(pb)));
+    let (na, nb) = (spread(ring(pa)), spread(ring(pb)));
+    (0..b.len())
+        .map(|k| {
+            let (re, im) = a.iter().enumerate().fold((0.0, 0.0), |(re, im), (i, p)| {
+                let q = b[(i + k) % b.len()];
+                (re + p.0 * q.0 + p.1 * q.1, im + p.0 * q.1 - p.1 * q.0)
+            });
+            if na < 1e-9 { nb } else { nb - (re * re + im * im) / na }
+        })
+        .collect()
+}
+
+fn turn(s: &Sim) -> f64 {
+    libm::atan2(s.m.1, s.m.0) * (180.0 / std::f64::consts::PI)
+}
+
+fn turned_apart(a: f64, b: f64) -> f64 {
+    ((a - b).rem_euclid(360.0) + 180.0).rem_euclid(360.0) - 180.0
+}
+
+fn start_with(pa: &[(f64, f64)], pb: &[(f64, f64)], turning: f64) -> (usize, f64, Sim) {
+    let e = misfits(pa, pb);
+    let best = e.iter().copied().fold(f64::MAX, f64::min);
+    let floor = 1e-9 * spread(ring(pb));
+    (0..e.len())
+        .filter(|&k| e[k] <= 2.0 * best + floor)
+        .map(|k| (k, e[k], fit(pa, &shifted(pb, k))))
+        .min_by(|x, y| {
+            turned_apart(turn(&x.2), turning)
+                .abs()
+                .total_cmp(&turned_apart(turn(&y.2), turning).abs())
+                .then(x.1.total_cmp(&y.1))
+                .then(x.0.cmp(&y.0))
+        })
+        .unwrap_or((0, e.first().copied().unwrap_or(0.0), fit(pa, pb)))
+}
+
+fn rest_of(pa: &[(f64, f64)], pb: &[(f64, f64)], f: &Sim) -> Vec<(f64, f64)> {
+    pa.iter()
+        .zip(pb)
+        .map(|(p, q)| {
+            let m = f.apply(*p);
+            (q.0 - m.0, q.1 - m.1)
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -773,6 +991,7 @@ enum Item {
 pub struct Plan {
     items: Vec<Item>,
     order: Vec<usize>,
+    fills: Vec<usize>,
     pub pairing: Pairing,
     alone: (Vec<Mark>, Vec<Mark>),
 }
@@ -820,10 +1039,10 @@ fn touch_of(
 }
 
 pub fn plan(a: &[Mark], b: &[Mark], how: Match, forced: &[[u32; 2]]) -> Plan {
-    plan_parts(a, b, how, forced, &[])
+    plan_parts(a, b, how, forced, &Parts::default())
 }
 
-pub fn plan_parts(a: &[Mark], b: &[Mark], how: Match, forced: &[[u32; 2]], parts: &Groups) -> Plan {
+pub fn plan_parts(a: &[Mark], b: &[Mark], how: Match, forced: &[[u32; 2]], parts: &Parts) -> Plan {
     let pairing = pair_parts(a, b, how, forced, parts);
     let find = |marks: &[Mark], id: u32| marks.iter().find(|m| m.id() == id).cloned();
     let items: Vec<Item> = pairing
@@ -849,6 +1068,7 @@ pub fn plan_parts(a: &[Mark], b: &[Mark], how: Match, forced: &[[u32; 2]], parts
                     own,
                     rel: own,
                     parent: None,
+                    carrier: None,
                     rest,
                     touches: [None, None],
                 })
@@ -863,8 +1083,10 @@ pub fn plan_parts(a: &[Mark], b: &[Mark], how: Match, forced: &[[u32; 2]], parts
                         a: fa,
                         b: fb,
                         pa: xy(&pa),
+                        pb: xy(&pb),
                         fit,
                         rest,
+                        ride: Ride::Own,
                     })
                 }
                 _ => Item::Flood { a: fa, b: fb },
@@ -887,11 +1109,13 @@ pub fn plan_parts(a: &[Mark], b: &[Mark], how: Match, forced: &[[u32; 2]], parts
     let mut plan = Plan {
         items,
         order: Vec::new(),
+        fills: Vec::new(),
         pairing,
         alone,
     };
     plan.find_touches();
     plan.link_parents();
+    plan.link_fills();
     plan
 }
 
@@ -945,43 +1169,83 @@ impl Plan {
             Item::Stroke(s) => Some(s),
             _ => None,
         };
-        let mut next: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-        strokes.iter().for_each(|&i| {
-            stroke(i)
-                .into_iter()
-                .flat_map(|s| s.touches.iter().flatten())
-                .for_each(|t| {
-                    next.entry(i).or_default().push(t.other);
-                    next.entry(t.other).or_default().push(i);
-                });
-        });
-        next.values_mut().for_each(|v| {
-            v.sort_unstable();
-            v.dedup();
-        });
         let length = |i: usize| stroke(i).map_or(0.0, |s| walked(&s.pa).last().copied().unwrap_or(0.0));
-        let mut roots = strokes.clone();
-        roots.sort_by(|x, y| length(*y).total_cmp(&length(*x)).then(x.cmp(y)));
-        let mut parent: Vec<Option<usize>> = vec![None; self.items.len()];
-        let mut seen = vec![false; self.items.len()];
-        let mut order = Vec::new();
-        roots.into_iter().for_each(|root| {
-            if seen[root] {
-                return;
-            }
-            seen[root] = true;
-            let mut queue = std::collections::VecDeque::from([root]);
-            while let Some(i) = queue.pop_front() {
-                order.push(i);
-                next.get(&i).into_iter().flatten().for_each(|&n| {
-                    if !seen[n] {
-                        seen[n] = true;
-                        parent[n] = Some(i);
-                        queue.push_back(n);
-                    }
-                });
-            }
-        });
+        let centre = |i: usize| {
+            stroke(i).map_or((0.0, 0.0), |s| {
+                let n = s.pa.len().max(1) as f64;
+                let (x, y) = s.pa.iter().fold((0.0, 0.0), |(x, y), p| (x + p.x, y + p.y));
+                (x / n, y / n)
+            })
+        };
+        let parent: BTreeMap<usize, usize> = strokes
+            .iter()
+            .filter_map(|&i| {
+                let mine = length(i);
+                stroke(i)?
+                    .touches
+                    .iter()
+                    .flatten()
+                    .map(|t| t.other)
+                    .filter(|&o| length(o) > mine && length(o) >= RIDE * mine)
+                    .max_by(|x, y| length(*x).total_cmp(&length(*y)).then(y.cmp(x)))
+                    .map(|p| (i, p))
+            })
+            .collect();
+        let cell = |p: (f64, f64)| ((p.0 / REACH).floor() as i64, (p.1 / REACH).floor() as i64);
+        let mut grid: BTreeMap<(i64, i64), Vec<usize>> = BTreeMap::new();
+        strokes
+            .iter()
+            .for_each(|&i| grid.entry(cell(centre(i))).or_default().push(i));
+        let carriers: BTreeMap<usize, Sim> = strokes
+            .iter()
+            .filter(|i| !parent.contains_key(i))
+            .filter_map(|&i| {
+                let s = stroke(i)?;
+                let c = centre(i);
+                let (gx, gy) = cell(c);
+                let mut near: Vec<usize> = (gx - 1..=gx + 1)
+                    .flat_map(|x| (gy - 1..=gy + 1).map(move |y| (x, y)))
+                    .filter_map(|k| grid.get(&k))
+                    .flatten()
+                    .copied()
+                    .filter(|&j| dist(centre(j), c) <= REACH)
+                    .collect();
+                near.sort_unstable();
+                let guess: Vec<(usize, (f64, f64))> = near
+                    .iter()
+                    .filter_map(|&j| stroke(j).map(|o| (j, o.own.apply(c))))
+                    .collect();
+                let here = s.own.apply(c);
+                let close = |to: (f64, f64)| -> Vec<usize> {
+                    let reach = (0.15 * dist(to, c)).max(6.0);
+                    guess
+                        .iter()
+                        .filter(|(_, q)| dist(*q, to) <= reach)
+                        .map(|(j, _)| *j)
+                        .collect()
+                };
+                let mut kept = close(here);
+                if kept.len() < 3 {
+                    let middle = |pick: fn(&(f64, f64)) -> f64| {
+                        let mut v: Vec<f64> = guess.iter().map(|(_, q)| pick(q)).collect();
+                        v.sort_by(f64::total_cmp);
+                        v.get(v.len() / 2).copied().unwrap_or(0.0)
+                    };
+                    kept = close((middle(|q| q.0), middle(|q| q.1)));
+                }
+                if kept.len() < 2 {
+                    return None;
+                }
+                let (from, to): (Ring, Ring) = kept
+                    .iter()
+                    .filter_map(|&j| stroke(j))
+                    .flat_map(|o| o.pa.iter().zip(&o.pb).map(|(p, q)| ((p.x, p.y), (q.x, q.y))))
+                    .unzip();
+                Some((i, fit(&from, &to)))
+            })
+            .collect();
+        let mut order = strokes.clone();
+        order.sort_by(|x, y| length(*y).total_cmp(&length(*x)).then(x.cmp(y)));
         let owns: Vec<Sim> = self
             .items
             .iter()
@@ -992,14 +1256,155 @@ impl Plan {
             .collect();
         self.items.iter_mut().enumerate().for_each(|(i, item)| {
             if let Item::Stroke(s) = item {
-                s.parent = parent[i];
-                s.rel = match parent[i] {
-                    Some(p) => owns[p].inverse().then(&s.own),
-                    None => s.own,
+                s.parent = parent.get(&i).copied();
+                s.carrier = carriers.get(&i).copied();
+                s.rel = match (s.parent, s.carrier) {
+                    (Some(p), _) => owns[p].inverse().then(&s.own),
+                    (None, Some(c)) => c.inverse().then(&s.own),
+                    (None, None) => s.own,
                 };
             }
         });
         self.order = order;
+    }
+
+    fn link_fills(&mut self) {
+        let shape = |items: &[Item], i: usize| match &items[i] {
+            Item::Polygon(f) => f.clone(),
+            _ => unreachable!("only polygons"),
+        };
+        let size = |f: &ShapePlan| (area(ring(&f.pa)) + area(ring(&f.pb))) / 2.0;
+        let mut order: Vec<usize> = (0..self.items.len())
+            .filter(|&i| matches!(self.items[i], Item::Polygon(_)))
+            .collect();
+        order.sort_by(|&x, &y| {
+            size(&shape(&self.items, y))
+                .total_cmp(&size(&shape(&self.items, x)))
+                .then(x.cmp(&y))
+        });
+        let near = |items: &[Item], x: usize, y: usize| {
+            let (f, g) = (shape(items, x), shape(items, y));
+            touching(ring(&f.pa), ring(&g.pa)) && touching(ring(&f.pb), ring(&g.pb))
+        };
+        let held_by = |items: &[Item], x: usize, y: usize| {
+            let (f, g) = (shape(items, x), shape(items, y));
+            share(ring(&f.pa), ring(&g.pa)).min(share(ring(&f.pb), ring(&g.pb)))
+        };
+        (0..order.len()).for_each(|rank| {
+            let i = order[rank];
+            let me = shape(&self.items, i);
+            let larger: Vec<usize> = order[..rank]
+                .iter()
+                .copied()
+                .filter(|&j| !matches!(shape(&self.items, j).ride, Ride::Inside { .. }))
+                .filter(|&j| near(&self.items, i, j))
+                .collect();
+            let container = larger
+                .iter()
+                .rev()
+                .copied()
+                .find(|&j| held_by(&self.items, i, j) >= INSIDE);
+            let joined = larger
+                .iter()
+                .enumerate()
+                .max_by(|x, y| {
+                    held_by(&self.items, i, *x.1)
+                        .total_cmp(&held_by(&self.items, i, *y.1))
+                        .then(y.0.cmp(&x.0))
+                })
+                .map(|(_, &j)| j);
+            let planned = match (container, joined) {
+                (Some(on), _) => {
+                    let parent = shape(&self.items, on).fit;
+                    let (k, e, own) = start_with(&me.pa, &me.pb, turn(&parent));
+                    let fits = libm::sqrt(e / spread(ring(&me.pb)).max(1e-9)) <= FITS;
+                    let round = roundness(ring(&me.pa)).max(roundness(ring(&me.pb))) > ROUND;
+                    match fits && !round {
+                        true => {
+                            let pb = shifted(&me.pb, k);
+                            let rest = rest_of(&me.pa, &pb, &own);
+                            ShapePlan {
+                                pb,
+                                fit: own,
+                                rest,
+                                ride: Ride::Inside {
+                                    on,
+                                    rel: Some(parent.inverse().then(&own)),
+                                },
+                                ..me
+                            }
+                        }
+                        false => {
+                            let carried: Vec<(f64, f64)> = ring(&me.pa).iter().map(|&p| parent.apply(p)).collect();
+                            let cost = |k: usize| {
+                                let b = shifted(&me.pb, k);
+                                carried
+                                    .iter()
+                                    .zip(&b)
+                                    .map(|(p, q)| sq(p.0 - q.0) + sq(p.1 - q.1))
+                                    .sum::<f64>()
+                            };
+                            let best = (0..carried.len())
+                                .min_by(|&x, &y| cost(x).total_cmp(&cost(y)).then(x.cmp(&y)))
+                                .unwrap_or(0);
+                            let k = if cost(best) < 0.5 * cost(0) { best } else { 0 };
+                            let pb = shifted(&me.pb, k);
+                            let rest = rest_of(&me.pa, &pb, &parent);
+                            ShapePlan {
+                                pb,
+                                fit: parent,
+                                rest,
+                                ride: Ride::Inside { on, rel: None },
+                                ..me
+                            }
+                        }
+                    }
+                }
+                (None, Some(on)) => {
+                    let up = shape(&self.items, on);
+                    let (k, e, own) = start_with(&me.pa, &me.pb, turn(&up.fit));
+                    let e0 = misfits(&me.pa, &me.pb).first().copied().unwrap_or(0.0);
+                    let better = k != 0
+                        && e <= 0.5 * e0
+                        && turned_apart(turn(&own), turn(&up.fit)).abs() + TURNS_WITH
+                            <= turned_apart(turn(&me.fit), turn(&up.fit)).abs();
+                    let (pb, fit) = match better {
+                        true => (shifted(&me.pb, k), own),
+                        false => (me.pb.clone(), me.fit),
+                    };
+                    let rest = rest_of(&me.pa, &pb, &fit);
+                    let at = (meeting(ring(&me.pa), ring(&up.pa)), meeting(ring(&me.pb), ring(&up.pb)));
+                    ShapePlan {
+                        pb,
+                        fit,
+                        rest,
+                        ride: Ride::Joined {
+                            on,
+                            at,
+                            slack: SLACK * libm::sqrt(size(&me)),
+                        },
+                        ..me
+                    }
+                }
+                (None, None) => me,
+            };
+            self.items[i] = Item::Polygon(planned);
+        });
+        self.fills = order;
+    }
+
+    pub fn fill_rides(&self) -> (usize, usize) {
+        self.items.iter().fold((0, 0), |(inside, joined), item| match item {
+            Item::Polygon(ShapePlan {
+                ride: Ride::Inside { .. },
+                ..
+            }) => (inside + 1, joined),
+            Item::Polygon(ShapePlan {
+                ride: Ride::Joined { .. },
+                ..
+            }) => (inside, joined + 1),
+            _ => (inside, joined),
+        })
     }
 
     pub fn touching_ends(&self) -> usize {
@@ -1068,11 +1473,47 @@ impl Plan {
         self.order.iter().for_each(|&i| {
             if let Item::Stroke(s) = &self.items[i] {
                 let own = s.rel.arc(t64);
-                moved[i] = Some(match s.parent.and_then(|p| moved[p]) {
-                    Some(up) => up.then(&own),
-                    None => own,
+                moved[i] = Some(match (s.parent.and_then(|p| moved[p]), s.carrier) {
+                    (Some(up), _) => up.then(&own),
+                    (None, Some(c)) => c.arc(t64).then(&own),
+                    (None, None) => own,
                 });
             }
+        });
+        self.fills.iter().for_each(|&i| {
+            let Item::Polygon(f) = &self.items[i] else {
+                return;
+            };
+            let own = f.fit.arc(t64);
+            let up = |j: usize| moved[j].unwrap_or(SAME);
+            let motion = match f.ride {
+                Ride::Own => own,
+                Ride::Inside { on, rel: Some(rel) } => up(on).then(&rel.arc(t64)),
+                Ride::Inside { on, rel: None } => up(on),
+                Ride::Joined {
+                    on,
+                    at: (xa, xb),
+                    slack,
+                } => {
+                    let whole = match &self.items[on] {
+                        Item::Polygon(p) => p.fit,
+                        _ => SAME,
+                    };
+                    let carried = |m: &Sim, total: &Sim| {
+                        let (p, q) = (m.apply(xa), total.apply(xa));
+                        (p.0 + (xb.0 - q.0) * t64, p.1 + (xb.1 - q.1) * t64)
+                    };
+                    let (want, have) = (carried(&up(on), &whole), carried(&own, &f.fit));
+                    let (dx, dy) = (want.0 - have.0, want.1 - have.1);
+                    let gap = libm::sqrt(dx * dx + dy * dy);
+                    let k = if gap > slack { 1.0 - slack / gap } else { 0.0 };
+                    Sim {
+                        m: own.m,
+                        c: (own.c.0 + dx * k, own.c.1 + dy * k),
+                    }
+                }
+            };
+            moved[i] = Some(motion);
         });
         let mut lines: Vec<Option<Vec<P>>> = self
             .items
@@ -1130,7 +1571,7 @@ impl Plan {
             .zip(moved)
             .map(|((item, line), sim)| match (item, line) {
                 (Item::Stroke(s), Some(line)) => Mark::Stroke(stroke_at(s, &line, sim.unwrap_or(SAME), t)),
-                (Item::Polygon(f), _) => Mark::Fill(polygon_at(f, t)),
+                (Item::Polygon(f), _) => Mark::Fill(polygon_at(f, sim.unwrap_or_else(|| f.fit.arc(t as f64)), t)),
                 (Item::Flood { a, b }, _) => Mark::Fill(flood_at(a, b, t)),
                 _ => unreachable!(),
             })
@@ -1227,8 +1668,7 @@ fn stroke_at(s: &StrokePlan, line: &[P], sim: Sim, t: f32) -> Stroke {
     }
 }
 
-fn polygon_at(f: &ShapePlan, t: f32) -> Fill {
-    let a = f.fit.arc(t as f64);
+fn polygon_at(f: &ShapePlan, a: Sim, t: f32) -> Fill {
     let points: Vec<[f32; 2]> =
         f.pa.iter()
             .zip(&f.rest)
@@ -1365,6 +1805,107 @@ mod tests {
     }
 
     #[test]
+    fn a_dense_field_of_touching_strokes_turns_with_its_shape() {
+        let mut rng = crate::rng::Rng::new(7);
+        let shape = Sim {
+            m: (0.0, 1.5),
+            c: (770.0, -180.0),
+        };
+        let (mut a, mut b, mut centres) = (Vec::new(), Vec::new(), Vec::new());
+        (1..=400u32).for_each(|id| {
+            let c = (rng.range(200.0, 440.0) as f64, rng.range(200.0, 320.0) as f64);
+            let (length, heading, bend) = (
+                rng.range(6.0, 40.0) as f64,
+                rng.range(0.0, std::f32::consts::PI) as f64,
+                rng.range(-0.6, 0.6) as f64,
+            );
+            let n = 3 + rng.below(8);
+            let size = rng.range(4.0, 14.0);
+            let turn = rng.range(-20.0, 20.0).to_radians() as f64;
+            let scale = rng.range(0.8, 1.25) as f64;
+            let twist = Sim {
+                m: (scale * turn.cos(), scale * turn.sin()),
+                c: (0.0, 0.0),
+            };
+            let line: Vec<(f64, f64)> = (0..n)
+                .map(|k| {
+                    let u = k as f64 / (n - 1) as f64 - 0.5;
+                    let along = heading + bend * u;
+                    (c.0 + length * u * along.cos(), c.1 + length * u * along.sin())
+                })
+                .collect();
+            let moved: Vec<(f64, f64)> = line
+                .iter()
+                .map(|p| {
+                    let q = twist.apply((p.0 - c.0, p.1 - c.1));
+                    shape.apply((c.0 + q.0, c.1 + q.1))
+                })
+                .collect();
+            let f32s = |v: &[(f64, f64)]| v.iter().map(|p| (p.0 as f32, p.1 as f32)).collect::<Vec<_>>();
+            a.push(stroke(id, &f32s(&line), size));
+            b.push(stroke(id, &f32s(&moved), size));
+            centres.push(c);
+        });
+        let plan = plan(&a, &b, Match::Id, &[]);
+        assert!(plan.touching_ends() > 300, "{}", plan.touching_ends());
+        [0.25, 0.5, 0.75].into_iter().for_each(|t| {
+            let made = plan.at(t as f32);
+            let mut off: Vec<f64> = made
+                .iter()
+                .zip(&centres)
+                .map(|(m, c)| {
+                    let pts = m.as_stroke().unwrap().samples.iter().map(|q| q.pos()).collect::<Vec<_>>();
+                    let n = pts.len() as f64;
+                    let mean = pts.iter().fold((0.0, 0.0), |s, p| (s.0 + p.0 as f64 / n, s.1 + p.1 as f64 / n));
+                    dist(mean, shape.arc(t).apply(*c))
+                })
+                .collect();
+            off.sort_by(f64::total_cmp);
+            let (median, worst) = (off[off.len() / 2], off[off.len() - 1]);
+            assert!(
+                median < 1.5 && worst < 6.0,
+                "t {t}: the strokes stay with the shape (median {median}, worst {worst} px off; touching ends are snapped)"
+            );
+            plan.items.iter().zip(&centres).for_each(|(item, c)| {
+                if let Item::Stroke(sp) = item
+                    && let Some(carrier) = sp.carrier
+                {
+                    let moved = carrier.arc(t).then(&sp.rel.arc(t)).apply(*c);
+                    assert!(dist(moved, shape.arc(t).apply(*c)) < 0.5, "t {t}: a carried stroke moves with its neighbours");
+                }
+            });
+        });
+    }
+
+    #[test]
+    fn marks_in_differently_named_parts_never_pair() {
+        let line = |id: u32, y: f32, dx: f32| stroke(id, &[(10.0 + dx, y), (90.0 + dx, y)], 4.0);
+        let a = vec![line(1, 10.0, 0.0), line(2, 30.0, 0.0), line(3, 50.0, 0.0)];
+        let b = vec![line(1, 10.0, 5.0), line(2, 30.0, 5.0), line(3, 50.0, 5.0)];
+        let parts = Parts {
+            a: BTreeMap::from([
+                ("paint over".to_string(), vec![1]),
+                ("paint over added at 4".to_string(), vec![2]),
+            ]),
+            b: BTreeMap::from([
+                ("paint over".to_string(), vec![1]),
+                ("paint over added at 8".to_string(), vec![2]),
+            ]),
+        };
+        [Match::Id, Match::Order, Match::Near].into_iter().for_each(|how| {
+            let p = pair_parts(&a, &b, how, &[], &parts);
+            let pairs: Vec<(u32, u32)> = p.pairs.iter().map(|q| (q.a, q.b)).collect();
+            assert_eq!(pairs, [(1, 1), (3, 3)], "{how:?}");
+            assert_eq!((p.alone_a, p.alone_b), (vec![2], vec![2]), "{how:?}");
+        });
+        let forced = pair_parts(&a, &b, Match::Id, &[[2, 2]], &parts);
+        assert!(
+            forced.pairs.iter().any(|q| (q.a, q.b) == (2, 2)),
+            "a forced pair still pairs"
+        );
+    }
+
+    #[test]
     fn a_hand_bending_at_the_wrist_rides_on_the_turning_forearm() {
         let forearm = |angle: f32| {
             let (s, c) = (libm::sinf(angle.to_radians()), libm::cosf(angle.to_radians()));
@@ -1443,6 +1984,162 @@ mod tests {
         assert!((end.1 - (bar_y - 2.0)).abs() < 1.0, "{end:?} against {bar_y}");
         let open = [bar(0.0), stroke(2, &[(60.0, 0.0), (60.0, 60.0)], 4.0)];
         assert_eq!(super::plan(&open, &b, Match::Id, &[]).touching_ends(), 0);
+    }
+
+    fn lasso(id: u32, points: &[(f64, f64)]) -> Mark {
+        Mark::Fill(Fill::new(
+            id,
+            [1.0, 0.0, 0.0, 1.0],
+            FillSource::Polygon(points.iter().map(|p| [p.0 as f32, p.1 as f32]).collect()),
+            Coverage::default(),
+        ))
+    }
+
+    fn corners(m: &Mark) -> Vec<(f64, f64)> {
+        match m {
+            Mark::Fill(Fill {
+                source: FillSource::Polygon(p),
+                ..
+            }) => p.iter().map(|q| (q[0] as f64, q[1] as f64)).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    fn capsule(from: (f64, f64), length: f64, degrees: f64, r: f64) -> Vec<(f64, f64)> {
+        let a = degrees.to_radians();
+        let (d, n) = ((a.cos(), a.sin()), (-a.sin(), a.cos()));
+        let at = |k: f64, side: f64| {
+            (
+                from.0 + d.0 * length * k + n.0 * r * side,
+                from.1 + d.1 * length * k + n.1 * r * side,
+            )
+        };
+        let tip = (from.0 + d.0 * length, from.1 + d.1 * length);
+        let cap = |c: (f64, f64), start: f64| {
+            (1..8).map(move |j| {
+                let u = start - std::f64::consts::PI * j as f64 / 8.0;
+                (c.0 + r * u.cos(), c.1 + r * u.sin())
+            })
+        };
+        (0..=8)
+            .map(|k| at(k as f64 / 8.0, 1.0))
+            .chain(cap(tip, a + std::f64::consts::FRAC_PI_2))
+            .chain((0..=8).map(|k| at((8 - k) as f64 / 8.0, -1.0)))
+            .chain(cap(from, a - std::f64::consts::FRAC_PI_2))
+            .collect()
+    }
+
+    #[test]
+    fn a_foot_drawn_from_a_fixed_direction_stays_on_a_shin_that_unfolds_and_swings() {
+        let knee = (300.0, 200.0);
+        let foot = |tip: (f64, f64), axis: f64| -> Vec<(f64, f64)> {
+            (0..24)
+                .map(|i| {
+                    let phi = (15.0 * i as f64).to_radians();
+                    let local = phi - axis.to_radians();
+                    let (x, y) = (26.0 * local.cos(), 13.0 * local.sin());
+                    let (c, s) = (axis.to_radians().cos(), axis.to_radians().sin());
+                    (tip.0 + c * x - s * y, tip.1 + s * x + c * y)
+                })
+                .collect()
+        };
+        let tip = |length: f64, degrees: f64| {
+            let a = degrees.to_radians();
+            (knee.0 + length * a.cos(), knee.1 + length * a.sin())
+        };
+        let a = vec![
+            lasso(1, &capsule(knee, 60.0, 120.0, 16.0)),
+            lasso(2, &foot(tip(60.0, 120.0), 210.0)),
+        ];
+        let b = vec![
+            lasso(1, &capsule(knee, 160.0, -30.0, 16.0)),
+            lasso(2, &foot(tip(160.0, -30.0), 60.0)),
+        ];
+        let plan = plan(&a, &b, Match::Id, &[]);
+        assert_eq!(plan.fill_rides(), (0, 1), "the foot is joined to the shin");
+        [0.25, 0.5, 0.75].into_iter().for_each(|t| {
+            let made = plan.at(t);
+            let (shin, foot) = (corners(&made[0]), corners(&made[1]));
+            let end = shin
+                .iter()
+                .copied()
+                .max_by(|p, q| dist(*p, knee).total_cmp(&dist(*q, knee)))
+                .unwrap();
+            let n = foot.len() as f64;
+            let middle = foot.iter().fold((0.0, 0.0), |c, p| (c.0 + p.0 / n, c.1 + p.1 / n));
+            let on = foot
+                .iter()
+                .filter(|p| inside(**p, &shin) || edge(**p, &shin) <= 2.0)
+                .count() as f64
+                / n;
+            assert!(
+                dist(middle, end) < 30.0,
+                "t {t}: the foot stays at the shin's end, {} px off",
+                dist(middle, end)
+            );
+            assert!(on >= 0.4, "t {t}: the foot overlaps the shin ({on})");
+        });
+    }
+
+    #[test]
+    fn a_round_band_whose_outline_starts_elsewhere_turns_with_the_shape_it_sits_in() {
+        let turn = |p: (f64, f64)| {
+            let (a, o) = (20f64.to_radians(), (150.0, 220.0));
+            let (dx, dy) = (p.0 - o.0, p.1 - o.1);
+            (
+                o.0 + dx * a.cos() - dy * a.sin() + 40.0,
+                o.1 + dx * a.sin() + dy * a.cos() + 10.0,
+            )
+        };
+        let body = capsule((200.0, 200.0), 120.0, 0.0, 30.0);
+        let band: Vec<(f64, f64)> = (0..18)
+            .map(|i| {
+                let phi = (20.0 * i as f64).to_radians();
+                let r = 9.0 + 2.0 * phi.cos();
+                (260.0 + 1.2 * r * phi.cos(), 195.0 + r * phi.sin())
+            })
+            .collect();
+        let moved: Vec<(f64, f64)> = band.iter().map(|p| turn(*p)).collect();
+        let started: Vec<(f64, f64)> = moved[6..].iter().chain(&moved[..6]).copied().collect();
+        let a = vec![lasso(1, &body), lasso(2, &band)];
+        let b = vec![
+            lasso(1, &body.iter().map(|p| turn(*p)).collect::<Vec<_>>()),
+            lasso(2, &started),
+        ];
+        let plan = plan(&a, &b, Match::Id, &[]);
+        [0.25, 0.5, 0.75].into_iter().for_each(|t| {
+            let made = plan.at(t);
+            let (shape, ring) = (corners(&made[0]), corners(&made[1]));
+            let n = ring.len() as f64;
+            let middle = ring.iter().fold((0.0, 0.0), |c, p| (c.0 + p.0 / n, c.1 + p.1 / n));
+            let tip = ring
+                .iter()
+                .copied()
+                .max_by(|p, q| dist(*p, middle).total_cmp(&dist(*q, middle)))
+                .unwrap();
+            let pointing = libm::atan2(tip.1 - middle.1, tip.0 - middle.0).to_degrees();
+            let want = 20.0 * t as f64;
+            assert!(
+                (pointing - want).abs() < 8.0,
+                "t {t}: the band points at {pointing}, its body has turned {want}"
+            );
+            assert!(
+                ring.iter().all(|p| inside(*p, &shape)),
+                "t {t}: the band stays inside its body"
+            );
+        });
+    }
+
+    #[test]
+    fn fills_that_touch_nothing_move_as_before() {
+        let square = |x: f64, id: u32| lasso(id, &[(x, 0.0), (x + 10.0, 0.0), (x + 10.0, 10.0), (x, 10.0)]);
+        let a = vec![square(0.0, 1), square(50.0, 2)];
+        let b = vec![square(40.0, 1), square(90.0, 2)];
+        let plan = plan(&a, &b, Match::Id, &[]);
+        assert_eq!(plan.fill_rides(), (0, 0));
+        let mid = plan.at(0.5);
+        assert_eq!(corners(&mid[0])[0], (20.0, 0.0));
+        assert_eq!(corners(&mid[1])[0], (70.0, 0.0));
     }
 
     #[test]

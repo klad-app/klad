@@ -573,12 +573,11 @@ fn sources(bundle: &Bundle, spec: &PaintOverSpec, from: u32) -> Result<Sources> 
                 return Ok(());
             };
             let mb = bundle.read_marks(&layer.id, &b.id)?;
-            let groups: Vec<(Vec<u32>, Vec<u32>)> = a
-                .parts
-                .iter()
-                .filter_map(|(name, ids)| b.parts.get(name).map(|other| (ids.clone(), other.clone())))
-                .collect();
-            let pairing = tween::pair_parts(&ma, &mb, Match::Id, &[], &groups);
+            let parts = tween::Parts {
+                a: a.parts.clone(),
+                b: b.parts.clone(),
+            };
+            let pairing = tween::pair_parts(&ma, &mb, Match::Id, &[], &parts);
             ma.into_iter().for_each(|m| {
                 let pair = pairing.pairs.iter().find(|p| p.a == m.id());
                 let rides = match pair {
@@ -656,10 +655,10 @@ fn like(bundle: &Bundle, spec: &PaintOverSpec, cel: &str) -> Result<Like> {
         .content_at(spec.frame)
         .map(|c| {
             let added = format!("{} added", spec.part);
-            [&spec.part, &added]
+            c.parts
                 .iter()
-                .filter_map(|p| c.parts.get(*p))
-                .flatten()
+                .filter(|(name, _)| **name == spec.part || name.starts_with(&added))
+                .flat_map(|(_, ids)| ids)
                 .map(|id| format!("{}:s{id}", c.id))
                 .collect()
         })
@@ -756,7 +755,7 @@ pub fn expand(bundle: &Bundle, spec: &PaintOverSpec) -> Result<Vec<Op>> {
             })?;
     }
     let part = match spec.like {
-        Some(_) => format!("{} added", spec.part),
+        Some(_) => format!("{} added at {}", spec.part, spec.frame),
         None => spec.part.clone(),
     };
     let changed: Option<Vec<bool>> = match &spec.like {
