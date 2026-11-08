@@ -1,12 +1,12 @@
 use crate::color::parse_hex;
 use crate::generators::{Mirror, Picture, Repeat, Scatter, Text};
 use crate::look::{Adjustment, Atmosphere, Effect, Rays};
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const FORMAT: &str = "klad/2";
+pub const FORMAT: &str = "klad/3";
 pub const MAX_SIZE: u32 = 16384;
 pub const MASK: usize = usize::MAX;
 
@@ -149,6 +149,8 @@ pub struct Layer {
     pub bones: Vec<crate::rig::Bone>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ik: Vec<crate::rig::Ik>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bone: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub keys: crate::keys::Keys,
 }
@@ -524,6 +526,7 @@ impl Layer {
             reference: false,
             bones: Vec::new(),
             ik: Vec::new(),
+            bone: None,
             keys: BTreeMap::new(),
         }
     }
@@ -1235,6 +1238,23 @@ impl Document {
                 .try_for_each(|(c, p)| {
                     crate::rig::check_pose(p).with_context(|| format!("layer {}: cel {}", layer.id, c.id))
                 })?;
+            if let Some(bone) = &layer.bone {
+                if layer.kind() != Kind::Paint {
+                    bail!("layer {}: only paint layers follow a bone", layer.id);
+                }
+                let Some(Loc::Layer(path)) = self.locate(&layer.id) else {
+                    bail!("layer {} is not in the drawing", layer.id);
+                };
+                let owner = crate::rig::skeleton_of(self, &path)
+                    .ok_or_else(|| anyhow!("layer {}: follows bone {bone}, but no skeleton holds it", layer.id))?;
+                if !owner.bones.iter().any(|b| &b.name == bone) {
+                    bail!(
+                        "layer {}: follows bone {bone}, which {} does not have",
+                        layer.id,
+                        owner.name
+                    );
+                }
+            }
             if !layer.bones.is_empty() || !layer.ik.is_empty() {
                 if !matches!(layer.kind(), Kind::Paint | Kind::Group) {
                     bail!("layer {}: bones go on a paint layer or a group", layer.id);

@@ -453,6 +453,7 @@ struct PreviewState {
     shown: BTreeSet<usize>,
     done: Option<(Vec<Op>, bool, BTreeSet<usize>)>,
     finish: Option<Finish>,
+    posed: Option<(u64, u32, String, klad_core::rig::Pose)>,
 }
 
 impl PreviewState {
@@ -1469,6 +1470,7 @@ impl Editor {
         }
         let mut uploads = Vec::new();
         let rev = self.scene.bundle.doc.rev;
+        let posing = self.live_pose();
         if let Some(mut state) = self.preview.take() {
             let mut keep = true;
             match state.job.as_ref().and_then(|rx| rx.try_recv().ok()) {
@@ -1510,8 +1512,11 @@ impl Editor {
                 None => {}
             }
             if keep {
-                let stale =
-                    state.finish.is_none() && (self.drag.is_none() || state.snap.rev != rev || !self.canvas_current());
+                let gone = match &state.posed {
+                    Some(_) => posing.is_none(),
+                    None => self.drag.is_none(),
+                };
+                let stale = state.finish.is_none() && (gone || state.snap.rev != rev || !self.canvas_current());
                 let late = state.finish.as_ref().is_some_and(|f| f.since.elapsed() > FINISH_WAIT);
                 match stale || late {
                     true => {
@@ -1524,11 +1529,14 @@ impl Editor {
         }
         if self.preview.is_none()
             && self.live.is_none()
-            && self.drag.as_ref().is_some_and(|d| d.moved() && !d.copy)
+            && (posing.is_some() || self.drag.as_ref().is_some_and(|d| d.moved() && !d.copy))
             && self.canvas_current()
             && self.dirty.len() <= timeline::FILL
         {
-            let cels = self.preview_cels();
+            let cels = match &posing {
+                Some(p) => p.cels.to_vec(),
+                None => self.preview_cels(),
+            };
             self.preview = self
                 .scene
                 .preview_snapshot(&cels, &self.brushes)
@@ -1542,6 +1550,7 @@ impl Editor {
                     shown: BTreeSet::new(),
                     done: None,
                     finish: None,
+                    posed: None,
                 });
         }
         let position = self.drag.as_ref().map(|d| d.now);
@@ -1550,11 +1559,16 @@ impl Editor {
             .as_ref()
             .filter(|p| p.job.is_none())
             .map(|p| p.finish.as_ref().map(|f| f.ops.clone()).ok_or(p.asked_at != position));
-        let wanted = match ready {
-            Some(Ok(finish)) => Some(finish),
-            Some(Err(true)) => self.drag_ops(),
+        let wanted = match (ready, &posing) {
+            (Some(Ok(finish)), _) => Some(finish),
+            (Some(Err(_)), Some(p)) => match self.preview.as_ref().is_some_and(|s| s.posed.as_ref() == Some(&p.key)) {
+                true => None,
+                false => Some(p.ops.to_vec()),
+            },
+            (Some(Err(true)), None) => self.drag_ops(),
             _ => None,
         };
+
         if let (Some(state), Some(ops)) = (self.preview.as_mut(), wanted) {
             state.asked_at = position;
             if state.asked.as_ref() != Some(&ops) {
@@ -1566,6 +1580,7 @@ impl Editor {
                     cancel: state.cancel.clone(),
                 };
                 state.asked = Some(ops);
+                state.posed = posing.as_ref().map(|p| p.key.clone());
                 let (tx, rx) = channel();
                 let ctx = self.ctx.clone();
                 crate::background().spawn(move || {

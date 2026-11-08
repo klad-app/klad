@@ -3664,6 +3664,82 @@ fn the_bone_options_stay_one_row_whatever_is_picked() {
 }
 
 #[test]
+fn a_layer_attached_to_a_bone_moves_with_it_live_in_pose_mode() {
+    let path = sample("attach-live");
+    Bundle::open(&path)
+        .unwrap()
+        .apply(
+            &parse_lines(
+                r#"{"op":"bone","layer":"l6","chain":["thigh","shin"],"through":[[100,60],[100,160],[110,260]]}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    activate(&mut h, "lines");
+    h.key_press(Key::J);
+    h.run_steps(2);
+    h.state_mut().pick_bone(Some("shin".into()));
+    h.run_steps(2);
+    h.get_by_role_and_label(Role::Button, "layers: 0").click();
+    h.run_steps(2);
+    h.get_by_role_and_label(Role::CheckBox, "lines").click();
+    h.run_steps(3);
+    assert_eq!(
+        h.state().scene.bundle.doc.layer("l6").unwrap().bone.as_deref(),
+        Some("shin"),
+        "the picked bone's layers menu attaches a layer"
+    );
+    assert!(h.query_by_label("layers: 1").is_some(), "and counts it");
+    h.get_by_label("weights").click();
+    h.run_steps(2);
+    assert!(
+        h.query_by_label_contains("nothing bends by weights").is_some(),
+        "with every layer attached, weights mode says there is nothing to bend"
+    );
+    h.get_by_label("pose").click();
+    h.run_steps(2);
+    let rev = h.state().scene.bundle.doc.rev;
+    h.state_mut().bones.pose.insert("shin".into(), 90.0);
+    let start = std::time::Instant::now();
+    while !h
+        .state()
+        .preview
+        .as_ref()
+        .is_some_and(|p| p.posed.is_some() && p.job.is_none() && p.done.is_some())
+        && start.elapsed() < std::time::Duration::from_secs(20)
+    {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    let preview = h.state().preview.as_ref().expect("posing shows the drawing live");
+    assert!(preview.done.is_some(), "the posed drawing was drawn");
+    let live = h.state().bones.live.clone().expect("the live pose");
+    let klad_core::ops::Op::Pose(spec) = &live.ops[0] else {
+        panic!("a pose op");
+    };
+    let made = &spec.resolved.as_ref().unwrap()[0];
+    let line = made.marks.iter().find_map(|m| m.as_stroke()).unwrap();
+    let first = line.samples[0].pos();
+    assert!(
+        (first.0 - 220.0).abs() < 0.5 && (first.1 - 100.0).abs() < 0.5,
+        "the whole layer turns a quarter round the shin's head: {first:?}"
+    );
+    assert_eq!(
+        h.state().scene.bundle.doc.rev,
+        rev,
+        "showing a pose changes nothing in the drawing"
+    );
+    h.get_by_label("draw").click();
+    h.run_steps(3);
+    assert!(
+        h.state().preview.is_none(),
+        "leaving pose mode shows the drawing as it is"
+    );
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn a_leg_gets_its_ik_in_the_options_and_its_foot_is_dragged_and_planted_in_pose_mode() {
     let path = sample("leg-ik");
     Bundle::open(&path)

@@ -775,6 +775,7 @@ pub struct Rig<'a> {
     pub bones: &'a [Bone],
     pub weights: &'a Weights,
     pub mats: Vec<Mat>,
+    pub on: Option<usize>,
 }
 
 impl<'a> Rig<'a> {
@@ -783,10 +784,19 @@ impl<'a> Rig<'a> {
             bones,
             weights,
             mats: skinning(bones, ik, pose),
+            on: None,
         }
     }
 
+    pub fn following(self, bone: Option<&str>) -> Self {
+        let on = bone.and_then(|b| self.bones.iter().position(|o| o.name == b));
+        Self { on, ..self }
+    }
+
     pub fn moved(&self, p: [f32; 2]) -> [f32; 2] {
+        if let Some(m) = self.on.and_then(|i| self.mats.get(i)) {
+            return apply(*m, p);
+        }
         let w = self.weights.at(self.bones, p);
         w.iter()
             .zip(&self.mats)
@@ -883,8 +893,12 @@ impl<'a> Rig<'a> {
     }
 
     pub fn pose(&self, marks: &[Mark], canvas: (u32, u32)) -> Vec<Mark> {
-        if self.mats.iter().all(|m| {
-            *m == [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+        let mats: Vec<&Mat> = match self.on {
+            Some(i) => self.mats.get(i).into_iter().collect(),
+            None => self.mats.iter().collect(),
+        };
+        if mats.iter().all(|m| {
+            **m == [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
                 || m.iter()
                     .zip([1.0, 0.0, 0.0, 1.0, 0.0, 0.0])
                     .all(|(a, b)| (a - b).abs() < 1e-5)
@@ -950,6 +964,13 @@ pub fn moved_weights(w: &Weights, back: crate::markedit::Affine) -> Weights {
             })
             .collect(),
     }
+}
+
+pub fn skeleton_of<'a>(doc: &'a Document, path: &[usize]) -> Option<&'a Layer> {
+    (1..=path.len())
+        .rev()
+        .map(|n| doc.layer_at(&path[..n]))
+        .find(|l| !l.bones.is_empty())
 }
 
 pub fn family(layer: &Layer) -> Vec<&Layer> {

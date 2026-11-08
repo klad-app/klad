@@ -1236,6 +1236,20 @@ enum Command {
         flags: EditFlags,
     },
     #[command(
+        about = "Attach a layer to a bone, so it moves with that bone alone when posed",
+        long_about = "Attach a paint layer under a skeleton to one of its bones: posed, the whole layer moves rigidly with that bone, the way a cut-out arm follows its upper arm. Draw a character in pieces (upper arm, forearm, hand on their own layers), attach each to its bone and no weights are needed. A layer not attached bends by the weights instead (by distance to the bones, or as painted in the bone tool's weights mode): use that for a layer drawn in one piece across a joint. --off detaches a layer, so it bends again.\n\n  klad attach art.klad forearm --bone fore\n  klad attach art.klad forearm --off\n\nAlso an attach op: {\"op\":\"attach\",\"layer\":\"forearm\",\"bone\":\"fore\"}; without \"bone\" the layer bends by the weights. Renaming the bone keeps the layer on it; removing it leaves the layer bending."
+    )]
+    Attach {
+        bundle: PathBuf,
+        layer: String,
+        #[arg(long, conflicts_with = "off", required_unless_present = "off")]
+        bone: Option<String>,
+        #[arg(long, help = "detach: the layer bends by the weights again")]
+        off: bool,
+        #[command(flatten)]
+        flags: EditFlags,
+    },
+    #[command(
         about = "Show only one layer: hide every other layer (its groups stay shown, its own layers as they are)",
         long_about = "Show only one layer: every other layer is hidden, the groups it is in stay shown and the layers inside it keep their own visibility, in one step that klad undo takes back. The editor's alt click on a layer's eye does the same.\n\n  klad solo art.klad lines"
     )]
@@ -1277,7 +1291,7 @@ enum Command {
     },
     #[command(
         about = "Pose a drawing with its bones: a new drawing at --to, bent from the rest drawing at --from",
-        long_about = "A pose is a turn per bone (degrees from its rest angle, children follow their parent), a move of the whole (--root), and a target per IK (--target, canvas px; see klad ik): the IK's limb turns so its end reaches the target, and the target stays put when the root moves. --mix blends an IK's limb from its turns (0) to reaching the target (1, the default). Every paint layer under the skeleton gets a new drawing at --to: each stroke point and fill moves by its bones' weighted blend, the same way Godot's Skeleton2D bends a Polygon2D. The pose is kept on the drawing; posing that frame again re-poses it from the same rest drawing, and posing from a posed drawing starts from its rest drawing. klad inbetween between two poses of one rest drawing turns the bones instead of matching strokes, and moves the targets in straight lines, so a foot planted in both keys stays planted.\n\n  klad pose art.klad body --from 0 --to 4 --bone thigh=25 --bone shin=-40 --root 0,6\n  klad pose art.klad body --from 0 --to 8 --target shin=410,740 --root 20,6\n  klad pose art.klad body --from 0 --to 12 --target shin=430,700 --mix shin=0.5 --bone shin=-20\n\nAlso a pose op: {\"op\":\"pose\",\"layer\":\"body\",\"from\":0,\"to\":4,\"bones\":{\"thigh\":25,\"shin\":-40},\"root\":[0,6],\"ik\":{\"shin\":{\"target\":[410,740],\"mix\":1}}}."
+        long_about = "A pose is a turn per bone (degrees from its rest angle, children follow their parent), a move of the whole (--root), and a target per IK (--target, canvas px; see klad ik): the IK's limb turns so its end reaches the target, and the target stays put when the root moves. --mix blends an IK's limb from its turns (0) to reaching the target (1, the default). Every paint layer under the skeleton gets a new drawing at --to: a layer attached to a bone (klad attach) moves with that bone alone; in the others each stroke point and fill moves by its bones' weighted blend, the same way Godot's Skeleton2D bends a Polygon2D. The pose is kept on the drawing; posing that frame again re-poses it from the same rest drawing, and posing from a posed drawing starts from its rest drawing. klad inbetween between two poses of one rest drawing turns the bones instead of matching strokes, and moves the targets in straight lines, so a foot planted in both keys stays planted.\n\n  klad pose art.klad body --from 0 --to 4 --bone thigh=25 --bone shin=-40 --root 0,6\n  klad pose art.klad body --from 0 --to 8 --target shin=410,740 --root 20,6\n  klad pose art.klad body --from 0 --to 12 --target shin=430,700 --mix shin=0.5 --bone shin=-20\n\nAlso a pose op: {\"op\":\"pose\",\"layer\":\"body\",\"from\":0,\"to\":4,\"bones\":{\"thigh\":25,\"shin\":-40},\"root\":[0,6],\"ik\":{\"shin\":{\"target\":[410,740],\"mix\":1}}}."
     )]
     Pose {
         bundle: PathBuf,
@@ -2973,6 +2987,19 @@ fn run() -> Result<()> {
                 softness,
             };
             agent::edit(&bundle, &[Op::Ik(spec)], &output(&flags, 0))?;
+        }
+        Command::Attach {
+            bundle,
+            layer,
+            bone,
+            off: _,
+            flags,
+        } => {
+            let spec = klad_core::ops::AttachSpec {
+                layer: layer_id(&bundle, &layer)?,
+                bone,
+            };
+            agent::edit(&bundle, &[Op::Attach(spec)], &output(&flags, 0))?;
         }
         Command::Bones { bundle, json } => rig::list(&Bundle::open(&bundle)?, json)?,
         Command::Solo { bundle, layer, flags } => {

@@ -45,6 +45,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad foliage`](#klad-foliage): Paint closed shapes as clumps of leaves, lit as forms
 - [`klad bone`](#klad-bone): Add, remove, rename, move or reparent a bone of a layer's or group's skeleton
 - [`klad ik`](#klad-ik): Add, change or remove an IK on a bone: a limb (the bone and its parent) or an aim reaches for a target set per pose
+- [`klad attach`](#klad-attach): Attach a layer to a bone, so it moves with that bone alone when posed
 - [`klad solo`](#klad-solo): Show only one layer: hide every other layer (its groups stay shown, its own layers as they are)
 - [`klad bones`](#klad-bones): List the skeletons, their bones and weights, and the posed drawings
 - [`klad weights`](#klad-weights): Set how much each bone moves each part of the drawing: automatic, painted dabs, a whole part, smoothed
@@ -2255,6 +2256,48 @@ Options:
           Print help (see a summary with '-h')
 ```
 
+## klad attach
+
+```text
+Attach a paint layer under a skeleton to one of its bones: posed, the whole layer moves rigidly with that bone, the way a cut-out arm follows its upper arm. Draw a character in pieces (upper arm, forearm, hand on their own layers), attach each to its bone and no weights are needed. A layer not attached bends by the weights instead (by distance to the bones, or as painted in the bone tool's weights mode): use that for a layer drawn in one piece across a joint. --off detaches a layer, so it bends again.
+
+  klad attach art.klad forearm --bone fore
+  klad attach art.klad forearm --off
+
+Also an attach op: {"op":"attach","layer":"forearm","bone":"fore"}; without "bone" the layer bends by the weights. Renaming the bone keeps the layer on it; removing it leaves the layer bending.
+
+Usage: klad attach [OPTIONS] <BUNDLE> <LAYER>
+
+Arguments:
+  <BUNDLE>
+
+
+  <LAYER>
+
+
+Options:
+      --bone <BONE>
+
+
+      --off
+          detach: the layer bends by the weights again
+
+      --render
+          Render a preview after the edit and print its path
+
+      --scale <SCALE>
+          Preview scale (default: longest side 1024 px)
+
+      --json
+          Print the result as JSON
+
+      --overlay <OVERLAY>
+          Draw on the preview: ids, bbox, grid or all (comma separated)
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
 ## klad solo
 
 ```text
@@ -2368,7 +2411,7 @@ Options:
 ## klad pose
 
 ```text
-A pose is a turn per bone (degrees from its rest angle, children follow their parent), a move of the whole (--root), and a target per IK (--target, canvas px; see klad ik): the IK's limb turns so its end reaches the target, and the target stays put when the root moves. --mix blends an IK's limb from its turns (0) to reaching the target (1, the default). Every paint layer under the skeleton gets a new drawing at --to: each stroke point and fill moves by its bones' weighted blend, the same way Godot's Skeleton2D bends a Polygon2D. The pose is kept on the drawing; posing that frame again re-poses it from the same rest drawing, and posing from a posed drawing starts from its rest drawing. klad inbetween between two poses of one rest drawing turns the bones instead of matching strokes, and moves the targets in straight lines, so a foot planted in both keys stays planted.
+A pose is a turn per bone (degrees from its rest angle, children follow their parent), a move of the whole (--root), and a target per IK (--target, canvas px; see klad ik): the IK's limb turns so its end reaches the target, and the target stays put when the root moves. --mix blends an IK's limb from its turns (0) to reaching the target (1, the default). Every paint layer under the skeleton gets a new drawing at --to: a layer attached to a bone (klad attach) moves with that bone alone; in the others each stroke point and fill moves by its bones' weighted blend, the same way Godot's Skeleton2D bends a Polygon2D. The pose is kept on the drawing; posing that frame again re-poses it from the same rest drawing, and posing from a posed drawing starts from its rest drawing. klad inbetween between two poses of one rest drawing turns the bones instead of matching strokes, and moves the targets in straight lines, so a foot planted in both keys stays planted.
 
   klad pose art.klad body --from 0 --to 4 --bone thigh=25 --bone shin=-40 --root 0,6
   klad pose art.klad body --from 0 --to 8 --target shin=410,740 --root 20,6

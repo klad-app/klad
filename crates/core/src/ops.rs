@@ -157,6 +157,7 @@ pub enum Op {
     PaintOver(PaintOverSpec),
     Bone(BoneSpec),
     Ik(IkSpec),
+    Attach(AttachSpec),
     Weights(WeightsSpec),
     Pose(PoseSpec),
     Key(KeySpec),
@@ -673,6 +674,14 @@ pub struct Shifted {
     pub marks: Vec<(String, Vec<u32>)>,
     pub nodes: Vec<(String, crate::doc::Transform)>,
     pub weights: Vec<(String, crate::rig::Weights)>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AttachSpec {
+    pub layer: String,
+    #[serde(default)]
+    pub bone: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -1572,6 +1581,7 @@ impl Op {
             }
             "bone" => Op::Bone(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "ik" => Op::Ik(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
+            "attach" => Op::Attach(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "weights" => Op::Weights(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "pose" => Op::Pose(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
             "grass" => Op::Grass(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?),
@@ -1827,6 +1837,23 @@ fn bone(doc: &mut Document, spec: &BoneSpec, out: &mut Applied) -> Result<()> {
             let also = bake(doc, &path, &bones, &ik, &held, &gone);
             ik.retain(|c| !held.contains(&c.bone));
             bones.retain(|b| !gone.contains(&b.name));
+            let loose: Vec<String> = followers(doc, &path)
+                .iter()
+                .filter_map(|p| {
+                    let layer = doc.layer_at_mut(p);
+                    layer.bone.take_if(|b| gone.contains(b)).map(|_| layer.name.clone())
+                })
+                .collect();
+            if !loose.is_empty() {
+                out.notes.push(format!(
+                    "{} followed a removed bone, so {} by the weights again",
+                    loose.join(", "),
+                    match loose.len() {
+                        1 => "it bends",
+                        _ => "they bend",
+                    }
+                ));
+            }
             crate::doc::family_paths(doc, &path).iter().for_each(|p| {
                 if let Some(cels) = doc.layer_at_mut(p).cels_mut() {
                     cels.iter_mut().filter_map(|c| c.pose.as_mut()).for_each(|pose| {
@@ -1872,6 +1899,12 @@ fn bone(doc: &mut Document, spec: &BoneSpec, out: &mut Applied) -> Result<()> {
                             pose.ik.insert(to.clone(), r);
                         }
                     });
+                }
+            });
+            followers(doc, &path).iter().for_each(|p| {
+                let layer = doc.layer_at_mut(p);
+                if layer.bone.as_ref() == Some(name) {
+                    layer.bone = Some(to.clone());
                 }
             });
             out.renamed_bones.push((id.clone(), name.clone(), to.clone()));
@@ -1930,6 +1963,52 @@ fn bone(doc: &mut Document, spec: &BoneSpec, out: &mut Applied) -> Result<()> {
     let layer = doc.layer_at_mut(&path);
     layer.bones = bones;
     layer.ik = ik;
+    out.changed.push(id);
+    Ok(())
+}
+
+fn followers(doc: &Document, owner: &[usize]) -> Vec<Vec<usize>> {
+    let id = &doc.layer_at(owner).id;
+    crate::doc::family_paths(doc, owner)
+        .into_iter()
+        .filter(|p| crate::rig::skeleton_of(doc, p).is_some_and(|s| &s.id == id))
+        .collect()
+}
+
+fn attach(doc: &mut Document, spec: &AttachSpec, out: &mut Applied) -> Result<()> {
+    let Some(Loc::Layer(path)) = doc.locate(&spec.layer) else {
+        bail!("no layer {}", spec.layer);
+    };
+    let layer = doc.layer_at(&path);
+    if layer.kind() != crate::doc::Kind::Paint {
+        bail!("{} is not a paint layer: only paint layers follow a bone", layer.name);
+    }
+    let Some(owner) = crate::rig::skeleton_of(doc, &path) else {
+        bail!(
+            "{} is not under a skeleton: draw bones on it or on a group around it first",
+            layer.name
+        );
+    };
+    if let Some(b) = &spec.bone
+        && !owner.bones.iter().any(|o| &o.name == b)
+    {
+        bail!(
+            "no bone {b} on {} (its bones: {})",
+            owner.name,
+            owner
+                .bones
+                .iter()
+                .map(|o| o.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    let (name, id) = (layer.name.clone(), layer.id.clone());
+    doc.layer_at_mut(&path).bone = spec.bone.clone();
+    out.notes.push(match &spec.bone {
+        Some(b) => format!("{name} follows {b}"),
+        None => format!("{name} bends by the weights"),
+    });
     out.changed.push(id);
     Ok(())
 }
@@ -3398,6 +3477,7 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
         }
         Op::Bone(spec) => bone(doc, spec, out)?,
         Op::Ik(spec) => ik(doc, spec, out)?,
+        Op::Attach(spec) => attach(doc, spec, out)?,
         Op::Key(spec) => key(doc, spec, out)?,
         Op::Weights(spec) => {
             let Some(made) = &spec.resolved else {

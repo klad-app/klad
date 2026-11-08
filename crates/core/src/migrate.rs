@@ -10,7 +10,7 @@ pub fn migrate(value: Value) -> Result<Value> {
         .to_string();
     match format.as_str() {
         FORMAT => Ok(value),
-        "klad/1" => {
+        "klad/1" | "klad/2" => {
             let mut value = value;
             value["format"] = Value::from(FORMAT);
             Ok(value)

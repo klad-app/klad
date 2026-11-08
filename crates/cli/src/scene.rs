@@ -148,6 +148,7 @@ struct Part {
     origin: [f32; 2],
     vertices: Vec<[f32; 2]>,
     triangles: Vec<[usize; 3]>,
+    bone: Option<usize>,
 }
 
 const GRID: u32 = 16;
@@ -334,6 +335,7 @@ pub fn rig(path: &Path, dir: Option<PathBuf>) -> Result<Vec<PathBuf>> {
                     origin: [x0 as f32, y0 as f32],
                     vertices,
                     triangles,
+                    bone: layer.bone.as_ref().and_then(|b| bones.iter().position(|o| &o.name == b)),
                 });
                 Ok(())
             })
@@ -487,7 +489,14 @@ pub fn rig(path: &Path, dir: Option<PathBuf>) -> Result<Vec<PathBuf>> {
                     .iter()
                     .map(|t| format!("PackedInt32Array({}, {}, {})", t[0], t[1], t[2]))
                     .collect();
-                let per_vertex: Vec<Vec<f32>> = p.vertices.iter().map(|v| weights.at(bones, *v)).collect();
+                let per_vertex: Vec<Vec<f32>> = p
+                    .vertices
+                    .iter()
+                    .map(|v| match p.bone {
+                        Some(on) => (0..bones.len()).map(|i| if i == on { 1.0 } else { 0.0 }).collect(),
+                        None => weights.at(bones, *v),
+                    })
+                    .collect();
                 let bone_list: Vec<String> = paths
                     .iter()
                     .enumerate()
@@ -634,6 +643,23 @@ func _process(_delta):
         assert!(
             text.contains("\"values\": [0.0, -1.222]"),
             "angles in radians, as floats"
+        );
+        let weights_of = |text: &str, bone: &str| -> Vec<f32> {
+            let from = format!("NodePath(\"{bone}\"), ");
+            let rest = &text[text.find(&from).unwrap() + from.len()..];
+            let inner = &rest[rest.find('(').unwrap() + 1..rest.find(')').unwrap()];
+            inner.split(',').map(|v| v.trim().parse().unwrap()).collect()
+        };
+        assert!(
+            weights_of(&text, "upper").iter().any(|w| *w > 0.0 && *w < 1.0),
+            "a layer that bends blends its bones"
+        );
+        edit(r#"{"op":"attach","layer":"arm","bone":"fore"}"#);
+        let attached = fs::read_to_string(rig(&path, Some(project.join("art"))).unwrap().last().unwrap()).unwrap();
+        assert!(
+            weights_of(&attached, "upper").iter().all(|w| *w == 0.0)
+                && weights_of(&attached, "upper/fore").iter().all(|w| *w == 1.0),
+            "a layer attached to a bone is all that bone's"
         );
         let planes = parallax(&path, Some(project.join("art")), 0).unwrap();
         let scene = fs::read_to_string(planes.last().unwrap()).unwrap();

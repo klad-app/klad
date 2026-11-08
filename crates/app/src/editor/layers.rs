@@ -35,6 +35,8 @@ pub(super) struct LayerRow {
     pub mask: bool,
     pub folded: bool,
     pub cel: Option<String>,
+    pub skeleton: Vec<String>,
+    pub bone: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -153,6 +155,13 @@ impl Editor {
             mask,
             folded,
             cel,
+            skeleton: match (mask, layer.kind()) {
+                (false, Kind::Paint) => klad_core::rig::skeleton_of(&self.scene.bundle.doc, path)
+                    .map(|s| s.bones.iter().map(|b| b.name.clone()).collect())
+                    .unwrap_or_default(),
+                _ => Vec::new(),
+            },
+            bone: layer.bone.clone(),
         }
     }
 
@@ -406,6 +415,36 @@ impl Editor {
                 if r.secondary_clicked() && !self.timeline.masks.remove(&row.id) {
                     self.timeline.masks.insert(row.id.clone());
                 }
+            }
+            if place == Where::Panel && !row.skeleton.is_empty() {
+                let glyph = RichText::new(icon::BONE).size(14.0).color(match row.bone {
+                    Some(_) => theme::ACCENT,
+                    None => theme::WEAK,
+                });
+                let button = egui::Button::new(glyph).frame(false).min_size(vec2(22.0, theme::TARGET));
+                egui::containers::menu::MenuButton::from_button(button).ui(ui, |ui| {
+                    let mut chosen = None;
+                    row.skeleton.iter().for_each(|b| {
+                        if ui.radio(row.bone.as_ref() == Some(b), format!("follows {b}")).clicked() {
+                            chosen = Some(Some(b.clone()));
+                        }
+                    });
+                    if ui.radio(row.bone.is_none(), "bends by the weights").clicked() {
+                        chosen = Some(None);
+                    }
+                    if let Some(bone) = chosen {
+                        ui.close();
+                        ops.push(Op::Attach(klad_core::ops::AttachSpec {
+                            layer: row.id.clone(),
+                            bone,
+                        }));
+                    }
+                })
+                .0
+                .hint(match &row.bone {
+                    Some(b) => format!("{} follows {b}: posed, it moves with that bone alone", row.name),
+                    None => format!("{} bends by the weights: attach it to a bone to move with that bone alone", row.name),
+                });
             }
             [(row.clip, icon::CLIP, "clipped to the layer below"), (row.lock_alpha, icon::LOCK, "alpha locked")]
                 .iter()
@@ -690,6 +729,8 @@ mod tests {
             mask,
             folded: false,
             cel: None,
+            skeleton: Vec::new(),
+            bone: None,
         }
     }
 

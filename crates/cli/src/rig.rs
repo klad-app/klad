@@ -115,7 +115,9 @@ fn posed(bundle: &Bundle, doc: &mut Document, spec: &PoseSpec, weights: &Weights
                 ik: spec.ik.clone(),
             };
             let marks = bundle.read_marks(&layer.id, &rest)?;
-            let made = Rig::new(&owner.bones, &owner.ik, weights, &pose).pose(&marks, canvas);
+            let made = Rig::new(&owner.bones, &owner.ik, weights, &pose)
+                .following(layer.bone.as_deref())
+                .pose(&marks, canvas);
             let here = layer.cels().iter().find(|c| c.frame == spec.to);
             let (cel, fresh) = match here {
                 Some(c) if c.pose.as_ref().is_some_and(|p| p.rest == rest) => (c.id.clone(), false),
@@ -212,6 +214,7 @@ pub fn list(bundle: &Bundle, as_json: bool) -> Result<()> {
                     "bend": c.bend,
                     "softness": c.softness,
                 })).collect::<Vec<_>>(),
+                "layers": painted(o).iter().map(|l| json!({"layer": l.id, "name": l.name, "bone": l.bone})).collect::<Vec<_>>(),
                 "poses": painted(o).iter().flat_map(|l| l.cels().iter().filter_map(|c| c.pose.as_ref().map(|p| {
                     let mut entry = json!({"cel": c.id, "frame": c.frame, "rest": p.rest, "angles": p.angles, "root": p.root});
                     if !p.ik.is_empty() {
@@ -233,8 +236,9 @@ pub fn list(bundle: &Bundle, as_json: bool) -> Result<()> {
     owners(doc).iter().for_each(|o| {
         println!("{} ({})", o.name, o.id);
         let weights = bundle.read_weights(&o.id).ok();
+        let bending = painted(o).iter().any(|l| l.bone.is_none());
         o.bones.iter().for_each(|b: &Bone| {
-            let painted = weights.as_ref().is_some_and(|w| w.maps.contains_key(&b.name));
+            let painted = !bending || weights.as_ref().is_some_and(|w| w.maps.contains_key(&b.name));
             println!(
                 "  {:<14} {:<12} {:.0},{:.0} -> {:.0},{:.0}{}",
                 b.name,
@@ -263,6 +267,10 @@ pub fn list(bundle: &Bundle, as_json: bool) -> Result<()> {
                 ),
                 _ => println!("  ik {}: an aim", c.bone),
             }
+        });
+        painted(o).iter().for_each(|l| match &l.bone {
+            Some(b) => println!("  layer {} follows {b}", l.name),
+            None => println!("  layer {} bends by the weights", l.name),
         });
         painted(o).iter().for_each(|l| {
             l.cels()
@@ -298,6 +306,7 @@ pub struct Posed {
     bones: Vec<Bone>,
     ik: Vec<Ik>,
     weights: Weights,
+    bone: Option<String>,
     a: Pose,
     b: Pose,
     rest: Vec<Mark>,
@@ -306,7 +315,9 @@ pub struct Posed {
 impl Posed {
     pub fn at(&self, t: f32, canvas: (u32, u32)) -> (Vec<Mark>, Pose) {
         let pose = between(&self.bones, &self.ik, &self.a, &self.b, t);
-        let mut marks = Rig::new(&self.bones, &self.ik, &self.weights, &pose).pose(&self.rest, canvas);
+        let mut marks = Rig::new(&self.bones, &self.ik, &self.weights, &pose)
+            .following(self.bone.as_deref())
+            .pose(&self.rest, canvas);
         marks
             .iter_mut()
             .for_each(|m| m.set_author(klad_core::stroke::Author::Agent));
@@ -348,6 +359,7 @@ pub fn posed_pair(bundle: &Bundle, layer: &str, a: &str, b: &str) -> Result<Opti
         bones: owner.bones.clone(),
         ik: owner.ik.clone(),
         weights,
+        bone: paint.bone.clone(),
         a: pa.clone(),
         b: pb,
         rest: bundle.read_marks(layer, &pa.rest)?,
@@ -393,6 +405,84 @@ mod tests {
         let marks = bundle.read_marks("l1", &cel).unwrap();
         let s = marks.iter().find_map(Mark::as_stroke).unwrap();
         s.samples[s.samples.len() - 1].pos()
+    }
+
+    #[test]
+    fn an_attached_layer_moves_rigidly_with_its_bone_and_keeps_it_through_renames() {
+        let dir = std::env::temp_dir().join(format!("klad-rig-attach-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut doc = Document::new(600, 400);
+        doc.layers = vec![Layer::group(
+            "g1",
+            "body",
+            vec![
+                Layer::paint("l1", "upper arm", "c1"),
+                Layer::paint("l2", "forearm", "c2"),
+            ],
+        )];
+        doc.timeline.frames = 9;
+        doc.next_id = 10;
+        Bundle::create(&dir, doc).unwrap();
+        edit(
+            &dir,
+            r##"{"op":"stroke","layer":"l1","brush":"ink","size":20,"color":"#c06a3a","path":"M100 200 L 290 200"}
+{"op":"stroke","layer":"l2","brush":"ink","size":20,"color":"#c06a3a","path":"M260 200 L 480 200"}
+{"op":"bone","layer":"g1","chain":["upper","fore"],"through":[[100,200],[300,200],[480,200]]}"##,
+        )
+        .unwrap();
+        assert!(
+            edit(&dir, r#"{"op":"attach","layer":"l2","bone":"wing"}"#).is_err(),
+            "only a bone the skeleton has"
+        );
+        edit(
+            &dir,
+            r#"{"op":"attach","layer":"l1","bone":"upper"}
+{"op":"attach","layer":"l2","bone":"fore"}
+{"op":"pose","layer":"g1","from":0,"to":4,"bones":{"fore":90}}"#,
+        )
+        .unwrap();
+        let bundle = Bundle::open(&dir).unwrap();
+        let line = |l: &str, f: u32| {
+            let cel = bundle.doc.layer(l).unwrap().content_at(f).unwrap().id.clone();
+            let marks = bundle.read_marks(l, &cel).unwrap();
+            let s = marks.iter().find_map(Mark::as_stroke).unwrap().clone();
+            (s.samples[0].pos(), s.samples[s.samples.len() - 1].pos())
+        };
+        let (a, b) = (line("l1", 0), line("l1", 4));
+        assert!(
+            (a.0.0 - b.0.0).abs() < 0.01 && (a.1.0 - b.1.0).abs() < 0.01 && (a.1.1 - b.1.1).abs() < 0.01,
+            "the upper arm does not move when only the forearm turns, not even its end by the elbow: {a:?} {b:?}"
+        );
+        let (start, end) = line("l2", 4);
+        assert!(
+            (start.0 - 300.0).abs() < 0.5 && (start.1 - 160.0).abs() < 0.5,
+            "the forearm's start, 40 px before the elbow, turns with it: {start:?}"
+        );
+        assert!(
+            (end.0 - 300.0).abs() < 0.5 && (end.1 - 380.0).abs() < 0.5,
+            "and its end swings a quarter turn round the elbow: {end:?}"
+        );
+        edit(&dir, r#"{"op":"bone","layer":"g1","rename":"fore","as":"forearm"}"#).unwrap();
+        let bundle = Bundle::open(&dir).unwrap();
+        assert_eq!(bundle.doc.layer("l2").unwrap().bone.as_deref(), Some("forearm"));
+        edit(&dir, r#"{"op":"bone","layer":"g1","rm":"upper"}"#).unwrap();
+        let bundle = Bundle::open(&dir).unwrap();
+        assert!(
+            ["l1", "l2"].iter().all(|l| bundle.doc.layer(l).unwrap().bone.is_none()),
+            "removing a bone (and the bones on it) lets their layers bend again"
+        );
+        edit(
+            &dir,
+            r#"{"op":"bone","layer":"g1","chain":["upper","fore"],"through":[[100,200],[300,200],[480,200]]}
+{"op":"attach","layer":"l2","bone":"fore"}
+{"op":"attach","layer":"l2"}"#,
+        )
+        .unwrap();
+        assert!(
+            Bundle::open(&dir).unwrap().doc.layer("l2").unwrap().bone.is_none(),
+            "no bone detaches"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

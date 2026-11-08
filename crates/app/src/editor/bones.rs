@@ -5,7 +5,7 @@ use crate::theme::{self, Hint};
 use anyhow::{Context, Result, bail};
 use egui::{Color32, Key, Modifiers, Pos2, RichText, Vec2};
 use klad_core::doc::Kind;
-use klad_core::ops::{BendSpec, BoneSpec, IkSpec, Op, WeightsSpec};
+use klad_core::ops::{BendSpec, BoneSpec, IkSpec, Op, PoseSpec, PosedCel, WeightsSpec};
 use klad_core::rig::{
     Bend, Bone, CELL, Ik, Pose, Reach, Weights, applied, bent_against, limb_of, moved, near_degrees, painted, subtree,
     target_for_end, tips, weights_for,
@@ -60,6 +60,15 @@ pub(super) enum Posing {
     Root(Vec2),
 }
 
+#[derive(Clone)]
+pub(super) struct Live {
+    pub key: (u64, u32, String, Pose),
+    pub ops: std::sync::Arc<Vec<Op>>,
+    pub cels: std::sync::Arc<Vec<String>>,
+}
+
+type Rests = (u64, String, Weights, BTreeMap<String, Vec<klad_core::stroke::Mark>>);
+
 pub(super) struct BoneTool {
     pub mode: Mode,
     pub selected: Option<String>,
@@ -72,6 +81,8 @@ pub(super) struct BoneTool {
     pub root: [f32; 2],
     pub reach: BTreeMap<String, Reach>,
     pub loaded: Option<(u32, String, Option<Pose>)>,
+    pub live: Option<Live>,
+    rests: Option<Rests>,
     pub sent: bool,
     pub posing: Option<Posing>,
     pub name: String,
@@ -92,6 +103,8 @@ impl Default for BoneTool {
             root: [0.0, 0.0],
             reach: BTreeMap::new(),
             loaded: None,
+            live: None,
+            rests: None,
             sent: false,
             posing: None,
             name: String::new(),
@@ -185,6 +198,127 @@ impl Editor {
             },
             _ => Pose::default(),
         }
+    }
+
+    pub(super) fn live_pose(&mut self) -> Option<Live> {
+        if self.tool != Tool::Bone || self.bones.mode != Mode::Pose {
+            self.bones.live = None;
+            return None;
+        }
+        let owner = self.rig_owner()?;
+        let shown = self.shown_pose();
+        let stored = self.stored_pose(&owner).unwrap_or_default();
+        let same = |a: &BTreeMap<String, f32>, b: &BTreeMap<String, f32>| {
+            a.keys()
+                .chain(b.keys())
+                .all(|k| (a.get(k).copied().unwrap_or(0.0) - b.get(k).copied().unwrap_or(0.0)).abs() < 1e-3)
+        };
+        if same(&shown.angles, &stored.angles) && shown.root == stored.root && shown.ik == stored.ik {
+            self.bones.live = None;
+            return None;
+        }
+        let doc = &self.scene.bundle.doc;
+        let key = (doc.rev, self.scene.frame, owner.clone(), shown.clone());
+        if let Some(live) = self.bones.live.as_ref().filter(|l| l.key == key) {
+            return Some(live.clone());
+        }
+        let skeleton = doc.layer(&owner)?.clone();
+        let canvas = (doc.canvas.width, doc.canvas.height);
+        if self
+            .bones
+            .rests
+            .as_ref()
+            .is_none_or(|(r, o, _, _)| (*r, o) != (doc.rev, &owner))
+        {
+            let weights = self
+                .scene
+                .bundle
+                .read_weights(&owner)
+                .ok()
+                .filter(|w| !w.maps.is_empty())
+                .unwrap_or_else(|| Weights::auto(&skeleton.bones, canvas));
+            self.bones.rests = Some((doc.rev, owner.clone(), weights, BTreeMap::new()));
+        }
+        let frame = self.scene.frame;
+        let wanted: Vec<(String, String)> = painted(&skeleton)
+            .iter()
+            .filter_map(|layer| {
+                let cel = layer.content_at(frame)?;
+                Some((
+                    layer.id.clone(),
+                    cel.pose.as_ref().map_or_else(|| cel.id.clone(), |p| p.rest.clone()),
+                ))
+            })
+            .collect();
+        let (scene, rests) = (&self.scene, &mut self.bones.rests);
+        let (_, _, weights, marks) = rests.as_mut()?;
+        wanted.iter().for_each(|(layer, rest)| {
+            if !marks.contains_key(rest) {
+                let read = match scene.marks_of(rest) {
+                    [] => scene.bundle.read_marks(layer, rest).unwrap_or_default(),
+                    loaded => loaded.to_vec(),
+                };
+                marks.insert(rest.clone(), read);
+            }
+        });
+        let (weights, rests) = (&*weights, &*marks);
+        let made: Vec<PosedCel> = painted(&skeleton)
+            .into_iter()
+            .filter_map(|layer| {
+                let cel = layer.content_at(frame)?;
+                let rest = cel.pose.as_ref().map_or_else(|| cel.id.clone(), |p| p.rest.clone());
+                let marks = rests.get(&rest)?;
+                let pose = Pose {
+                    rest: rest.clone(),
+                    ..shown.clone()
+                };
+                let marks = klad_core::rig::Rig::new(&skeleton.bones, &skeleton.ik, weights, &pose)
+                    .following(layer.bone.as_deref())
+                    .pose(marks, canvas);
+                Some(PosedCel {
+                    layer: layer.id.clone(),
+                    cel: cel.id.clone(),
+                    frame: cel.frame,
+                    hold: cel.hold,
+                    pose,
+                    marks,
+                    fresh: false,
+                })
+            })
+            .collect();
+        if made.is_empty() {
+            return None;
+        }
+        let cels = made.iter().map(|c| c.cel.clone()).collect();
+        let ops = vec![Op::Pose(PoseSpec {
+            layer: owner,
+            from: frame,
+            to: frame,
+            bones: shown.angles.clone(),
+            root: shown.root,
+            ik: shown.ik.clone(),
+            hold: None,
+            resolved: Some(made),
+        })];
+        let live = Live {
+            key,
+            ops: std::sync::Arc::new(ops),
+            cels: std::sync::Arc::new(cels),
+        };
+        self.bones.live = Some(live.clone());
+        Some(live)
+    }
+
+    fn bends(&self) -> bool {
+        self.rig_owner()
+            .and_then(|o| {
+                self.scene
+                    .bundle
+                    .doc
+                    .layer(&o)
+                    .map(|s| painted(s).iter().any(|l| l.bone.is_none()))
+            })
+            .unwrap_or(true)
     }
 
     fn stored_pose(&self, owner: &str) -> Option<Pose> {
@@ -1029,7 +1163,13 @@ impl Editor {
                         run = Some(later);
                     } else if let Some(later) = self.ik_menu(ui, &picked) {
                         run = Some(later);
-                    } else if ui.button("remove").hint("the picked bone and its children").clicked() {
+                    } else if let Some(later) = self.attach_menu(ui, &picked) {
+                        run = Some(later);
+                    } else if ui
+                        .button(theme::icon::TRASH)
+                        .hint("remove the picked bone and its children")
+                        .clicked()
+                    {
                         run = Some(Box::new(move |e| {
                             e.end_chain();
                             e.bone_edit(|s| s.rm = Some(picked))?;
@@ -1046,12 +1186,16 @@ impl Editor {
                     (None, Some(_)) => None,
                     (None, None) => Some((
                         "drag to draw a chain of bones",
-                        "a drag draws a bone and the chain carries on from its end: each click adds the next; click a bone to pick it",
+                        "a drag draws a bone and the chain carries on from its end: each click adds the next; click a bone to pick it, then its layers menu attaches the layers that move with it",
                     )),
                 };
                 if let Some((hint, more)) = said {
                     ui.label(RichText::new(hint).color(theme::WEAK)).hint(more);
                 }
+            }
+            Mode::Weights if !self.bends() => {
+                ui.label(RichText::new("every layer follows a bone: nothing bends by weights").color(theme::WEAK))
+                    .hint("weights are for a layer drawn in one piece across a joint; detach one (draw mode, the picked bone's layers menu, or the bone in its layers row) to paint its weights");
             }
             Mode::Weights => {
                 ui.add(
@@ -1169,6 +1313,36 @@ impl Editor {
         Ok(())
     }
 
+    fn attach_menu(&mut self, ui: &mut egui::Ui, picked: &str) -> Option<Later> {
+        let owner = self.rig_owner()?;
+        let skeleton = self.scene.bundle.doc.layer(&owner)?;
+        let layers: Vec<(String, String, Option<String>)> = painted(skeleton)
+            .iter()
+            .map(|l| (l.id.clone(), l.name.clone(), l.bone.clone()))
+            .collect();
+        let on = layers.iter().filter(|l| l.2.as_deref() == Some(picked)).count();
+        let mut chosen = None;
+        ui.menu_button(format!("layers: {on}"), |ui| {
+            layers.iter().for_each(|(id, name, bone)| {
+                let mut checked = bone.as_deref() == Some(picked);
+                let label = match bone {
+                    Some(b) if b != picked => format!("{name} (follows {b})"),
+                    _ => name.clone(),
+                };
+                if ui.checkbox(&mut checked, label).changed() {
+                    chosen = Some((id.clone(), checked.then(|| picked.to_string())));
+                }
+            });
+        })
+        .response
+        .hint(format!(
+            "the layers that move with {picked} alone when posed; a layer attached to no bone bends by the weights"
+        ));
+        chosen.map(|(layer, bone)| -> Later {
+            Box::new(move |e| e.apply(vec![Op::Attach(klad_core::ops::AttachSpec { layer, bone })]))
+        })
+    }
+
     fn skeleton_list(&mut self, ui: &mut egui::Ui) -> Option<Later> {
         let bones = self.rig_bones();
         let doc = &self.scene.bundle.doc;
@@ -1266,6 +1440,7 @@ impl Editor {
         let mut chosen: Option<Option<String>> = None;
         let label = ui.label("parent");
         egui::ComboBox::from_id_salt("bones.parent")
+            .width(90.0)
             .selected_text(current.as_deref().unwrap_or("none"))
             .show_ui(ui, |ui| {
                 std::iter::once(None)

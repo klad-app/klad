@@ -128,6 +128,7 @@ fn layer_shell(layer: &Layer) -> Layer {
         reference: layer.reference,
         bones: layer.bones.clone(),
         ik: layer.ik.clone(),
+        bone: layer.bone.clone(),
         keys: layer.keys.clone(),
     }
 }
