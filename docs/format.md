@@ -4,6 +4,8 @@ _Last updated: 2026-11-08 (format `klad/4`, stroke files `KLST` version 1, brush
 
 A klad drawing is a folder whose name ends in `.klad`, called a bundle. This document describes everything in it, so that any program can read, write and make klad drawings. It is licensed under the MIT License (`LICENSE-MIT`), unlike klad itself.
 
+From klad 1.0 on, a drawing made by any release opens in every later one with nothing lost: a format change adds a migration that converts, never drops.
+
 klad is the reference: when this text and klad's renders disagree, klad is right and this text is wrong. The data is exact (every key, every byte); how pixels come out of it is described as far as a reader needs to draw a faithful approximation, not to match klad's renders bit for bit.
 
 ## The folder

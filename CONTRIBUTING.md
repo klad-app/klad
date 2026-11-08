@@ -23,7 +23,7 @@ These come from `CLAUDE.md`, which is also the guide for coding agents working o
 - No comments in code except `// TODO:`. Names and small functions carry the meaning.
 - Iterator chains where they read better than loops; plain loops in hot pixel code where they are clearer or faster.
 - Determinism: `core`, `brush` and `render` give the same pixels on every machine. Transcendental math goes through `libm`, randomness through the seeded `klad_core::rng`, no clock, no `HashMap` order in output, parallelism only over independent tiles or rows. A change that moves a sample's hash says why.
-- Drawings never break: a format change bumps the format version (`klad/N`) and adds a migration, so older `.klad` drawings open unchanged, and updates `docs/format.md`.
+- Drawings never break: a format change bumps the format version (`klad/N`) and adds a migration, so older `.klad` drawings open unchanged, and updates `docs/format.md`. A migration converts, it never drops: what a drawing holds survives every later version. (`klad/4` dropping the rigs of `klad/1` to `klad/3`, before 1.0, was the last exception.) `tests/formats/` holds drawings saved by each release with their frame hashes; the test opens them all, and a change that makes one render differently is fixed, or listed in `tests/formats/accepted.txt` (`<version>/<bundle> <frame> <new hash>`) and in the release notes.
 - Dependencies are permissive only (MIT, Apache-2.0, BSD, ISC, Zlib and the others in `deny.toml`). Adding one means `just audit` passes and `just notices` regenerates `THIRD-PARTY-NOTICES.md` in the same change.
 - Every feature has a CLI form and an editor form: a new command or op also gets its place in the editor, and an editor feature gets its command or op, with tests on both sides. The ops that draw from shapes (`ink`, `light`, `hatch`, `paint`, `scatter`) are the exception and stay CLI only.
 - New behaviour comes with tests in the crate that owns it. `just lint` and `just test` are clean before a pull request.
@@ -43,7 +43,7 @@ klad is source-available, not open source (`LICENSE`): its licence lets you send
 
 The Mac and Windows builds are sold on itch.io (and later Steam); Linux is built from source. GitHub has the release notes, not downloads.
 
-1. `just build minor` (or `major`) sets the release's version; move the changes under "Unreleased" in `CHANGELOG.md` to a section `## x.y.z (date)` with that version. Commit.
+1. `just build minor` (or `major`) sets the release's version; move the changes under "Unreleased" in `CHANGELOG.md` to a section `## x.y.z (date)` with that version.. `just formats x.y.z` saves the samples with their hashes into `tests/formats/x.y.z/` (after `just samples`). Commit.
 2. On a Mac with [butler](https://itch.io/docs/butler/) logged in: `ITCH_TARGET=<user>/<page> just itch-mac` builds the app (arm64 and x86_64 in one) and pushes it to the page's `mac` channel.
 3. Tag `vx.y.z` and push the tag. The `release` workflow runs the checks, builds the Windows version and pushes it to the `windows` channel (with the `BUTLER_API_KEY` secret and the `ITCH_TARGET` variable set in the repository), then publishes that changelog section as the release notes, which the editor's update check reads.
 4. The builds are not signed yet.

@@ -1,0 +1,175 @@
+{
+  "format": "klad/1",
+  "rev": 2,
+  "canvas": {
+    "width": 960,
+    "height": 900,
+    "background": "#f4efe6"
+  },
+  "timeline": {
+    "fps": 12,
+    "frames": 1
+  },
+  "layers": [
+    {
+      "id": "sketch",
+      "name": "sketch",
+      "kind": "vector",
+      "cels": [
+        {
+          "id": "c1",
+          "frame": 0,
+          "nodes": [
+            {
+              "id": "circle0",
+              "type": "ellipse",
+              "cx": 0.0,
+              "cy": 0.0,
+              "rx": 70.0,
+              "ry": 70.0,
+              "transform": {
+                "x": 170.0,
+                "y": 120.0
+              }
+            },
+            {
+              "id": "box0",
+              "type": "rect",
+              "x": -70.0,
+              "y": -55.0,
+              "w": 140.0,
+              "h": 110.0,
+              "radius": 18.0,
+              "transform": {
+                "x": 170.0,
+                "y": 330.0
+              }
+            },
+            {
+              "id": "star0",
+              "type": "path",
+              "d": "M0 -80 L22 -26 L78 -24 L34 10 L50 66 L0 34 L-50 66 L-34 10 L-78 -24 L-22 -26 Z",
+              "transform": {
+                "x": 170.0,
+                "y": 540.0
+              }
+            },
+            {
+              "id": "blob0",
+              "type": "path",
+              "d": "M-60 10 C -70 -50 -10 -80 30 -60 C 80 -40 90 20 50 50 C 10 80 -50 70 -60 10 Z",
+              "transform": {
+                "x": 170.0,
+                "y": 750.0
+              }
+            },
+            {
+              "id": "circle1",
+              "type": "ellipse",
+              "cx": 0.0,
+              "cy": 0.0,
+              "rx": 70.0,
+              "ry": 70.0,
+              "transform": {
+                "x": 470.0,
+                "y": 120.0
+              }
+            },
+            {
+              "id": "box1",
+              "type": "rect",
+              "x": -70.0,
+              "y": -55.0,
+              "w": 140.0,
+              "h": 110.0,
+              "radius": 18.0,
+              "transform": {
+                "x": 470.0,
+                "y": 330.0
+              }
+            },
+            {
+              "id": "star1",
+              "type": "path",
+              "d": "M0 -80 L22 -26 L78 -24 L34 10 L50 66 L0 34 L-50 66 L-34 10 L-78 -24 L-22 -26 Z",
+              "transform": {
+                "x": 470.0,
+                "y": 540.0
+              }
+            },
+            {
+              "id": "blob1",
+              "type": "path",
+              "d": "M-60 10 C -70 -50 -10 -80 30 -60 C 80 -40 90 20 50 50 C 10 80 -50 70 -60 10 Z",
+              "transform": {
+                "x": 470.0,
+                "y": 750.0
+              }
+            },
+            {
+              "id": "circle2",
+              "type": "ellipse",
+              "cx": 0.0,
+              "cy": 0.0,
+              "rx": 70.0,
+              "ry": 70.0,
+              "transform": {
+                "x": 770.0,
+                "y": 120.0
+              }
+            },
+            {
+              "id": "box2",
+              "type": "rect",
+              "x": -70.0,
+              "y": -55.0,
+              "w": 140.0,
+              "h": 110.0,
+              "radius": 18.0,
+              "transform": {
+                "x": 770.0,
+                "y": 330.0
+              }
+            },
+            {
+              "id": "star2",
+              "type": "path",
+              "d": "M0 -80 L22 -26 L78 -24 L34 10 L50 66 L0 34 L-50 66 L-34 10 L-78 -24 L-22 -26 Z",
+              "transform": {
+                "x": 770.0,
+                "y": 540.0
+              }
+            },
+            {
+              "id": "blob2",
+              "type": "path",
+              "d": "M-60 10 C -70 -50 -10 -80 30 -60 C 80 -40 90 20 50 50 C 10 80 -50 70 -60 10 Z",
+              "transform": {
+                "x": 770.0,
+                "y": 750.0
+              }
+            }
+          ]
+        }
+      ],
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": false
+    },
+    {
+      "id": "lines",
+      "name": "lines",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "c2",
+          "frame": 0
+        }
+      ],
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": true
+    }
+  ],
+  "nextId": 2
+}

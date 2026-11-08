@@ -40,6 +40,9 @@ itch-mac:
 icon: compile
     KLAD={{klad}} bash packaging/icon/build.sh
 
+formats version: compile
+    bash packaging/formats.sh {{klad}} {{version}}
+
 reference: compile
     {{klad}} reference > docs/cli.md
 
