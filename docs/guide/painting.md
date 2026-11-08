@@ -1,52 +1,43 @@
+_Last updated: 2026-11-08 14:50_
+
 # Painting
+
+Paint with klad's brushes, blend colours on the canvas and make brushes of your own.
 
 ![Painting the lemons with the oil brush](../images/guide-painting.png)
 
-## Paint a stroke
+## Paint and erase
 
-Press B for the brush and paint on the canvas. The stroke goes into the active paint layer at the current frame; the status line says which drawing it lands in. On a vector layer the brush won't paint and tells you so: pick a paint layer in the Layers pane, or add one.
+Press **B** and paint on a paint layer. **E** switches to the eraser and back, and so does the eraser end of the pen. **[** and **]** make the brush smaller and bigger.
 
-## Pick a brush
+## Pick a brush and a colour
 
-The bar over the canvas holds the brush picker, and the colour and brush pane shows the same brushes as tiles, each with a sample stroke. klad comes with 23 brushes and an eraser. Inking pen, Pencil and Marker are for line work. Oil, Loaded oil, Round bristle, Flat bristle and Dry brush are for painting. Wet round, Smudge and Blender mix and push the paint already on the layer, and Leaves, Grass and Splatter stamp little pictures along the stroke.
+Click a brush in the colour and brush pane: Inking pen, Pencil and Marker for lines, Oil, Loaded oil and the bristle brushes for paint. Hold **alt** and click the canvas to pick up a colour from it.
 
-The mixing brushes only read the layer they paint on, so put the colours you want to mix on one layer.
+## Blend colours
 
-## Change the size, opacity and flow
+Paint with **Smudge**, **Wet round** or **Blender** over colours that are already there. They only mix paint on the layer they paint on, so put the colours you want to blend on one layer.
 
-The bar has sliders for size, opacity and flow. [ and ] make the brush smaller and bigger. To size it right on the canvas, hold cmd alt and drag sideways: the circle shows the size, and it doubles for every 120 points you drag.
+## Make paint look thick
 
-"more" opens hardness, the size at the lightest press, the pressure curve, the taper at both ends, a stabiliser and smoothing.
+1. Paint with **Oil** or **Loaded oil**.
+2. In layer settings, pick **relief** from **add an effect**.
+3. Drag on the light dial towards where the light comes from.
 
-## Erase
+## Paint symmetrically
 
-E switches between the brush and the eraser, and the eraser end of the pen erases too. On a layer with lock alpha on, the eraser does nothing (see [Layers](layers.md)).
-
-## Pick colours
-
-- The hue ring and the square in the colour and brush pane pick the colour; the hex field and the alpha slider sit next to them.
-- The palette belongs to the drawing. Click a swatch to use it, drag swatches to reorder them, and right-click one (or its x) to remove it. "add colour" adds the current one, with a name if you type one.
-- The two squares under the tools in the strip are the current colour and the one before it. X, or a click on them, swaps them.
-- Hold alt and click to pick the colour under the pointer. With shift alt it reads only the active layer.
+Turn on **mirror** in the brush bar. Every stroke is painted with its mirror image across an upright line.
 
 ## Make your own brush
 
 ![The brush editor over the canvas](../images/guide-brush.png)
 
-F5, or "edit" in the brush bar, opens the brush editor with a live sample stroke at the top. From there you set:
+1. Press **F5** to open the brush editor.
+2. Change the tip, the pressure or the kind of paint, and watch the sample stroke at the top.
+3. Type a name and click **save in this drawing**.
 
-- the tip: round, chalk or a picture, with its hardness, spacing, roundness and angle (fixed, or turning with the stroke or the pen's tilt), and jitter and scatter for each dab;
-- a dual tip and a texture;
-- how pressure and tilt change the size, flow and opacity, and the curve between the lightest and the heaviest press;
-- colour dynamics;
-- the kind of paint: dry, wet (picks up and mixes the colour under it), smudge or blend, and body.
+## Tune your pen
 
-Give it a name and click "save in this drawing". A drawing keeps every brush its strokes use, so it looks the same on any machine and the brush travels with it.
-
-## Thick paint
-
-Brushes with body, such as Oil and Loaded oil, lay paint with a height: ridges along the bristles and lips at the edges. The height only shows once the layer has a relief effect. In layer settings, add relief under the effects and click or drag on the light dial towards where the light comes from. Use a strong relief for a figure or fruit and a light one for a wall or a table.
-
-## Paint in mirror
-
-Turn on "mirror" in the brush bar to paint every stroke and its mirror image across an upright line at the same time. Both land as ordinary strokes, so you can change either one afterwards.
+1. Open the settings with **cmd ,** and go to **Pen**.
+2. Press on the tablet as hard as you ever draw, then click **heaviest = my peak**.
+3. If light strokes still come out too heavy, set the curve above 1.
