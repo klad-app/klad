@@ -323,7 +323,7 @@ mod tests {
         bundle.apply(&ops).unwrap();
         let strokes = bundle.read_strokes("l1", "c1").unwrap();
         let tapers: Vec<[f32; 2]> = strokes.iter().map(|s| s.taper).collect();
-        assert_eq!(tapers, [[10.0, 24.0], [0.0, 0.0], [12.0, 30.0]]);
+        assert_eq!(tapers, [[10.0, 10.0], [0.0, 0.0], [12.0, 30.0]]);
         let brushes = BrushSet::for_bundle(&bundle).unwrap();
         let one = |stroke: &Stroke| {
             klad_brush::replay(512, 128, &[stroke.clone().into()], &brushes)

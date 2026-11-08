@@ -6,7 +6,7 @@
   "dynamics": {
     "size": { "pressure": { "min": 0.06, "gamma": 1.5 } }
   },
-  "taper": [10, 24],
+  "taper": [10, 10],
   "stabilizer": 24,
   "smoothing": 12
 }
