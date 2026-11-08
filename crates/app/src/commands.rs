@@ -737,7 +737,7 @@ impl Cmd {
             Cmd::BoneTool => spec(
                 "tool.bones",
                 "bones",
-                icon::TURN,
+                icon::BONE,
                 G::Tools,
                 T::Press(const { &[plain(Key::J)] }),
                 R::No,

@@ -49,6 +49,7 @@ pub mod icon {
     pub const DOWNLOAD: &str = "\u{E20C}";
     pub const FIT: &str = "\u{E1D0}";
     pub const TURN: &str = "\u{E036}";
+    pub const BONE: &str = "\u{E7F2}";
     pub const UNDO: &str = "\u{E08A}";
     pub const REDO: &str = "\u{E08C}";
     pub const TRASH: &str = "\u{E4A6}";

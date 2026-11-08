@@ -3796,7 +3796,7 @@ fn bones_are_picked_from_the_list_and_the_canvas_and_edited_in_place() {
         h.query_by_label_contains("colour has no bones").is_some(),
         "a layer without bones says where the skeletons are"
     );
-    h.get_by_label(&format!("{} lines", theme::icon::TURN)).click();
+    h.get_by_label(&format!("{} lines", theme::icon::BONE)).click();
     h.run_steps(3);
     assert_eq!(h.state().scene.active_layer().unwrap().name, "lines");
     h.get_by_label_contains("pick a bone").click();

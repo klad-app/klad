@@ -1190,7 +1190,7 @@ impl Editor {
             ui.label(RichText::new(format!("{here} has no bones; skeletons are on")).color(theme::WEAK));
             return owners.into_iter().fold(None, |run, (id, name)| {
                 let clicked = ui
-                    .button(format!("{} {name}", theme::icon::TURN))
+                    .button(format!("{} {name}", theme::icon::BONE))
                     .hint(format!("make {name} the active layer to see and edit its bones"))
                     .clicked();
                 run.or_else(|| {
@@ -1223,7 +1223,7 @@ impl Editor {
         };
         let mut chosen = None;
         ui.menu_button(
-            format!("{} {}", theme::icon::TURN, picked.as_deref().unwrap_or("pick a bone")),
+            format!("{} {}", theme::icon::BONE, picked.as_deref().unwrap_or("pick a bone")),
             |ui| {
                 ui.label(
                     RichText::new(format!("the bones of {owner}"))
