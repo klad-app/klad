@@ -1496,7 +1496,39 @@ impl Scene {
         let Some(Loc::Layer(path)) = self.bundle.doc.locate(&layer.id) else {
             return Err(crate::report::bug(format!("layer {} is not in the scene", layer.id)));
         };
+        let before: BTreeMap<String, Vec<Node>> = self
+            .bundle
+            .doc
+            .layer_at(&path)
+            .cels()
+            .iter()
+            .map(|c| (c.id.clone(), c.nodes.clone()))
+            .collect();
+        let size = (self.bundle.doc.canvas.width, self.bundle.doc.canvas.height);
+        let changed: Vec<(String, Vec<Node>)> = layer
+            .cels()
+            .iter()
+            .filter(|c| self.rasters.contains_key(&c.id))
+            .filter(|c| {
+                before
+                    .get(&c.id)
+                    .is_some_and(|old| nodes_hash(old) != nodes_hash(&c.nodes))
+            })
+            .map(|c| (c.id.clone(), c.nodes.clone()))
+            .collect();
         *self.bundle.doc.layer_at_mut(&path) = layer;
+        let mut dirty = BTreeSet::new();
+        changed.into_iter().try_for_each(|(cel, nodes)| {
+            let old = before.get(&cel).map(Vec::as_slice).unwrap_or_default();
+            let drawn = self
+                .rasters
+                .get(&cel)
+                .filter(|_| self.vector_hash.get(&cel) == Some(&nodes_hash(old)));
+            let raster = redraw(&nodes, drawn.map(|r| (old, r)), size)?;
+            self.swap_vector(cel.clone(), raster, &mut dirty);
+            self.vector_hash.insert(cel, nodes_hash(&nodes));
+            Ok::<_, anyhow::Error>(())
+        })?;
         self.rebuild_caches(None)
     }
 

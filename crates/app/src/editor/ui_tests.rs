@@ -3129,6 +3129,10 @@ fn text_is_typed_on_the_canvas_and_edited_in_place() {
     h.key_press(Key::V);
     h.run_steps(2);
     assert_eq!(h.state().tool, Tool::Select, "keys work again once typing ends");
+    let shapes_cel = h.state().scene.bundle.doc.find_layer("shapes").unwrap().cels()[0]
+        .id
+        .clone();
+    let drawn = h.state().scene.raster_of(&shapes_cel).cloned().unwrap();
     let on = canvas_at(&h, text.x + 20.0, text.y + text.size * 1.6);
     h.hover_at(on);
     h.run_steps(1);
@@ -3141,6 +3145,11 @@ fn text_is_typed_on_the_canvas_and_edited_in_place() {
     assert_eq!(
         h.state().text_edit.as_ref().and_then(|t| t.id.clone()),
         Some(id.clone())
+    );
+    let editing = h.state().scene.raster_of(&shapes_cel).cloned().unwrap();
+    assert!(
+        !drawn.differs(&editing).is_empty(),
+        "the text being edited leaves the layer, so its old words do not show under the typed ones"
     );
     h.key_press(Key::End);
     h.event(egui::Event::Text("!".into()));
