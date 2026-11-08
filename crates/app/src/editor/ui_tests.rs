@@ -269,6 +269,46 @@ fn click_with(h: &mut Harness<'static, Editor>, at: egui::Pos2, modifiers: Modif
 }
 
 #[test]
+fn a_lasso_picks_strokes_on_every_layer_when_all_layers_is_on() {
+    let path = sample("lasso-all");
+    Bundle::open(&path)
+        .unwrap()
+        .apply(&parse_lines(r#"{"op":"stroke","layer":"l5","path":"M200 300 L300 320","size":6}"#).unwrap())
+        .unwrap();
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    activate(&mut h, "lines");
+    h.key_press(Key::S);
+    h.run_steps(2);
+    let lasso = |h: &mut Harness<'static, Editor>| {
+        let corners = [(5.0, 5.0), (505.0, 5.0), (505.0, 379.0), (5.0, 379.0), (5.0, 10.0)];
+        let at: Vec<egui::Pos2> = corners.iter().map(|(x, y)| canvas_at(h, *x, *y)).collect();
+        h.hover_at(at[0]);
+        h.run_steps(1);
+        h.drag_at(at[0]);
+        h.run_steps(1);
+        at[1..].iter().for_each(|p| {
+            h.hover_at(*p);
+            h.run_steps(1);
+        });
+        h.drop_at(at[4]);
+        h.run_steps(2);
+    };
+    h.state_mut().settings.pick_all_layers = true;
+    lasso(&mut h);
+    let picked = h.state().picked.clone().expect("the lasso picks");
+    assert_eq!(picked.ids.len(), 2, "both strokes on lines");
+    assert_eq!(picked.more.len(), 1, "and the stroke on colour");
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    h.state_mut().picked = None;
+    h.state_mut().settings.pick_all_layers = false;
+    lasso(&mut h);
+    let picked = h.state().picked.clone().expect("the lasso picks");
+    assert!(picked.more.is_empty(), "this layer only: {picked:?}");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn a_click_picks_the_stroke_you_see_on_any_layer_or_only_on_this_one() {
     let path = sample("pick-seen");
     Bundle::open(&path)

@@ -1837,11 +1837,20 @@ impl Editor {
     }
 
     fn also_cels(&self) -> Vec<(String, String)> {
+        self.pick_cels(false)
+    }
+
+    fn pick_cels(&self, every: bool) -> Vec<(String, String)> {
         let doc = &self.scene.bundle.doc;
-        self.also
-            .iter()
-            .filter_map(|id| doc.layer(id))
+        let active = self.scene.active_id();
+        let layers: Vec<&klad_core::doc::Layer> = match every {
+            true => doc.all_layers(),
+            false => self.also.iter().filter_map(|id| doc.layer(id)).collect(),
+        };
+        layers
+            .into_iter()
             .filter(|l| l.kind() == Kind::Paint && l.visible && !l.locked)
+            .filter(|l| !every || active.as_deref() != Some(l.id.as_str()))
             .filter_map(|l| l.content_at(self.scene.frame).map(|c| (l.id.clone(), c.id.clone())))
             .collect()
     }
@@ -1856,6 +1865,14 @@ impl Editor {
             && !self.modifiers.shift
             && let Some((path, _)) = self.mark_at(lasso.points[0], 5.0 / zoom)
             && path != self.scene.active
+        {
+            self.activate(path)?;
+        }
+        let every = !click && self.settings.pick_all_layers;
+        if every
+            && self.scene.active_cel().is_none()
+            && let Some((layer, _)) = self.pick_cels(true).into_iter().next()
+            && let Some(klad_core::doc::Loc::Layer(path)) = self.scene.bundle.doc.locate(&layer)
         {
             self.activate(path)?;
         }
@@ -1889,7 +1906,7 @@ impl Editor {
         };
         let (found, crossing) = pick(self.scene.active_marks());
         let others: Vec<(String, String, Vec<u32>, bool)> = self
-            .also_cels()
+            .pick_cels(every)
             .into_iter()
             .map(|(layer, cel)| {
                 let (ids, crossing) = pick(self.scene.marks_of(&cel));
