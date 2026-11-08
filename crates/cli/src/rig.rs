@@ -594,6 +594,78 @@ mod tests {
     }
 
     #[test]
+    fn a_whole_layer_moves_with_every_drawing_its_bones_poses_and_weights() {
+        let dir = arm("shift");
+        edit(
+            &dir,
+            r#"{"op":"bone","layer":"l1","chain":["upper","fore","hand"],"through":[[100,200],[300,200],[480,200],[520,200]]}
+{"op":"ik","layer":"l1","add":"fore"}
+{"op":"weights","layer":"l1","auto":true}
+{"op":"pose","layer":"l1","from":0,"to":4,"ik":{"fore":{"target":[400,300]}}}"#,
+        )
+        .unwrap();
+        let before = Bundle::open(&dir).unwrap();
+        let (rest, posed) = (end_of(&before, 0), end_of(&before, 4));
+        let strongest = |b: &Bundle, at: [f32; 2]| {
+            let layer = b.doc.layer("l1").unwrap();
+            let w = b.read_weights("l1").unwrap().at(&layer.bones, at);
+            (0..w.len()).max_by(|x, y| w[*x].total_cmp(&w[*y])).unwrap()
+        };
+        let held = strongest(&before, [200.0, 200.0]);
+        edit(&dir, r#"{"op":"transform","layer":"l1","x":12,"y":20}"#).unwrap();
+        let after = Bundle::open(&dir).unwrap();
+        let moved = |a: (f32, f32), b: (f32, f32)| (b.0 - a.0 - 12.0).abs() < 0.01 && (b.1 - a.1 - 20.0).abs() < 0.01;
+        assert!(moved(rest, end_of(&after, 0)), "the rest drawing moves");
+        assert!(moved(posed, end_of(&after, 4)), "and the posed one");
+        let layer = after.doc.layer("l1").unwrap();
+        assert_eq!(layer.bones[0].head, [112.0, 220.0], "the bones move along");
+        let pose = layer.content_at(4).unwrap().pose.clone().unwrap();
+        assert_eq!(pose.ik["fore"].target, [412.0, 320.0], "so does the pose's target");
+        assert_eq!(strongest(&after, [212.0, 220.0]), held, "and the weights");
+        let was = end_of(&after, 0);
+        edit(&dir, r#"{"op":"transform","layer":"l1","rotate":90,"pivot":[300,200]}"#).unwrap();
+        let turned = end_of(&Bundle::open(&dir).unwrap(), 0);
+        let want = (300.0 - (was.1 - 200.0), 200.0 + (was.0 - 300.0));
+        assert!(
+            (turned.0 - want.0).abs() < 0.05 && (turned.1 - want.1).abs() < 0.05,
+            "{turned:?} {want:?}"
+        );
+        let once = Bundle::open(&dir).unwrap();
+        let (zero, four) = (end_of(&once, 0), end_of(&once, 4));
+        edit(&dir, r#"{"op":"transform","layer":"l1","x":5,"only":4}"#).unwrap();
+        let only = Bundle::open(&dir).unwrap();
+        assert_eq!(end_of(&only, 0), zero, "only the drawing at frame 4 moves");
+        assert!((end_of(&only, 4).0 - four.0 - 5.0).abs() < 0.01);
+        assert_eq!(
+            only.doc.layer("l1").unwrap().bones,
+            once.doc.layer("l1").unwrap().bones,
+            "and the bones stay"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_group_moves_its_shapes_and_shapes_only_scale_evenly() {
+        let dir = arm("group-shift");
+        edit(
+            &dir,
+            r##"{"op":"add","layer":{"id":"g","kind":"group","name":"g"}}
+{"op":"add","layer":{"id":"v","kind":"vector","name":"v"},"in":"g"}
+{"op":"add","node":{"id":"box","type":"rect","x":10,"y":10,"w":20,"h":20,"fill":"#ff0000"},"in":"v"}"##,
+        )
+        .unwrap();
+        edit(&dir, r#"{"op":"transform","layer":"g","x":7,"y":-3}"#).unwrap();
+        let bundle = Bundle::open(&dir).unwrap();
+        let Some(klad_core::doc::Item::Node(_, _, node)) = bundle.doc.item("box") else {
+            panic!("no box");
+        };
+        assert_eq!((node.transform.x, node.transform.y), (7.0, -3.0));
+        let stretched = edit(&dir, r#"{"op":"transform","layer":"g","sx":2,"sy":1}"#).unwrap_err();
+        assert!(format!("{stretched:#}").contains("scale evenly"), "{stretched:#}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn bones_weights_and_poses_through_the_cli_and_undo() {
         let dir = arm("pose");
         edit(

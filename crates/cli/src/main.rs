@@ -36,8 +36,8 @@ use klad_core::history::Stack;
 use klad_core::markedit::{LassoAction, MarkTransform};
 use klad_core::ops::{
     BoneSpec, ClipEdit, CopySpec, CopyTarget, FillSpec, FoliageSpec, GrassSpec, HatchSpec, IkSpec, InbetweenSpec,
-    InkSpec, LassoSpec, LightSpec, Op, PaintOverSpec, PaintSpec, PaletteEdit, Place, PoseSpec, ScatterSpec, StrokeSpec,
-    WeightsSpec,
+    InkSpec, LassoSpec, LightSpec, Op, PaintOverSpec, PaintSpec, PaletteEdit, Place, PoseSpec, ScatterSpec, ShiftSpec,
+    StrokeSpec, WeightsSpec,
 };
 use klad_core::retime::{Retime, RetimeSpec};
 use klad_core::stroke::{fills_of, strokes_of};
@@ -526,12 +526,19 @@ enum Command {
         flags: EditFlags,
     },
     #[command(
-        about = "Move, rotate or scale strokes and fills (<cel>:s<id>)",
-        long_about = "Move, rotate or scale strokes and fills, addressed as <cel>:s<id> (klad strokes lists them). Rotation and scale turn about --pivot, by default the middle of the marks' bounds. Stroke sizes and tapers scale with them; fills move by whole pixels and are resampled when turned or scaled.\n\n  klad transform art.klad c4:s12 c4:s13 --move 40,-10\n  klad transform art.klad c4:s12 --rotate 15 --scale 1.2\n  klad transform art.klad c4:s3 c4:s5 --sx -1 --pivot 512,400\n\nAlso a transform op in klad apply: {\"op\":\"transform\",\"ids\":[\"c4:s12\"],\"x\":40,\"y\":-10,\"rotate\":15,\"sx\":1.2,\"sy\":1.2}"
+        about = "Move, rotate or scale strokes and fills (<cel>:s<id>), or a whole layer or group (--layer)",
+        long_about = "Move, rotate or scale strokes and fills, addressed as <cel>:s<id> (klad strokes lists them). Rotation and scale turn about --pivot, by default the middle of the marks' bounds. Stroke sizes and tapers scale with them; fills move by whole pixels and are resampled when turned or scaled.\n\n--layer moves a whole layer or group instead: the marks of every drawing on it and on the layers in it (--only <frame>: just the drawings shown at that frame), its shapes, and with every drawing also its bones, its weights and its poses' roots and targets, so a rigged character moves as one. Shapes scale evenly only, and a layer with keyed shapes can only be moved. The pivot defaults to the middle of everything moved.\n\n  klad transform art.klad c4:s12 c4:s13 --move 40,-10\n  klad transform art.klad c4:s12 --rotate 15 --scale 1.2\n  klad transform art.klad c4:s3 c4:s5 --sx -1 --pivot 512,400\n  klad transform art.klad --layer figure --move -120,0\n  klad transform art.klad --layer sky --scale 1.1 --only 12\n\nAlso a transform op in klad apply: {\"op\":\"transform\",\"ids\":[\"c4:s12\"],\"x\":40,\"y\":-10,\"rotate\":15,\"sx\":1.2,\"sy\":1.2}, or for a layer {\"op\":\"transform\",\"layer\":\"figure\",\"x\":-120,\"y\":0,\"only\":12}."
     )]
     Transform {
         bundle: PathBuf,
         ids: Vec<String>,
+        #[arg(
+            long,
+            help = "a whole layer or group, every drawing on it (with its bones and poses), instead of ids"
+        )]
+        layer: Option<String>,
+        #[arg(long, help = "with --layer: only the drawings shown at this frame")]
+        only: Option<u32>,
         #[arg(long = "move", value_parser = parse_pair, allow_hyphen_values = true, help = "dx,dy in px")]
         offset: Option<[f32; 2]>,
         #[arg(long, allow_hyphen_values = true, help = "Degrees, clockwise")]
@@ -2349,6 +2356,8 @@ fn run() -> Result<()> {
         Command::Transform {
             bundle,
             ids,
+            layer,
+            only,
             offset,
             rotate,
             scale,
@@ -2359,16 +2368,24 @@ fn run() -> Result<()> {
             frame,
             flags,
         } => {
-            if ids.is_empty() {
-                return Err(anyhow!("give the strokes and fills to transform (<cel>:s<id>)"));
-            }
             let transform = mark_transform(offset, rotate, (scale, sx, sy), pivot, flip.as_deref())?
                 .ok_or_else(|| anyhow!("say how: --move, --rotate, --scale, --sx, --sy or --flip"))?;
-            agent::edit(
-                &bundle,
-                &[Op::Transform { ids, transform }],
-                &output(&flags.edit(), frame),
-            )?;
+            let op = match (layer, ids.is_empty()) {
+                (Some(_), false) => return Err(anyhow!("give ids or --layer, not both")),
+                (Some(layer), true) => Op::Shift(ShiftSpec {
+                    layer: layer_id(&bundle, &layer)?,
+                    transform,
+                    only,
+                    resolved: None,
+                }),
+                (None, true) => {
+                    return Err(anyhow!(
+                        "give the strokes and fills to transform (<cel>:s<id>), or --layer for a whole layer"
+                    ));
+                }
+                (None, false) => Op::Transform { ids, transform },
+            };
+            agent::edit(&bundle, &[op], &output(&flags.edit(), frame))?;
         }
         Command::Lasso {
             bundle,

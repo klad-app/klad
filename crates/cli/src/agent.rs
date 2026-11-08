@@ -583,7 +583,8 @@ pub fn edit(path: &Path, ops: &[Op], out: &Output) -> Result<()> {
     crate::paintover::resolve(&bundle, &mut ops)?
         .iter()
         .for_each(|n| eprintln!("{n}"));
-    let ops = crate::shapes::expand(&bundle, ops)?;
+    let mut ops = crate::shapes::expand(&bundle, ops)?;
+    klad_render::shift::resolve(&bundle, &mut ops)?;
     let mut ops = vector::pinned(&bundle.doc, &ops)?;
     resolve_strokes(&bundle, &mut ops)?;
     crate::fonts::settle(&bundle, &mut ops)?;

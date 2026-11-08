@@ -924,6 +924,34 @@ impl<'a> Rig<'a> {
     }
 }
 
+pub fn moved_weights(w: &Weights, back: crate::markedit::Affine) -> Weights {
+    let cell = CELL as f32;
+    let (width, height) = (w.width as i64, w.height as i64);
+    Weights {
+        width: w.width,
+        height: w.height,
+        maps: w
+            .maps
+            .iter()
+            .map(|(bone, map)| {
+                let moved = (0..height)
+                    .flat_map(|y| (0..width).map(move |x| (x, y)))
+                    .map(|(x, y)| {
+                        let (sx, sy) =
+                            crate::markedit::apply_affine(back, ((x as f32 + 0.5) * cell, (y as f32 + 0.5) * cell));
+                        let (cx, cy) = ((sx / cell).floor() as i64, (sy / cell).floor() as i64);
+                        match (0..width).contains(&cx) && (0..height).contains(&cy) {
+                            true => map[(cy * width + cx) as usize],
+                            false => 0,
+                        }
+                    })
+                    .collect();
+                (bone.clone(), moved)
+            })
+            .collect(),
+    }
+}
+
 pub fn family(layer: &Layer) -> Vec<&Layer> {
     std::iter::once(layer)
         .chain(layer.children().iter().flat_map(family))

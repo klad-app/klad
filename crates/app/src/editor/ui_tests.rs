@@ -3340,6 +3340,90 @@ fn bones_are_drawn_weighted_and_posed_on_the_canvas() {
 }
 
 #[test]
+fn cmd_t_moves_a_whole_layer_in_every_drawing_or_only_this_one() {
+    let path = sample("shift");
+    Bundle::open(&path)
+        .unwrap()
+        .apply(
+            &parse_lines(
+                r#"{"op":"cel","new":"l6","frame":6}
+{"op":"stroke","layer":"l6","frame":6,"path":"M100 100 L200 150","size":6}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    activate(&mut h, "lines");
+    let boxes = |h: &Harness<'static, Editor>| -> Vec<[f32; 4]> {
+        let bundle = &h.state().scene.bundle;
+        bundle
+            .doc
+            .layer("l6")
+            .unwrap()
+            .cels()
+            .iter()
+            .map(|c| {
+                bundle
+                    .read_marks("l6", &c.id)
+                    .unwrap()
+                    .iter()
+                    .filter_map(klad_core::stroke::Mark::bounds)
+                    .reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])])
+                    .unwrap()
+            })
+            .collect()
+    };
+    let near = |a: [f32; 4], b: [f32; 4], dx: f32, dy: f32| {
+        (b[0] - a[0] - dx).abs() < 1.5 && (b[1] - a[1] - dy).abs() < 1.5 && (b[2] - b[0] - (a[2] - a[0])).abs() < 0.5
+    };
+    let before = boxes(&h);
+    assert_eq!(before.len(), 2);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::T);
+    h.run_steps(2);
+    let corners = h
+        .state()
+        .shifting
+        .as_ref()
+        .expect("cmd T starts a layer transform")
+        .corners;
+    assert_eq!(h.state().tool, Tool::Select);
+    let centre = (corners[0] + corners[2]) / 2.0;
+    let (from, to) = (
+        canvas_at(&h, centre.x, centre.y),
+        canvas_at(&h, centre.x + 40.0, centre.y + 20.0),
+    );
+    drag(&mut h, from, to);
+    h.run_steps(3);
+    let moved = boxes(&h);
+    assert!(
+        before.iter().zip(&moved).all(|(a, b)| near(*a, *b, 40.0, 20.0)),
+        "every drawing moves: {before:?} {moved:?}"
+    );
+    assert!(h.state().shifting.is_some(), "the transform stays on for the next drag");
+    h.state_mut().shifting.as_mut().unwrap().every = false;
+    let corners = h.state().shifting.as_ref().unwrap().corners;
+    let centre = (corners[0] + corners[2]) / 2.0;
+    let (from, to) = (
+        canvas_at(&h, centre.x, centre.y),
+        canvas_at(&h, centre.x + 30.0, centre.y),
+    );
+    drag(&mut h, from, to);
+    h.run_steps(3);
+    let once = boxes(&h);
+    assert!(
+        near(moved[0], once[0], 30.0, 0.0),
+        "the drawing shown moves: {:?} {:?}",
+        moved[0],
+        once[0]
+    );
+    assert_eq!(once[1], moved[1], "the other drawing stays");
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    assert!(h.state().shifting.is_none(), "Esc ends it");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn bones_are_drawn_as_a_chain_that_fans_ends_and_takes_back_its_last_bone() {
     let path = sample("chain");
     let mut h = harness(editor(&path), vec2(1440.0, 1000.0));

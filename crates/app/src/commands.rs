@@ -38,6 +38,7 @@ pub enum Cmd {
     Copy,
     Paste,
     SelectAll,
+    TransformLayer,
     CutLasso,
     Recolour,
     Thinner,
@@ -490,7 +491,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 163] = [
+    pub const ALL: [Cmd; 164] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -525,6 +526,7 @@ impl Cmd {
         Cmd::Copy,
         Cmd::Paste,
         Cmd::SelectAll,
+        Cmd::TransformLayer,
         Cmd::CutLasso,
         Cmd::Recolour,
         Cmd::Thinner,
@@ -954,6 +956,15 @@ impl Cmd {
                 T::Press(const { &[cmd(Key::V)] }),
                 R::No,
                 "copy the kept strokes into the active layer's drawing at this frame, in place",
+            ),
+            Cmd::TransformLayer => spec(
+                "edit.transform-layer",
+                "transform the whole layer",
+                icon::SHAPES,
+                G::Edit,
+                T::Press(const { &[cmd(Key::T)] }),
+                R::No,
+                "move, turn or scale the whole active layer or group, in every drawing, with its bones and poses",
             ),
             Cmd::SelectAll => spec(
                 "edit.select-all",
@@ -2160,6 +2171,7 @@ impl Cmd {
             Cmd::Copy => "Copy",
             Cmd::Paste => "Paste",
             Cmd::SelectAll => "Select all",
+            Cmd::TransformLayer => "Transform layer",
             Cmd::CutLasso => "Lasso cuts strokes",
             Cmd::Recolour => "Recolour",
             Cmd::Thinner => "Thinner",
@@ -2357,6 +2369,8 @@ pub const MENUS: [Menu; 9] = [
             Sub(
                 "Transform",
                 &[
+                    Run(Cmd::TransformLayer),
+                    Line,
                     Run(Cmd::FlipH),
                     Run(Cmd::FlipV),
                     Run(Cmd::TurnLeft90),
@@ -2681,6 +2695,10 @@ mod tests {
         ("copy strokes, cmd C (M3 batch 4)", "edit.copy"),
         ("paste strokes, cmd V (M3 batch 4)", "edit.paste"),
         ("select all on this layer (M2 batch 3)", "edit.select-all"),
+        (
+            "transform a whole layer or group, cmd T (2026-11-08)",
+            "edit.transform-layer",
+        ),
         ("a lasso cuts strokes at its edge (M2 batch 4)", "edit.cut-lasso"),
         ("recolour (M2 batch 3)", "edit.recolour"),
         ("thinner (M2 batch 3)", "edit.thinner"),

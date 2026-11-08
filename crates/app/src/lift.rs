@@ -2,7 +2,7 @@ use anyhow::Result;
 use klad_brush::Raster;
 use klad_core::doc::{Node, Transform};
 use klad_core::rng::{FNV_OFFSET, fnv};
-use klad_render::{rasterize_nodes, vector};
+use klad_render::rasterize_nodes;
 use std::sync::mpsc::{Receiver, channel};
 
 fn spawn<T: Send + 'static>(
@@ -29,22 +29,7 @@ pub fn affine_apply(a: [f32; 6], (x, y): (f32, f32)) -> (f32, f32) {
 }
 
 pub fn committed(node: &Node, affine: [f32; 6], scale: f32, degrees: f32) -> Result<Transform> {
-    let mut t = node.transform;
-    let pivot = match t.pivot {
-        Some(p) => p,
-        None => {
-            let mut plain = node.clone();
-            plain.transform = Transform::default();
-            vector::local_bounds(&plain)?.map_or([0.0, 0.0], |r| [r.center_x(), r.center_y()])
-        }
-    };
-    let (qx, qy) = affine_apply(affine, (t.x + pivot[0], t.y + pivot[1]));
-    t.x = qx - pivot[0];
-    t.y = qy - pivot[1];
-    t.sx *= scale;
-    t.sy *= scale;
-    t.rotate += degrees;
-    Ok(t)
+    klad_render::shift::moved_node(node, affine, scale, degrees)
 }
 
 pub fn square(node: &Node) -> bool {

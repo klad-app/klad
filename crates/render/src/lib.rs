@@ -8,6 +8,7 @@ pub mod overlay;
 pub mod pngwrite;
 pub mod shapes;
 pub mod sheet;
+pub mod shift;
 pub mod sprites;
 pub mod text;
 pub mod vector;

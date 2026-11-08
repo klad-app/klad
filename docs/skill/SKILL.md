@@ -66,6 +66,7 @@ klad set art.klad c4:s12 color=#c84a3a size=6 brush=pencil
 klad set art.klad c4:s7 color=skin opacity=0.8
 klad rm art.klad c4:s12 c4:s13
 klad transform art.klad c4:s3 c4:s5 --move 40,-10 --rotate 15 --scale 1.2
+klad transform art.klad --layer figure --move -120,0           # a whole layer or group: every drawing, its shapes, bones and poses
 klad show art.klad c4:s12
 klad render art.klad --focus c4:s12
 ```

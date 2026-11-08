@@ -123,6 +123,7 @@ pub enum Op {
         ids: Vec<String>,
         transform: MarkTransform,
     },
+    Shift(ShiftSpec),
     Path {
         id: String,
         edit: PathEdit,
@@ -657,6 +658,21 @@ pub struct BoneSpec {
     pub chain: Option<Vec<String>>,
     #[serde(default)]
     pub through: Option<Vec<[f32; 2]>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShiftSpec {
+    pub layer: String,
+    pub transform: MarkTransform,
+    pub only: Option<u32>,
+    pub resolved: Option<Shifted>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Shifted {
+    pub marks: Vec<(String, Vec<u32>)>,
+    pub nodes: Vec<(String, crate::doc::Transform)>,
+    pub weights: Vec<(String, crate::rig::Weights)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -1440,6 +1456,19 @@ impl Op {
                 Op::Fill(spec)
             }
             "palette" => Op::Palette(parse_palette(&mut map)?),
+            "transform" if map.contains_key("layer") => {
+                let layer = take_str(&mut map, "layer")?.unwrap_or_default();
+                let only = match map.remove("only") {
+                    Some(v) => Some(v.as_u64().ok_or_else(|| anyhow!("only must be a frame number"))? as u32),
+                    None => None,
+                };
+                Op::Shift(ShiftSpec {
+                    layer,
+                    transform: MarkTransform::parse(&mut map)?,
+                    only,
+                    resolved: None,
+                })
+            }
             "transform" => {
                 let mut ids: Vec<String> = match map.remove("ids") {
                     Some(v) => serde_json::from_value(v).map_err(|_| anyhow!("ids must be a list of strings"))?,
@@ -3226,6 +3255,7 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
             })?;
             out.changed.extend(ids.iter().cloned());
         }
+        Op::Shift(spec) => shift(doc, spec, out)?,
         Op::Move { id, place } => {
             move_item(doc, id, place).with_context(|| format!("mv {id}"))?;
             out.changed.push(id.clone());
@@ -3442,6 +3472,77 @@ pub fn everything(doc: &Document) -> Fill {
         coverage,
     )
     .by(Author::Agent)
+}
+
+fn shift(doc: &mut Document, spec: &ShiftSpec, out: &mut Applied) -> Result<()> {
+    let Some(made) = &spec.resolved else {
+        bail!("a layer transform is worked out by klad transform (or klad apply) first");
+    };
+    let pivot = spec
+        .transform
+        .pivot
+        .ok_or_else(|| anyhow!("a layer transform needs its pivot"))?;
+    let a = spec.transform.affine(pivot);
+    let at = |p: [f32; 2]| {
+        let (x, y) = crate::markedit::apply_affine(a, (p[0], p[1]));
+        [x, y]
+    };
+    let id = doc.find_layer(&spec.layer)?.id.clone();
+    let path = layer_path(doc, &id)?;
+    made.marks.iter().try_for_each(|(cel, ids)| {
+        let layer = mark_owner(doc, cel)?;
+        out.push(
+            &layer,
+            cel,
+            MarkChange::Transform {
+                ids: ids.clone(),
+                transform: spec.transform,
+            },
+        );
+        Ok::<_, anyhow::Error>(())
+    })?;
+    let moving = spec.transform.rotate == 0.0 && spec.transform.sx == 1.0 && spec.transform.sy == 1.0;
+    made.nodes.iter().try_for_each(|(node, t)| {
+        let Some(Loc::Node(layer, cel, nodes)) = doc.locate(node) else {
+            bail!("no shape {node}");
+        };
+        let (last, parent) = nodes.split_last().ok_or_else(|| anyhow!("no shape {node}"))?;
+        let target = &mut node_list(doc, &layer, cel, parent)?[*last];
+        target.transform = *t;
+        if moving {
+            [("x", spec.transform.x), ("y", spec.transform.y)]
+                .into_iter()
+                .for_each(|(name, by)| {
+                    if let Some(keys) = target.keys.get_mut(name) {
+                        keys.iter_mut().for_each(|k| k.value += by);
+                    }
+                });
+        }
+        out.changed.push(node.clone());
+        Ok::<_, anyhow::Error>(())
+    })?;
+    if spec.only.is_none() {
+        let linear = |v: [f32; 2]| [a[0] * v[0] + a[1] * v[1], a[2] * v[0] + a[3] * v[1]];
+        crate::doc::family_paths(doc, &path).iter().for_each(|p| {
+            let layer = doc.layer_at_mut(p);
+            layer.bones.iter_mut().for_each(|b| {
+                b.head = at(b.head);
+                b.tail = at(b.tail);
+            });
+            if let Some(cels) = layer.cels_mut() {
+                cels.iter_mut().filter_map(|c| c.pose.as_mut()).for_each(|pose| {
+                    pose.root = linear(pose.root);
+                    pose.ik.values_mut().for_each(|r| r.target = at(r.target));
+                });
+            }
+        });
+        made.weights.iter().for_each(|(owner, w)| {
+            out.weights.retain(|(l, _)| l != owner);
+            out.weights.push((owner.clone(), w.clone()));
+        });
+    }
+    out.changed.push(id);
+    Ok(())
 }
 
 fn mark_owner(doc: &Document, cel: &str) -> Result<String> {

@@ -336,6 +336,7 @@ impl Editor {
                     self.command_button(ui, Cmd::SelectAll, Some("select all"));
                     ui.label(RichText::new("click or lasso strokes; the bar under them edits them").color(theme::WEAK));
                 }
+                Tool::Select if self.shifting.is_some() => self.shift_options(ui),
                 Tool::Select => {
                     self.pick_scope(ui);
                     ui.label(

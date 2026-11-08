@@ -22,6 +22,7 @@ mod panels;
 mod pins;
 mod prefs;
 mod selection;
+mod shift;
 mod text;
 mod timeline;
 mod tweens;
@@ -647,6 +648,7 @@ pub(crate) struct Editor {
     paintover: paintover::Form,
     compare: Option<compare::Compared>,
     bones: bones::BoneTool,
+    shifting: Option<shift::Shifting>,
     first: first::FirstSteps,
     settings_section: prefs::Section,
     report_drawing: bool,
@@ -823,6 +825,7 @@ impl Editor {
             paintover: paintover::Form::default(),
             compare: None,
             bones: bones::BoneTool::default(),
+            shifting: None,
             first: first::FirstSteps::default(),
             settings_section: prefs::Section::default(),
             report_drawing: false,
@@ -1353,6 +1356,9 @@ impl Editor {
     }
 
     fn handles(&self) -> Option<(String, [Vec2; 4])> {
+        if let Some(found) = self.shift_handles() {
+            return Some(found);
+        }
         match self.tool {
             Tool::Direct => None,
             _ if self.on_marks() => self.picked_corners(),
@@ -1388,6 +1394,9 @@ impl Editor {
 
     fn drag_ops(&self) -> Option<Vec<Op>> {
         let drag = self.drag.as_ref().filter(|d| d.moved() && !d.copy)?;
+        if self.shifting.is_some() {
+            return self.shift_ops(drag, false).ok().flatten();
+        }
         match drag.strokes {
             true => self
                 .picked_ops(LassoAction::Transform(drag.mark_transform()))
@@ -1397,6 +1406,9 @@ impl Editor {
     }
 
     fn preview_cels(&self) -> Vec<String> {
+        if self.shifting.is_some() {
+            return self.shift_cels();
+        }
         match self.drag.as_ref().is_some_and(|d| d.strokes) {
             true => self
                 .picked
@@ -1609,8 +1621,8 @@ impl Editor {
 
     fn start_drag(&mut self, id: String, grab: Grab, corners: [Vec2; 4], at: Vec2, fresh: bool) {
         self.drop_preview();
-        let strokes = self.on_marks();
-        if !strokes && !matches!(self.scene.bundle.doc.item(&id), Some(Item::Node(..))) {
+        let strokes = self.on_marks() && self.shifting.is_none();
+        if !strokes && self.shifting.is_none() && !matches!(self.scene.bundle.doc.item(&id), Some(Item::Node(..))) {
             return;
         }
         let center = corners.iter().fold(Vec2::ZERO, |a, c| a + *c) / 4.0;
@@ -1676,6 +1688,9 @@ impl Editor {
         let Some(drag) = self.drag.take() else {
             return Ok(());
         };
+        if self.shifting.is_some() {
+            return self.finish_shift_drag(&drag);
+        }
         if drag.strokes {
             return self.finish_stroke_drag(&drag);
         }
@@ -2601,7 +2616,10 @@ impl Editor {
             (Tool::Brush, Phase::Up) => self.finish()?,
             (Tool::Select, Phase::Down) => match self.grab_at(view, rect, e.pos) {
                 Some((id, grab, corners)) => self.start_drag(id, grab, corners, c, false),
-                None => self.grab_under(c, e.pos)?,
+                None => {
+                    self.end_shift();
+                    self.grab_under(c, e.pos)?
+                }
             },
             (Tool::Select, Phase::Move) => {
                 if let Some(drag) = self.drag.as_mut() {
@@ -2938,6 +2956,7 @@ impl Editor {
         self.typing_keys(ui)?;
         self.pen_keys(ui)?;
         self.bone_keys(ui);
+        self.shift_keys(ui)?;
         self.command_keys(ui)?;
         let ctx = ui.ctx().clone();
         let was_focused = self.focused;

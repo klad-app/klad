@@ -488,6 +488,7 @@ pub fn summarize(ops: &[Op]) -> String {
             Op::Fill(spec) => format!("fill on {}", spec.layer),
             Op::Palette(_) => "palette".to_string(),
             Op::Transform { ids, .. } => format!("transform {}", ids.join(" ")),
+            Op::Shift(spec) => format!("transform {}", spec.layer),
             Op::Path { id, .. } => format!("path {id}"),
             Op::Copy(spec) => format!(
                 "copy {} mark{} to {}",

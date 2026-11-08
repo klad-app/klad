@@ -94,6 +94,12 @@ impl Editor {
                 (_, true) => Some("finish the drag first".into()),
                 _ => None,
             },
+            Cmd::TransformLayer => self
+                .scene
+                .active_layer()
+                .filter(|l| l.kind() != klad_core::doc::Kind::Adjust)
+                .is_none()
+                .then(|| "pick a layer or group with something on it".to_string()),
             Cmd::SelectAll => (!self.active_paint() || self.scene.active_marks().is_empty())
                 .then(|| "the active layer has no strokes on this frame".to_string()),
             Cmd::Recolour | Cmd::Thinner | Cmd::Thicker => need_strokes().or(editing),
@@ -552,6 +558,7 @@ impl Editor {
             }
             Cmd::Paste => self.paste()?,
             Cmd::SelectAll => self.select_all_strokes(),
+            Cmd::TransformLayer => self.start_shift()?,
             Cmd::CutLasso => self.cut_lasso = !self.cut_lasso,
             Cmd::Recolour => self.recolour_picked()?,
             Cmd::FillShape => self.recolour_shape(false)?,

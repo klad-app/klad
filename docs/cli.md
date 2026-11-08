@@ -28,7 +28,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad add`](#klad-add): Add a layer, cel or shape
 - [`klad set`](#klad-set): Change properties: klad set art.klad n4 fill=#ff0000 transform.rotate=15 (null removes)
 - [`klad rm`](#klad-rm): Remove layers, cels or nodes
-- [`klad transform`](#klad-transform): Move, rotate or scale strokes and fills (<cel>:s<id>)
+- [`klad transform`](#klad-transform): Move, rotate or scale strokes and fills (<cel>:s<id>), or a whole layer or group (--layer)
 - [`klad lasso`](#klad-lasso): Lasso strokes and fills on a paint layer; --cut also takes the parts crossing the edge
 - [`klad path`](#klad-path): List the points of a path, rect or ellipse, or edit them
 - [`klad mv`](#klad-mv): Move a layer or node: --above, --below, --in, --index
@@ -963,11 +963,15 @@ Options:
 ```text
 Move, rotate or scale strokes and fills, addressed as <cel>:s<id> (klad strokes lists them). Rotation and scale turn about --pivot, by default the middle of the marks' bounds. Stroke sizes and tapers scale with them; fills move by whole pixels and are resampled when turned or scaled.
 
+--layer moves a whole layer or group instead: the marks of every drawing on it and on the layers in it (--only <frame>: just the drawings shown at that frame), its shapes, and with every drawing also its bones, its weights and its poses' roots and targets, so a rigged character moves as one. Shapes scale evenly only, and a layer with keyed shapes can only be moved. The pivot defaults to the middle of everything moved.
+
   klad transform art.klad c4:s12 c4:s13 --move 40,-10
   klad transform art.klad c4:s12 --rotate 15 --scale 1.2
   klad transform art.klad c4:s3 c4:s5 --sx -1 --pivot 512,400
+  klad transform art.klad --layer figure --move -120,0
+  klad transform art.klad --layer sky --scale 1.1 --only 12
 
-Also a transform op in klad apply: {"op":"transform","ids":["c4:s12"],"x":40,"y":-10,"rotate":15,"sx":1.2,"sy":1.2}
+Also a transform op in klad apply: {"op":"transform","ids":["c4:s12"],"x":40,"y":-10,"rotate":15,"sx":1.2,"sy":1.2}, or for a layer {"op":"transform","layer":"figure","x":-120,"y":0,"only":12}.
 
 Usage: klad transform [OPTIONS] <BUNDLE> [IDS]...
 
@@ -979,6 +983,12 @@ Arguments:
 
 
 Options:
+      --layer <LAYER>
+          a whole layer or group, every drawing on it (with its bones and poses), instead of ids
+
+      --only <ONLY>
+          with --layer: only the drawings shown at this frame
+
       --move <OFFSET>
           dx,dy in px
 
