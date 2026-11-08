@@ -123,7 +123,45 @@ fn controls(h: &Harness<'static, Editor>) -> Vec<(Role, String, Rect)> {
         .collect()
 }
 
+fn internal(word: &str) -> bool {
+    let mut chars = word.chars();
+    let first = chars.next();
+    let rest: String = chars.collect();
+    let digits = !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit());
+    let story = |head: char| {
+        word.strip_prefix(head)
+            .and_then(|r| r.split_once('.'))
+            .is_some_and(|(a, b)| {
+                !a.is_empty() && !b.is_empty() && (a.chars().chain(b.chars())).all(|c| c.is_ascii_digit())
+            })
+    };
+    matches!(first, Some('c' | 'l' | 'n' | 's')) && digits || first == Some('M') && digits || story('S') || story('M')
+}
+
+fn developer_words(h: &Harness<'static, Editor>) -> Vec<String> {
+    h.query_all(By::new().predicate(|n| n.label().is_some() || n.value().is_some()))
+        .flat_map(|n| {
+            let node = n.accesskit_node();
+            [node.label(), node.value()].into_iter().flatten().collect::<Vec<_>>()
+        })
+        .filter(|text| {
+            text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '.'))
+                .map(|w| w.trim_end_matches('.'))
+                .any(internal)
+        })
+        .collect()
+}
+
+fn scan(h: &Harness<'static, Editor>, what: &str) {
+    let found = developer_words(h);
+    assert!(
+        found.is_empty(),
+        "{what}: internal ids or story numbers in sight: {found:#?}"
+    );
+}
+
 fn audit(h: &Harness<'static, Editor>, what: &str) -> usize {
+    scan(h, what);
     let hinted = theme::hinted(&h.ctx);
     let found = controls(h);
     let small: Vec<String> = found
@@ -496,6 +534,7 @@ fn every_control_is_pen_sized_and_has_a_hover_hint() {
     });
     h.run_steps(2);
     checked += audit(&h, "points selected");
+    h.state_mut().settings.developer = true;
     h.state_mut().settings.layout.numbers = true;
     h.state_mut().windows.settings = true;
     h.state_mut().windows.onion = true;
@@ -783,6 +822,7 @@ fn ui_time_per_frame() {
     .filter(|(_, p)| p.join("doc.json").exists())
     .for_each(|(name, path)| {
         let mut h = harness(editor(&path), vec2(1600.0, 1000.0));
+        h.state_mut().settings.developer = true;
         h.state_mut().settings.layout.numbers = true;
         h.state_mut().windows.log = true;
         h.state_mut().tool = Tool::Strokes;
@@ -839,6 +879,7 @@ fn panel_pictures() {
     palette_field(&h).type_text("in");
     shot(&mut h, "4-palette");
     h.key_press(Key::Escape);
+    h.state_mut().settings.developer = true;
     h.state_mut().settings.layout.numbers = true;
     h.state_mut().windows.settings = true;
     shot(&mut h, "5-numbers-and-settings");
@@ -1410,6 +1451,7 @@ fn a_layer_made_and_activated_at_once_or_mid_refill_still_draws() {
 fn switching_layers_keeps_the_canvas_unless_the_picture_changes() {
     let path = sample("switch");
     let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    h.state_mut().settings.developer = true;
     settle(&mut h, |ed| ed.canvas_current() && ed.dirty.is_empty());
     let all = h.state().scene.all_tiles().len();
     let switch = |h: &mut Harness<'static, Editor>, name: &str| {
@@ -1870,7 +1912,7 @@ fn an_agent_edit_while_the_editor_is_open_shows_in_the_history_and_keeps_its_aut
     };
     assert_eq!(first(&mut h), ("agent".into(), "stroke on l6".into(), false));
     assert!(
-        h.query_all(By::new().role(Role::Button).label_contains("agent  stroke on l6"))
+        h.query_all(By::new().role(Role::Button).label_contains("agent  stroke on lines"))
             .count()
             > 0
     );
@@ -4340,5 +4382,72 @@ fn help_opens_the_guides_and_whats_new() {
                 "Help has {cmd:?}"
             );
         });
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn internal_words_are_recognised() {
+    ["c12", "l6", "n357", "s4", "M14", "S14.5", "M4.5"]
+        .into_iter()
+        .for_each(|w| assert!(internal(w), "{w}"));
+    ["layer", "12", "2s", "s", "c", "1.000", "klad", "S", "Esc"]
+        .into_iter()
+        .for_each(|w| assert!(!internal(w), "{w}"));
+}
+
+#[test]
+fn no_tool_shows_internal_ids_or_story_numbers() {
+    let path = sample("no-ids");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    activate(&mut h, "lines");
+    h.run_steps(3);
+    scan(&h, "the default layout");
+    [
+        Tool::Brush,
+        Tool::Fill,
+        Tool::Select,
+        Tool::Strokes,
+        Tool::Direct,
+        Tool::Pen,
+        Tool::Shape,
+        Tool::Text,
+        Tool::Note,
+        Tool::Bone,
+    ]
+    .into_iter()
+    .for_each(|tool| {
+        h.state_mut().tool = tool;
+        h.run_steps(2);
+        scan(&h, &format!("{tool:?}"));
+    });
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn the_numbers_need_developer_tools_and_notes_start_folded() {
+    let path = sample("developer");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    let fresh = crate::layout::Layout::default();
+    [Pane::Notes, Pane::History].into_iter().for_each(|pane| {
+        assert!(
+            fresh.panes.iter().any(|p| p.pane == pane && p.collapsed),
+            "{pane:?} starts folded"
+        );
+    });
+    assert!(!h.state().settings.developer, "developer tools start off");
+    h.state_mut().invoke(Cmd::Numbers).unwrap();
+    h.run_steps(2);
+    assert!(
+        !h.state().settings.layout.numbers,
+        "the numbers stay closed without developer tools"
+    );
+    assert!(
+        h.query_by_label(theme::icon::NUMBERS).is_none(),
+        "and the strip has no numbers button"
+    );
+    h.state_mut().settings.developer = true;
+    h.state_mut().invoke(Cmd::Numbers).unwrap();
+    h.run_steps(2);
+    assert!(h.state().settings.layout.numbers, "with developer tools on they open");
     let _ = std::fs::remove_dir_all(&path);
 }

@@ -66,6 +66,11 @@ impl Editor {
                 .then(|| "no clip here: click a clip's bar above the frame numbers".to_string())
         };
         let editing = self.busy().then(|| "finish the stroke or drag first".to_string());
+        if crate::commands::DEVELOPER.contains(&cmd) && !self.settings.developer {
+            return Some(
+                "the numbers are a developer tool: turn on developer tools in Settings > Layout first".to_string(),
+            );
+        }
         match cmd {
             Cmd::Undo | Cmd::Redo => editing,
             Cmd::CloseDocument => (!self.jobs.is_empty())

@@ -86,13 +86,12 @@ impl Editor {
         (0..count).try_for_each(|_| self.step(stack))?;
         self.history = None;
         let word = if stack == Stack::Undo { "undid" } else { "redid" };
-        let text = format!(
-            "{word} {count} step{} in {:.0} ms",
-            if count == 1 { "" } else { "s" },
-            start.elapsed().as_secs_f64() * 1000.0
+        let steps = format!("{word} {count} step{}", if count == 1 { "" } else { "s" });
+        self.measure(
+            "undo",
+            format!("{steps} in {:.0} ms", start.elapsed().as_secs_f64() * 1000.0),
         );
-        self.measure("undo", text.clone());
-        self.say(Tone::Done, text);
+        self.say(Tone::Done, steps);
         Ok(())
     }
 
@@ -119,8 +118,8 @@ impl Editor {
                 _ => theme::TEXT,
             };
             let text = match r.undone {
-                true => format!("undone  {}  {}  {}", r.who, r.what, ago(r.at_ms, now)),
-                false => format!("{}  {}  {}", r.who, r.what, ago(r.at_ms, now)),
+                true => format!("undone  {}  {}  {}", r.who, self.plain(&r.what), ago(r.at_ms, now)),
+                false => format!("{}  {}  {}", r.who, self.plain(&r.what), ago(r.at_ms, now)),
             };
             let hint = match steps_to(&rows, i) {
                 Some((Stack::Undo, n)) => format!("undo {n} step{} to come back here", if n == 1 { "" } else { "s" }),

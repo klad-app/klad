@@ -16,6 +16,7 @@ The first builds, and klad's licences.
 - In-betweens blend colours evenly (in OKLab), so light can follow a turning limb when the second key is coloured for it.
 - `klad arcs` follows the part of a foot on the ground: a heel-to-toe roll is no longer reported as a slide.
 - Help > Report a problem shows the report before it is copied (version, system, the last messages and lines of klad's log, with your home folder hidden) and can zip the drawing to attach; `klad report` prints the same. Errors and crashes are kept in a small log for it.
+- Nothing in the editor names klad's internal ids: the status line, layer settings, selections, the in-between window, undo and the history say layers by name and drawings by frame, the timeline numbers each layer's drawings 1, 2, 3, and a new layer is called "paint 1" instead of by its id. The numbers window (timings) moves behind Settings > Layout > developer tools, off by default.
 - The format promise: from 1.0, a drawing saved by any release opens in every later one with nothing lost. Each release keeps copies of the samples it saved, and the tests open them all with each new build.
 - Help > Guides and Help > What's new open klad's guides and this changelog on klad.studio; the welcome on the start window links the guides too.
 - Support by email: Help > Contact support opens an email to hello@klad.studio with the version and your system filled in; Report a problem can email its report there too, and About links klad.studio and the address. Crash messages name the address as well as the issues page.

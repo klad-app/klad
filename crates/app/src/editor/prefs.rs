@@ -251,7 +251,17 @@ impl Editor {
             row_label(ui, "Panels");
             ui.vertical(|ui| {
                 self.command_check(ui, Cmd::Timeline, "timeline");
-                self.command_check(ui, Cmd::Numbers, "numbers");
+                if ui
+                    .checkbox(&mut self.settings.developer, "developer tools")
+                    .hint("for working on klad itself: the numbers window with its timings")
+                    .changed()
+                {
+                    self.settings.layout.numbers &= self.settings.developer;
+                    self.settings_dirty = true;
+                }
+                if self.settings.developer {
+                    self.command_check(ui, Cmd::Numbers, "numbers");
+                }
                 if ui
                     .button("reset the layout")
                     .hint("every panel back where it starts, at its first size")
@@ -318,8 +328,10 @@ impl Editor {
             );
         }
         let filter = self.key_filter.trim().to_lowercase();
+        let developer = self.settings.developer;
         let shown: Vec<Cmd> = Cmd::ALL
             .into_iter()
+            .filter(|c| developer || !crate::commands::DEVELOPER.contains(c))
             .filter(|c| {
                 filter.is_empty()
                     || c.spec().name.contains(filter.as_str())

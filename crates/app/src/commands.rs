@@ -2635,7 +2635,6 @@ pub const MENUS: [Menu; 9] = [
             Run(Cmd::Timeline),
             Line,
             Run(Cmd::MessageLog),
-            Sub("Numbers", &[Run(Cmd::Numbers), Run(Cmd::ResetNumbers), Run(Cmd::Spin)]),
         ],
     },
     Menu {
@@ -2653,6 +2652,8 @@ pub const MENUS: [Menu; 9] = [
         ],
     },
 ];
+
+pub const DEVELOPER: [Cmd; 3] = [Cmd::Numbers, Cmd::ResetNumbers, Cmd::Spin];
 
 #[cfg(any(target_os = "macos", test))]
 pub const IN_APP_MENU: [Cmd; 2] = [Cmd::Settings, Cmd::Quit];
@@ -2851,9 +2852,13 @@ mod tests {
         assert!(twice.is_empty(), "in two places: {twice:?}");
         let missing: Vec<Cmd> = Cmd::ALL
             .into_iter()
-            .filter(|c| !listed.contains(c) && !c.spec().is_hold())
+            .filter(|c| !listed.contains(c) && !c.spec().is_hold() && !DEVELOPER.contains(c))
             .collect();
         assert!(missing.is_empty(), "not in any menu: {missing:?}");
+        assert!(
+            DEVELOPER.iter().all(|c| !listed.contains(c)),
+            "developer tools stay out of the menus"
+        );
         assert!(
             listed.iter().all(|c| !c.spec().is_hold()),
             "holds are gestures, not menu items"

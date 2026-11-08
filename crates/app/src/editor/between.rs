@@ -459,7 +459,7 @@ impl Editor {
                                     );
                                 }
                             }
-                            ui.label(format!("key at {f}: {}", cel.clone().unwrap_or_default()));
+                            ui.label(format!("key at frame {f}"));
                         });
                     });
                 });
@@ -508,7 +508,7 @@ impl Editor {
                     ui.label(RichText::new(format!("parts pair first: {}", parts.join(", "))).color(theme::WEAK));
                 }
                 if !r.pairs.is_empty() {
-                    let listed: Vec<String> = r.pairs.iter().map(|[a, b]| format!("s{a}=s{b}")).collect();
+                    let listed: Vec<String> = r.pairs.iter().map(|[a, b]| format!("stroke {a} with {b}")).collect();
                     ui.label(RichText::new(format!("pairs you chose: {}", listed.join(", "))).color(theme::WEAK));
                 }
                 if ui
@@ -531,6 +531,13 @@ impl Editor {
         self.report_rows(ui)?;
         ui.separator();
         self.redo_rows_ui(ui)
+    }
+
+    fn drawing_words(&self, cel: &str) -> String {
+        match self.scene.bundle.doc.locate(cel) {
+            Some(Loc::Cel(path, c)) => format!("frame {}", self.scene.bundle.doc.layer_at(&path).cels()[c].frame),
+            _ => "a drawing".to_string(),
+        }
     }
 
     fn shared_parts(&self, layer: &str, cels: &[Option<String>]) -> Vec<String> {
@@ -563,7 +570,7 @@ impl Editor {
             .report
             .iter()
             .filter_map(|l| match l {
-                Line::Made { cel, frame } => Some(format!("{cel} at {frame}")),
+                Line::Made { frame, .. } => Some(frame.to_string()),
                 _ => None,
             })
             .collect();
@@ -583,13 +590,15 @@ impl Editor {
                     format!(", by part: {}", parts.join(", "))
                 };
                 ui.label(format!(
-                    "{name}: {a} to {b}, {paired} pairs{by}, {touching} line ends kept touching"
+                    "{name}: {} to {}, {paired} pairs{by}, {touching} line ends kept touching",
+                    self.drawing_words(&a),
+                    self.drawing_words(&b)
                 ));
             }
             Line::Unpaired { cel, id, first } => {
                 let side = if first { "first" } else { "second" };
                 if ui
-                    .button(format!("{cel}:s{id}, only in the {side} key: pick its partner"))
+                    .button(format!("stroke {id}, only in the {side} key: pick its partner"))
                     .hint(
                         "then click the stroke it should become with S; the in-betweens are made again with that pair",
                     )
@@ -616,11 +625,11 @@ impl Editor {
                 }
             }
             Line::Clash(text) => {
-                ui.label(RichText::new(format!("not paired: {text}")).color(theme::WEAK));
+                ui.label(RichText::new(format!("not paired: {}", self.plain(&text))).color(theme::WEAK));
             }
             Line::Left { what, frame } => {
                 if ui
-                    .button(format!("fill left out: {what}"))
+                    .button(format!("fill left out: {}", self.plain(&what)))
                     .hint("go to that frame")
                     .clicked()
                 {
@@ -628,22 +637,25 @@ impl Editor {
                 }
             }
             Line::Kept { cel, count } => {
-                ui.label(format!("{cel}: {count} hand-drawn marks kept on top"));
+                ui.label(format!(
+                    "{}: {count} hand-drawn marks kept on top",
+                    self.drawing_words(&cel)
+                ));
             }
             Line::Made { .. } => {}
             Line::Note(text) => {
-                ui.label(RichText::new(text).color(theme::WEAK));
+                ui.label(RichText::new(self.plain(&text)).color(theme::WEAK));
             }
         });
         if !made.is_empty() {
-            ui.label(RichText::new(format!("made: {}", made.join(", "))).color(theme::WEAK));
+            ui.label(RichText::new(format!("made: frames {}", made.join(", "))).color(theme::WEAK));
         }
         if let Some(p) = pick {
             self.say(
                 Tone::Info,
                 format!(
-                    "now click the partner of {}:s{} on frame {} (the stroke tool is on)",
-                    p.cel, p.id, p.partner_frame
+                    "now click the partner of stroke {} on frame {} (the stroke tool is on)",
+                    p.id, p.partner_frame
                 ),
             );
             go = Some(p.partner_frame);
@@ -653,7 +665,7 @@ impl Editor {
         }
         if let Some(p) = self.between.pick.clone() {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("picking the partner of {}:s{}", p.cel, p.id)).color(theme::ACCENT));
+                ui.label(RichText::new(format!("picking the partner of stroke {}", p.id)).color(theme::ACCENT));
                 if ui.button("stop").hint("stop picking a partner").clicked() {
                     self.between.pick = None;
                 }
@@ -682,7 +694,13 @@ impl Editor {
         }
         rows.iter().for_each(|r| {
             ui.horizontal(|ui| {
-                ui.label(format!("{} at {} on {}", r.cel, r.frame, r.layer));
+                let layer = self
+                    .scene
+                    .bundle
+                    .doc
+                    .layer(&r.layer)
+                    .map_or(r.layer.clone(), |l| l.name.clone());
+                ui.label(format!("frame {} on {layer}", r.frame));
                 match r.status {
                     Status::Remake => {
                         ui.label(RichText::new("remade").color(theme::WEAK));

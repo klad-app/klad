@@ -294,9 +294,13 @@ impl Editor {
                 self.strip_more(ui, other, icons.1);
                 return;
             }
-            [Cmd::Settings, Cmd::Numbers, Cmd::Palette].iter().for_each(|cmd| {
-                self.command_sized(ui, *cmd, None, icons.1, other);
-            });
+            let developer = self.settings.developer;
+            [Cmd::Settings, Cmd::Numbers, Cmd::Palette]
+                .iter()
+                .filter(|cmd| developer || !commands::DEVELOPER.contains(cmd))
+                .for_each(|cmd| {
+                    self.command_sized(ui, *cmd, None, icons.1, other);
+                });
             self.panels_menu(ui, other, icons.1);
             self.document_menu(ui, other, icons.1);
             self.strip_measured(size, None, Some(ui.min_rect().height()), ui.ctx());
@@ -323,14 +327,18 @@ impl Editor {
                 ui.separator();
                 self.panel_checks(ui);
                 ui.separator();
-                [Cmd::Palette, Cmd::Numbers, Cmd::Settings].into_iter().for_each(|cmd| {
-                    if self.command_button(ui, cmd, Some(cmd.menu())).clicked() {
-                        ui.close();
-                    }
-                });
+                let developer = self.settings.developer;
+                [Cmd::Palette, Cmd::Numbers, Cmd::Settings]
+                    .into_iter()
+                    .filter(|cmd| developer || !commands::DEVELOPER.contains(cmd))
+                    .for_each(|cmd| {
+                        if self.command_button(ui, cmd, Some(cmd.menu())).clicked() {
+                            ui.close();
+                        }
+                    });
             })
             .0
-            .hint("the drawing, the panels, find a command, numbers and settings, in one menu while the window is this short");
+            .hint("the drawing, the panels, find a command and settings, in one menu while the window is this short");
     }
 
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
@@ -800,7 +808,7 @@ impl Editor {
         let near_timeline = egui::pos2(screen.left() + strip + 16.0, (above - 300.0).max(screen.top() + 16.0));
         self.palette_window(ctx);
         self.toasts(ctx);
-        if self.settings.layout.numbers {
+        if self.settings.layout.numbers && self.settings.developer {
             let mut open = true;
             Self::window(
                 ctx,
@@ -1124,7 +1132,11 @@ impl Editor {
             return;
         };
         let recent = self.recent_commands();
-        let found = commands::rank(&state.query, &recent);
+        let developer = self.settings.developer;
+        let found: Vec<Cmd> = commands::rank(&state.query, &recent)
+            .into_iter()
+            .filter(|c| developer || !commands::DEVELOPER.contains(c))
+            .collect();
         let mut run = None;
         let modal = egui::Modal::new(Id::unique("palette")).show(ctx, |ui| {
             ui.set_width(560.0);

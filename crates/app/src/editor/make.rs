@@ -174,7 +174,10 @@ impl Editor {
             return Ok(());
         };
         let Some([x, y, w, h]) = overlay::node_world_box(doc, &id)? else {
-            self.say(Tone::Refused, format!("{id} draws nothing to {kind}"));
+            self.say(
+                Tone::Refused,
+                format!("this {} draws nothing to {kind}", node.type_name()),
+            );
             return Ok(());
         };
         let parent = path[..path.len() - 1]
@@ -200,6 +203,7 @@ impl Editor {
                 json!({"id": made, "type": "scatter", "x": x - w * 2.0, "y": y - h, "w": w * 5.0, "h": h * 3.0, "count": 12, "children": [child]})
             }
         };
+        let shape = node.type_name();
         let frame = self.scene.frame;
         self.apply(vec![
             Op::Remove { ids: vec![id.clone()] },
@@ -216,7 +220,7 @@ impl Editor {
         self.selection = Some(made);
         self.say(
             Tone::Done,
-            format!("{id} is now inside a {kind}: layer settings set how many copies and where they go"),
+            format!("the {shape} is now inside a {kind}: layer settings set how many copies and where they go"),
         );
         Ok(())
     }

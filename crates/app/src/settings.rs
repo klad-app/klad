@@ -87,6 +87,8 @@ pub struct Settings {
     pub welcomed: bool,
     #[serde(default = "yes", rename = "pickAllLayers")]
     pub pick_all_layers: bool,
+    #[serde(default, rename = "developerTools", skip_serializing_if = "std::ops::Not::not")]
+    pub developer: bool,
 }
 
 fn yes() -> bool {
@@ -110,6 +112,7 @@ impl Default for Settings {
             updates_checked: 0,
             welcomed: false,
             pick_all_layers: true,
+            developer: false,
         }
     }
 }

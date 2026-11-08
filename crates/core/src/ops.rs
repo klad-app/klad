@@ -2792,7 +2792,12 @@ fn assign_layer_ids(doc: &mut Document, taken: &mut BTreeSet<String>, value: &mu
         .to_string();
     let id = ensure_id(doc, taken, value, 'l')?;
     if value.get("name").is_none() {
-        value["name"] = Value::String(format!("{kind} {id}"));
+        let names: BTreeSet<String> = doc.all_layers().iter().map(|l| l.name.clone()).collect();
+        let name = (1..)
+            .map(|n| format!("{kind} {n}"))
+            .find(|n| !names.contains(n))
+            .unwrap_or_default();
+        value["name"] = Value::String(name);
     }
     match kind.as_str() {
         "paint" | "vector" => {

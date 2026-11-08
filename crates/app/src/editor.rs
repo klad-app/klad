@@ -1120,9 +1120,8 @@ impl Editor {
         let word = if stack == Stack::Undo { "undid" } else { "redid" };
         match self.scene.step(stack, &self.brushes)? {
             Some((summary, dirty)) => {
-                let text = format!("{word} {summary} in {:.0} ms", ms(start));
-                self.measure("undo", text.clone());
-                self.say(Tone::Info, text);
+                self.measure("undo", format!("{word} {summary} in {:.0} ms", ms(start)));
+                self.say(Tone::Info, format!("{word} {}", self.plain(&summary)));
                 self.dirty.extend(dirty);
                 self.forget_missing_selection();
             }
@@ -1132,6 +1131,42 @@ impl Editor {
             ),
         }
         Ok(())
+    }
+
+    pub(super) fn plain(&self, text: &str) -> String {
+        let doc = &self.scene.bundle.doc;
+        let drawing = |cel: &str| match doc.locate(cel) {
+            Some(Loc::Cel(path, c)) => Some(format!(
+                "the drawing at frame {} on {}",
+                doc.layer_at(&path).cels()[c].frame,
+                doc.layer_at(&path).name
+            )),
+            _ => None,
+        };
+        let word = |w: &str| -> Option<String> {
+            if let Some((cel, id)) = klad_core::markedit::parse_address(w) {
+                return Some(drawing(cel).map_or(format!("mark {id}"), |d| format!("mark {id} of {d}")));
+            }
+            let digits = w.len() > 1 && w[1..].chars().all(|c| c.is_ascii_digit());
+            match w.chars().next() {
+                Some('c') if digits => drawing(w),
+                Some('l') if digits => doc.layer(w).map(|l| l.name.clone()),
+                Some('n') if digits => match doc.item(w) {
+                    Some(Item::Node(_, _, node)) => Some(format!("a {}", node.type_name())),
+                    _ => None,
+                },
+                _ => None,
+            }
+        };
+        text.split(' ')
+            .map(|w| {
+                let bare = w.trim_end_matches([',', ')', ':', '.', ';']);
+                let lead = bare.trim_start_matches('(');
+                let (head, tail) = (&bare[..bare.len() - lead.len()], &w[bare.len()..]);
+                word(lead).map_or(w.to_string(), |p| format!("{head}{p}{tail}"))
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     fn refresh_box(&mut self) {
@@ -3498,7 +3533,14 @@ impl Editor {
         };
         let fills = chosen.iter().filter(|(_, m)| m.as_fill().is_some()).count();
         let place = match picked.more.len() {
-            0 => format!("in cel {}", picked.cel),
+            0 => self
+                .scene
+                .bundle
+                .doc
+                .paint_cels()
+                .into_iter()
+                .find(|(_, c)| c.id == picked.cel)
+                .map_or_else(String::new, |(l, c)| format!("on {}, frame {}", l.name, c.frame)),
             n => format!("on {} layers", n + 1),
         };
         ui.label(format!(
@@ -3549,7 +3591,7 @@ impl Editor {
                 .shaped
                 .as_ref()
                 .map_or(0, |s| s.subs.iter().map(|p| p.anchors.len()).sum());
-            ui.label(format!("stroke {}: {points} points fitted to it", direct.node));
+            ui.label(format!("a stroke: {points} points fitted to it"));
             ui.small("drag a point or a handle to bend the stroke (it keeps its pressure); alt click the line adds a point; Delete removes the selected points");
             return Ok(());
         }
@@ -3557,9 +3599,9 @@ impl Editor {
             self.direct = None;
             return Ok(());
         };
-        let (kind, layer_id, is_path) = (
+        let (kind, layer_name, is_path) = (
             node.type_name(),
-            layer.id.clone(),
+            layer.name.clone(),
             matches!(node.shape, Shape::Path { .. }),
         );
         let total = self
@@ -3567,8 +3609,7 @@ impl Editor {
             .as_ref()
             .map_or(0, |s| s.subs.iter().map(|p| p.anchors.len()).sum::<usize>());
         ui.label(format!(
-            "{kind} {}{} in {layer_id}: {total} points, {} selected",
-            direct.node,
+            "{kind}{} on {layer_name}: {total} points, {} selected",
             if node.name.is_empty() {
                 String::new()
             } else {
@@ -3658,8 +3699,8 @@ impl Editor {
             self.selection = None;
             return Ok(());
         };
-        let (node, layer) = (node.clone(), layer.id.clone());
-        ui.label(format!("{} {}  in {}", node.type_name(), node.id, layer));
+        let (node, name) = (node.clone(), layer.name.clone());
+        ui.label(format!("{} on {name}", node.type_name()));
         let mut props: Vec<(String, Value)> = Vec::new();
         ui.horizontal(|ui| {
             if let Some(name) = self.text(
@@ -4028,12 +4069,12 @@ impl Editor {
     }
 
     fn mask_inspector(&mut self, ui: &mut egui::Ui) -> Result<()> {
-        let Some(mask) = self.scene.active_layer().cloned() else {
+        if self.scene.active_layer().is_none() {
             return Ok(());
-        };
+        }
         let owner_path = self.scene.active[..self.scene.active.len() - 1].to_vec();
         let owner = self.scene.bundle.doc.layer_at(&owner_path).clone();
-        ui.label(format!("mask {} of {} ({})", mask.id, owner.name, owner.id));
+        ui.label(format!("the mask of {}", owner.name));
         ui.colored_label(Color32::from_rgb(255, 150, 150), self.mask_hint());
         ui.horizontal_wrapped(|ui| {
             self.command_check(ui, Cmd::ToggleMask, "mask on");
@@ -4063,7 +4104,7 @@ impl Editor {
             return Ok(());
         };
         let id = layer.id.clone();
-        ui.label(format!("{} layer {}", layer.kind().name(), id));
+        ui.label(format!("{} layer", layer.kind().name()));
         let mut props: Vec<(String, Value)> = Vec::new();
         ui.horizontal(|ui| {
             if let Some(name) = self.text(

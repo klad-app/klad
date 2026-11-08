@@ -956,7 +956,7 @@ impl Editor {
         if delta < 0 && end - cel.frame <= 1 {
             self.say(
                 Tone::Refused,
-                format!("{} already shows for one frame; delete it instead", cel.id),
+                "this drawing already shows for one frame; delete it instead".to_string(),
             );
             return Ok(());
         }
@@ -1168,14 +1168,19 @@ impl Editor {
         };
         match exposed(layer, frame) {
             None => format!("{name}: frame {frame} is empty, a stroke starts a drawing"),
-            Some((cel, _)) if cel.link.is_some() => {
-                let source = cel.link.clone().unwrap_or_default();
+            Some((cel, end)) if cel.link.is_some() => {
+                let source = cel.link.as_deref().unwrap_or_default();
+                let first = layer
+                    .cels()
+                    .iter()
+                    .find(|c| c.id == source)
+                    .map_or(String::new(), |c| format!(" from frame {}", c.frame));
                 format!(
-                    "draws into {source} on {name} through the link {} (it changes wherever {source} shows)",
-                    cel.id
+                    "draws on {name}, {}, into the drawing{first}: it shows again here, so it changes wherever it shows",
+                    span(cel.frame, end)
                 )
             }
-            Some((cel, end)) => format!("draws into {} on {name}, {}", cel.id, span(cel.frame, end)),
+            Some((cel, end)) => format!("draws on {name}, {}", span(cel.frame, end)),
         }
     }
 
@@ -1308,6 +1313,8 @@ impl Editor {
             let Some(layer) = doc.locate_path(&row.path) else {
                 return;
             };
+            let numbers = drawing_numbers(layer);
+            let number = |cel: &str| numbers.get(cel).map_or(String::new(), u32::to_string);
             blocks(layer, frames).iter().for_each(|b| {
                 let end = match &self.timeline.drag {
                     Some(Drag::Hold { cel, to, .. }) if *cel == b.cel => *to,
@@ -1320,9 +1327,9 @@ impl Editor {
                     _ => Color32::from_rgb(76, 104, 140),
                 };
                 let label = match &b.link {
-                    Some(source) => format!("->{source}"),
-                    None if b.tween => format!("{}*", b.cel),
-                    None => b.cel.clone(),
+                    Some(source) => format!("->{}", number(source)),
+                    None if b.tween => format!("{}*", number(&b.cel)),
+                    None => number(&b.cel),
                 };
                 let moved_to = match &self.timeline.drag {
                     Some(Drag::Move { cel, from, to }) if *cel == b.cel && from != to => Some(*to),
@@ -1591,7 +1598,7 @@ impl Editor {
             });
             ui.menu_button("show a drawing here (link)", |ui| {
                 drawings.iter().for_each(|(id, frame)| {
-                    if ui.button(format!("{id} (frame {frame})")).clicked() {
+                    if ui.button(format!("the drawing at frame {frame}")).clicked() {
                         chosen = Some(id.clone());
                         ui.close();
                     }
@@ -1648,6 +1655,12 @@ impl Editor {
             });
         result
     }
+}
+
+fn drawing_numbers(layer: &klad_core::doc::Layer) -> std::collections::BTreeMap<String, u32> {
+    let mut drawings: Vec<_> = layer.cels().iter().filter(|c| c.link.is_none()).collect();
+    drawings.sort_by_key(|c| c.frame);
+    drawings.iter().zip(1..).map(|(c, n)| (c.id.clone(), n)).collect()
 }
 
 fn paint_block(painter: &egui::Painter, block: Rect, cw: f32, fill: Color32, label: &str, faded: bool) {
