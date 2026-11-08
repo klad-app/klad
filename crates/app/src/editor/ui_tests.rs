@@ -4200,7 +4200,11 @@ fn guide_pictures() {
             ed.go_to(16)?;
             ed.invoke(Cmd::Onion)
         }),
-        ("bones", "rig/rig.klad", "figure", |ed| ed.invoke(Cmd::BoneTool)),
+        ("bones", "rig/rig.klad", "bones", |ed| {
+            ed.invoke(Cmd::BoneTool)?;
+            ed.pick_bone(Some("fore".into()));
+            Ok(())
+        }),
         ("brush", "lemons/lemons.klad", "lemon-a", |ed| {
             ed.pick("oil");
             ed.invoke(Cmd::BrushWindow)

@@ -4072,6 +4072,18 @@ impl Editor {
                 props.push(("name".into(), json!(name)));
             }
         });
+        if layer.kind() == Kind::Bones {
+            self.command_check(ui, Cmd::ToggleLocked, "locked");
+            let linked = klad_core::rig::painted(&self.scene.bundle.doc, &id).len();
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} bones, {linked} layers rigged to them; draw and pose them with the bone tool (J)",
+                    layer.bones.len()
+                ))
+                .color(crate::theme::WEAK),
+            );
+            return self.set(&id, props);
+        }
         ui.horizontal_wrapped(|ui| {
             self.command_check(ui, Cmd::ToggleLocked, "locked");
             self.command_check(ui, Cmd::ToggleClip, "clip to layer below");

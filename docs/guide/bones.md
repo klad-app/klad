@@ -1,27 +1,48 @@
+_Last updated: 2026-11-08_
+
 # Posing with bones
 
-Instead of redrawing a character on every frame, you can draw it once, give it a skeleton and pose it. The skeleton belongs to a layer or a group, and moves every layer in that group together.
+Draw a character once, give it a skeleton and pose it on each frame instead of redrawing it. The skeleton goes on a bones layer of its own, and you tell each drawing layer which bone moves it.
 
-![The rig sample's skeleton in the bone tool](../images/guide-bones.png)
+![The rig sample's skeleton in the bone tool, with the forearm bone picked](../images/guide-bones.png)
 
 ## Draw a skeleton
 
-1. Put the character's layers (lines, colour, shading) in a group and make the group the active layer.
-2. Press J for the bone tool, with "draw" picked in the bar over the canvas.
-3. Drag on empty canvas to draw the first bone. The chain carries on from its end: each click adds the next bone, and Esc ends the chain.
+1. Click **Layer > New bones layer**.
+2. Press **J** and pick **draw** in the bar over the canvas.
+3. Drag from the hips to draw the first bone, click to add the next one, and press **Esc** to end the chain.
 
-Drag a bone's end or middle to move it, and alt drag from a bone's end to start a child chain there. The skeleton list in the bar picks a bone by name, renames it (Return keeps the name) and changes the bone it hangs from.
+Each bone hangs from the one before it, and turning a bone turns everything that hangs from it, so start in the middle of the body and work outwards. Alt drag from a bone's end to start a branch there, such as an arm off the spine.
 
-## Paint how much each bone moves the drawing
+## Attach the drawing to the bones
 
-Switch to "weights". "automatic weights" gives every bone a first set of weights by distance. Cmd click a bone to pick it, then paint its weight onto the drawing: size sets the brush's radius and weight how much each dab gives, and alt paints the weight away. "smooth" blurs every bone's weights a little. Hold rigid things, like a head or a hand, with full weight on one bone, so they don't bend.
+Draw each part that stays stiff, like an upper arm, a forearm or the head, on its own paint layer. The layers can sit anywhere in the layers panel.
+
+1. In **draw**, click a bone to pick it.
+2. Open **layers: 0** and tick the layers that move with that bone.
+
+## Bend a layer across a joint
+
+Optional, for a part drawn in one piece over a joint, like a sleeve or a tail.
+
+1. In the layers panel, click the layer's bone button and pick **bends with bones**.
+2. Pick **weights** in the bar and click **automatic weights**.
+3. Cmd click a bone, then paint where it should move the drawing. Alt paints weight away.
 
 ## Pose it
 
-Switch to "pose", go to a frame and drag a bone's end to turn it; its children follow. "make this pose a drawing" bends the drawing on this frame into the pose, and "back to rest" drops the turns, the move and the targets of this pose. Poses of the same drawing in-between on the bones ([Animating](animating.md)), so a limb swings around its joint instead of sliding.
+1. Go to a frame and pick **pose**.
+2. Drag a bone's end to turn it. The drawing turns with it as you drag.
+3. Click **make this pose a drawing** to keep the pose on this frame.
 
-## Let a limb reach (IK)
+Nothing is kept until you click it. Poses in-between on the bones ([Animating](animating.md)), so a limb swings around its joint instead of sliding.
 
-Pick the lower bone of a limb, say a shin, and click "make it a limb with" its parent. In pose mode, dragging the shin's end now turns both bones so the end reaches where you drag, bending the way the leg is drawn, or the other way if you switch it to bend clockwise or counterclockwise. Softness keeps the knee from snapping straight near full reach. "make it an aim" turns one bone alone to point at the target instead. For a pose where you'd rather turn the bones by hand, switch the limb off for that pose, or hold alt while you drag.
+## Let a leg reach
 
-A planted foot is a target that stays where it is while the body moves, which is most of a walk cycle.
+1. In **draw**, pick the shin, open **add IK** and click **make it a limb with thigh**.
+2. In **pose**, drag the shin's end. Both bones turn so the foot lands where you drag.
+
+## If a part doesn't move
+
+- **Turning a bone moves nothing:** the layer isn't rigged. Its bone button in the layers panel is grey; attach it to a bone.
+- **Turning the head turns the whole body:** the chain started at the head, so everything hangs from it. In **draw**, pick the head bone and set its **parent** to the neck or the body.
