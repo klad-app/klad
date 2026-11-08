@@ -672,6 +672,8 @@ impl Editor {
             Cmd::InstallCommand => self.start_job(install_job()),
             Cmd::ReportProblem => self.windows.report = !self.windows.report,
             Cmd::ContactSupport => self.contact_support(),
+            Cmd::Guides => self.open_link(klad_core::contact::GUIDES.to_string()),
+            Cmd::WhatsNew => self.open_link(klad_core::contact::CHANGES.to_string()),
             Cmd::CopyPath => {
                 let path = self.scene.bundle.root.display().to_string();
                 self.ctx.copy_text(path.clone());

@@ -173,6 +173,8 @@ impl Start {
                     settings.welcomed = true;
                     self.changed = true;
                 }
+                ui.hyperlink_to("Guides", klad_core::contact::GUIDES)
+                    .on_hover_text("klad's guides on klad.studio, in your browser");
             });
         });
         chosen

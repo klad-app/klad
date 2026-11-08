@@ -154,6 +154,8 @@ pub enum Cmd {
     InstallCommand,
     ReportProblem,
     ContactSupport,
+    Guides,
+    WhatsNew,
     PaintOver,
     CompareReference,
     About,
@@ -494,7 +496,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 167] = [
+    pub const ALL: [Cmd; 169] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -652,6 +654,8 @@ impl Cmd {
         Cmd::InstallCommand,
         Cmd::ReportProblem,
         Cmd::ContactSupport,
+        Cmd::Guides,
+        Cmd::WhatsNew,
         Cmd::About,
         Cmd::Export,
         Cmd::AddFont,
@@ -2142,6 +2146,24 @@ impl Cmd {
                 R::No,
                 "an email to klad's support in your email app, with the version and your system filled in",
             ),
+            Cmd::Guides => spec(
+                "help.guides",
+                "guides",
+                icon::FILE,
+                G::Panels,
+                T::None,
+                R::No,
+                "klad's guides on klad.studio, in your browser: drawing, colour, animating, posing and exporting",
+            ),
+            Cmd::WhatsNew => spec(
+                "help.whats-new",
+                "what's new",
+                icon::SPARKLE,
+                G::Panels,
+                T::None,
+                R::No,
+                "what changed in each version of klad, on klad.studio",
+            ),
             Cmd::InstallCommand => spec(
                 "file.install-command",
                 "install the klad command",
@@ -2317,6 +2339,8 @@ impl Cmd {
             Cmd::InstallCommand => "Install the klad command",
             Cmd::ReportProblem => "Report a problem…",
             Cmd::ContactSupport => "Contact support",
+            Cmd::Guides => "Guides",
+            Cmd::WhatsNew => "What's new",
             Cmd::PaintOver => "Paint over…",
             Cmd::CompareReference => "Compare with reference",
             Cmd::About => "About klad and licences",
@@ -2618,6 +2642,8 @@ pub const MENUS: [Menu; 9] = [
         title: "Help",
         items: &[
             Run(Cmd::FirstSteps),
+            Run(Cmd::Guides),
+            Run(Cmd::WhatsNew),
             Run(Cmd::Palette),
             Run(Cmd::Keys),
             Line,

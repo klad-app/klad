@@ -1,6 +1,8 @@
 pub const SUPPORT: &str = "hello@klad.studio";
 pub const SITE: &str = "https://klad.studio";
 pub const ISSUES: &str = "https://github.com/klad-app/klad/issues";
+pub const GUIDES: &str = "https://klad.studio/docs";
+pub const CHANGES: &str = "https://klad.studio/docs/changelog";
 
 pub fn mailto(subject: &str, body: &str) -> String {
     format!(

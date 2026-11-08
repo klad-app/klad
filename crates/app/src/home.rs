@@ -541,6 +541,7 @@ mod tests {
             h.query_by_label("Welcome to klad").is_some(),
             "a first start says hello"
         );
+        assert!(h.query_by_label("Guides").is_some(), "and links the guides");
         assert!(
             h.query_by_label("a rock on its own").is_some(),
             "the samples show with what they are"

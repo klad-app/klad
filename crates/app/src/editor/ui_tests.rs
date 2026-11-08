@@ -4314,3 +4314,31 @@ fn help_reaches_support_by_email_and_about_links_the_site() {
     );
     let _ = std::fs::remove_dir_all(&path);
 }
+
+#[test]
+fn help_opens_the_guides_and_whats_new() {
+    let path = sample("help-links");
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    [
+        (Cmd::Guides, "https://klad.studio/docs"),
+        (Cmd::WhatsNew, "https://klad.studio/docs/changelog"),
+    ]
+    .into_iter()
+    .for_each(|(cmd, url)| {
+        h.state_mut().invoke(cmd).unwrap();
+        h.run_steps(1);
+        assert_eq!(h.state().opened.last().map(String::as_str), Some(url), "{cmd:?}");
+    });
+    let help = crate::commands::MENUS.iter().find(|m| m.title == "Help").unwrap();
+    [Cmd::FirstSteps, Cmd::Guides, Cmd::WhatsNew, Cmd::ContactSupport]
+        .into_iter()
+        .for_each(|cmd| {
+            assert!(
+                help.items
+                    .iter()
+                    .any(|i| matches!(i, crate::commands::Item::Run(c) if *c == cmd)),
+                "Help has {cmd:?}"
+            );
+        });
+    let _ = std::fs::remove_dir_all(&path);
+}

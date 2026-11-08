@@ -16,6 +16,7 @@ The first builds, and klad's licences.
 - In-betweens blend colours evenly (in OKLab), so light can follow a turning limb when the second key is coloured for it.
 - `klad arcs` follows the part of a foot on the ground: a heel-to-toe roll is no longer reported as a slide.
 - Help > Report a problem shows the report before it is copied (version, system, the last messages and lines of klad's log, with your home folder hidden) and can zip the drawing to attach; `klad report` prints the same. Errors and crashes are kept in a small log for it.
+- Help > Guides and Help > What's new open klad's guides and this changelog on klad.studio; the welcome on the start window links the guides too.
 - Support by email: Help > Contact support opens an email to hello@klad.studio with the version and your system filled in; Report a problem can email its report there too, and About links klad.studio and the address. Crash messages name the address as well as the issues page.
 - Messages say what happened and what to do next; when klad itself goes wrong it says so, and that your work is saved.
 - Bones: a bones layer holds a skeleton (`klad bone`, the bone tool J), weights from the bones or painted (`klad weights`), and poses that bend the drawing (`klad pose`, pose mode); in-betweens of two poses turn the bones. The bone tool lists the skeleton, picks a bone in every mode, and moves ends, joints and whole bones with their children (`klad bone --move` with `--by`).
