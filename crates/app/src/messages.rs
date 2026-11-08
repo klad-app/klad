@@ -1,4 +1,3 @@
-use egui::Pos2;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -30,7 +29,6 @@ pub struct Message {
     pub tone: Tone,
     pub text: String,
     pub at: Instant,
-    pub anchor: Option<Pos2>,
     pub dismissed: bool,
     pub times: u32,
 }
@@ -42,7 +40,7 @@ pub struct Messages {
 }
 
 impl Messages {
-    pub fn say(&mut self, tone: Tone, text: impl Into<String>, anchor: Option<Pos2>, now: Instant) -> u64 {
+    pub fn say(&mut self, tone: Tone, text: impl Into<String>, now: Instant) -> u64 {
         let text = text.into();
         if let Some(last) = self
             .log
@@ -50,7 +48,6 @@ impl Messages {
             .filter(|m| m.tone == tone && m.text == text && !m.dismissed)
         {
             last.at = now;
-            last.anchor = anchor.or(last.anchor);
             last.times += 1;
             return last.id;
         }
@@ -60,7 +57,6 @@ impl Messages {
             tone,
             text,
             at: now,
-            anchor,
             dismissed: false,
             times: 1,
         });
@@ -109,23 +105,20 @@ impl Messages {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use egui::pos2;
 
     #[test]
     fn results_fade_refusals_linger_and_errors_stay_until_dismissed() {
         let t0 = Instant::now();
         let mut m = Messages::default();
-        let at = Some(pos2(10.0, 20.0));
-        m.say(Tone::Info, "frame 4 shown", None, t0);
-        let done = m.say(Tone::Done, "copied 3 marks", at, t0);
-        let refused = m.say(Tone::Refused, "nothing to duplicate on this frame", at, t0);
-        let error = m.say(Tone::Error, "reading doc.json", None, t0);
+        m.say(Tone::Info, "frame 4 shown", t0);
+        let done = m.say(Tone::Done, "copied 3 marks", t0);
+        let refused = m.say(Tone::Refused, "nothing to duplicate on this frame", t0);
+        let error = m.say(Tone::Error, "reading doc.json", t0);
         let texts = |m: &Messages, now| m.toasts(now).iter().map(|t| t.id).collect::<Vec<_>>();
         assert_eq!(texts(&m, t0), [done, refused, error]);
         assert_eq!(texts(&m, t0 + Duration::from_secs(4)), [refused, error]);
         assert_eq!(texts(&m, t0 + Duration::from_secs(60)), [error]);
         assert_eq!(m.latest().unwrap().id, error);
-        assert_eq!(m.toasts(t0)[0].anchor, at);
         m.dismiss(error);
         assert!(texts(&m, t0 + Duration::from_secs(60)).is_empty());
         assert_eq!(m.next_change(t0), Some(Duration::from_millis(3500)));
@@ -136,12 +129,12 @@ mod tests {
     fn a_message_said_again_is_one_message() {
         let t0 = Instant::now();
         let mut m = Messages::default();
-        let a = m.say(Tone::Error, "no watcher", None, t0);
-        let b = m.say(Tone::Error, "no watcher", None, t0 + Duration::from_secs(1));
+        let a = m.say(Tone::Error, "no watcher", t0);
+        let b = m.say(Tone::Error, "no watcher", t0 + Duration::from_secs(1));
         assert_eq!(a, b);
         assert_eq!(m.latest().unwrap().times, 2);
         (0..KEEP + 20).for_each(|i| {
-            m.say(Tone::Done, format!("step {i}"), None, t0);
+            m.say(Tone::Done, format!("step {i}"), t0);
         });
         assert_eq!(m.log().count(), KEEP);
         assert_eq!(m.toasts(t0).len(), SHOWN);

@@ -198,7 +198,7 @@ impl Editor {
         if tone == Tone::Error {
             crate::report::log(&format!("editor: {text}"));
         }
-        self.messages.say(tone, text, None, Instant::now());
+        self.messages.say(tone, text, Instant::now());
     }
 
     fn tend_jobs(&mut self) {
@@ -1064,21 +1064,12 @@ impl Editor {
         let screen = ctx.content_rect();
         let shown: Vec<Message> = self.messages.toasts(now).into_iter().cloned().collect();
         let mut dismiss = None;
-        let mut near = 0.0;
-        let mut corner = screen.bottom() - layout::STATUS - 10.0;
+        let canvas = Some(self.canvas_rect).filter(|r| r.width() > 0.0 && r.height() > 0.0);
+        let left = canvas.map_or(screen.left(), |r| r.left()) + 12.0;
+        let mut bottom = canvas.map_or(screen.bottom() - layout::STATUS, |r| r.bottom()) - 12.0;
         shown.iter().rev().for_each(|m| {
-            let (pos, pivot) = match m.anchor {
-                Some(p) => {
-                    let at = p + vec2(18.0, 16.0 + near);
-                    near += 38.0;
-                    (at, egui::Align2::LEFT_TOP)
-                }
-                None => {
-                    let at = egui::pos2(screen.right() - 12.0, corner);
-                    corner -= 40.0;
-                    (at, egui::Align2::RIGHT_BOTTOM)
-                }
-            };
+            let (pos, pivot) = (egui::pos2(left, bottom), egui::Align2::LEFT_BOTTOM);
+            bottom -= 40.0;
             let sticky = m.tone == Tone::Error;
             egui::Area::new(Id::unique(("toast", m.id)))
                 .order(egui::Order::Tooltip)

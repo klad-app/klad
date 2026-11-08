@@ -687,9 +687,12 @@ fn cmd_k_finds_and_runs_commands_and_explains_refusals() {
         .query_all_by_label_contains("select frames first")
         .map(|n| n.rect())
         .collect();
+    let canvas = h.state().canvas_rect;
     assert!(
-        shown.iter().any(|r| (r.min - pos2(640.0, 200.0)).length() < 80.0),
-        "no toast next to the pointer: {shown:?}"
+        shown
+            .iter()
+            .any(|r| r.left() - canvas.left() < 60.0 && (canvas.bottom() - r.bottom()).abs() < 40.0),
+        "no toast in the canvas's bottom left corner: {shown:?} in {canvas:?}"
     );
     assert!(
         shown.iter().any(|r| r.bottom() > 800.0 - layout::STATUS),
@@ -3069,6 +3072,31 @@ fn texts(h: &Harness<'static, Editor>) -> Vec<(String, klad_core::generators::Te
             _ => None,
         })
         .collect()
+}
+
+#[test]
+fn notices_stack_in_the_canvas_bottom_left_corner_not_at_the_pointer() {
+    let path = sample("notices");
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    let canvas = h.state().canvas_rect;
+    h.hover_at(canvas.center());
+    h.run_steps(1);
+    h.state_mut().say(crate::messages::Tone::Done, "first notice");
+    h.state_mut().say(crate::messages::Tone::Refused, "second notice");
+    h.run_steps(2);
+    let (first, second) = (
+        h.get_by_label("first notice").rect(),
+        h.get_by_label("second notice").rect(),
+    );
+    assert!(
+        second.left() - canvas.left() < 60.0 && canvas.bottom() - second.bottom() < 40.0,
+        "the newest notice sits in the canvas's bottom left corner: {second:?} in {canvas:?}"
+    );
+    assert!(
+        (first.left() - second.left()).abs() < 1.0 && first.bottom() < second.top(),
+        "older ones stack above it: {first:?} {second:?}"
+    );
+    let _ = std::fs::remove_dir_all(&path);
 }
 
 #[test]

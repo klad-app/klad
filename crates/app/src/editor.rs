@@ -731,7 +731,6 @@ impl Editor {
             messages.say(
                 Tone::Error,
                 format!("not watching the bundle, so agent edits will not show: {e}"),
-                None,
                 Instant::now(),
             );
         }
@@ -930,12 +929,11 @@ impl Editor {
     }
 
     pub(crate) fn say(&mut self, tone: Tone, text: impl Into<String>) {
-        let anchor = self.pointer;
         let text = text.into();
         if tone == Tone::Error {
             crate::report::log(&format!("editor: {text}"));
         }
-        self.messages.say(tone, text, anchor, Instant::now());
+        self.messages.say(tone, text, Instant::now());
         self.ctx.request_repaint();
     }
 
