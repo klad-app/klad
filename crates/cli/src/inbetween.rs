@@ -433,18 +433,10 @@ fn make(bundle: &Bundle, spec: &InbetweenSpec) -> Result<(Inbetweens, Vec<String
     if !jobs.is_empty() {
         compute(bundle, &staged, &keys, &jobs, &mut made.cels, &mut notes)?;
     }
-    rigged.iter().for_each(|(i, rig, t)| {
-        let (marks, pose) = rig.at(*t, (doc.canvas.width, doc.canvas.height));
-        made.cels[*i].marks = marks;
-        made.cels[*i].pose = Some(pose);
-    });
-    let mut bent: Vec<&str> = rigged.iter().map(|(i, _, _)| made.cels[*i].layer.as_str()).collect();
-    bent.dedup();
-    bent.iter().for_each(|l| {
-        notes.push(format!(
-            "{l}: in-betweened on bones (both keys are poses of one rest drawing)"
-        ))
-    });
+    rigged
+        .iter()
+        .for_each(|(i, rig, t)| on_bones(rig, *t, (doc.canvas.width, doc.canvas.height), &mut made.cels[*i]));
+    bones_note(rigged.iter().map(|(i, _, _)| made.cels[*i].layer.as_str()), &mut notes);
     keep_parts(doc, &mut made.cels);
     made.cels.iter().for_each(|c| {
         notes.push(format!(
@@ -458,6 +450,29 @@ fn make(bundle: &Bundle, spec: &InbetweenSpec) -> Result<(Inbetweens, Vec<String
     Ok((made, notes))
 }
 
+fn finish(cel: &mut TweenCel, marks: Vec<Mark>) {
+    cel.tween.made = made_hash(&marks);
+    cel.marks = marks;
+}
+
+fn on_bones(rig: &crate::rig::Posed, t: f32, canvas: (u32, u32), cel: &mut TweenCel) {
+    let (marks, pose) = rig.at(t, canvas);
+    finish(cel, marks);
+    cel.pose = Some(pose);
+}
+
+fn bones_note<'a>(layers: impl Iterator<Item = &'a str>, notes: &mut Vec<String>) {
+    let mut bent: Vec<&str> = layers.collect();
+    bent.dedup();
+    bent.iter().for_each(|l| {
+        notes.push(format!(
+            "{l}: in-betweened on bones (both keys are poses of one rest drawing)"
+        ))
+    });
+}
+
+type Rigs = BTreeMap<(String, String, String), Option<crate::rig::Posed>>;
+
 fn redo(bundle: &Bundle, spec: &InbetweenSpec) -> Result<(Inbetweens, Vec<String>)> {
     let doc = &bundle.doc;
     let wanted: Option<Vec<String>> = (!spec.layers.is_empty())
@@ -469,6 +484,8 @@ fn redo(bundle: &Bundle, spec: &InbetweenSpec) -> Result<(Inbetweens, Vec<String
     let mut refused = Vec::new();
     let mut notes = Vec::new();
     let mut kept = Vec::new();
+    let mut rigs: Rigs = BTreeMap::new();
+    let mut rigged: Vec<(usize, (String, String, String), f32)> = Vec::new();
     doc.all_layers()
         .into_iter()
         .filter(|l| l.kind() == Kind::Paint)
@@ -513,6 +530,26 @@ fn redo(bundle: &Bundle, spec: &InbetweenSpec) -> Result<(Inbetweens, Vec<String
                 refused.push(match hand {
                     0 => format!("{} (changed since it was made)", cel.id),
                     n => format!("{} ({n} mark{} drawn by hand)", cel.id, if n == 1 { "" } else { "s" }),
+                });
+                return Ok(());
+            }
+            let pair = (layer.id.clone(), tween.from.clone(), tween.to.clone());
+            if !rigs.contains_key(&pair) {
+                let rig = crate::rig::posed_pair(bundle, &layer.id, &tween.from, &tween.to)?;
+                rigs.insert(pair.clone(), rig);
+            }
+            if rigs[&pair].is_some() {
+                rigged.push((made.cels.len(), pair, tween.t));
+                made.cels.push(TweenCel {
+                    layer: layer.id.clone(),
+                    cel: cel.id.clone(),
+                    frame: cel.frame,
+                    hold: cel.hold,
+                    tween: tween.clone(),
+                    marks: Vec::new(),
+                    fresh: false,
+                    pose: None,
+                    parts: BTreeMap::new(),
                 });
                 return Ok(());
             }
@@ -564,7 +601,16 @@ fn redo(bundle: &Bundle, spec: &InbetweenSpec) -> Result<(Inbetweens, Vec<String
         bail!("no in-betweens to redo here (klad inbetween marks the cels it makes; klad frames shows them)");
     }
     keys.iter().for_each(|k| pairing_notes(k, &mut notes));
-    compute(bundle, doc, &keys, &jobs, &mut made.cels, &mut notes)?;
+    if !jobs.is_empty() {
+        compute(bundle, doc, &keys, &jobs, &mut made.cels, &mut notes)?;
+    }
+    let canvas = (doc.canvas.width, doc.canvas.height);
+    rigged.iter().for_each(|(i, pair, t)| {
+        if let Some(rig) = &rigs[pair] {
+            on_bones(rig, *t, canvas, &mut made.cels[*i]);
+        }
+    });
+    bones_note(rigged.iter().map(|(i, _, _)| made.cels[*i].layer.as_str()), &mut notes);
     keep_parts(doc, &mut made.cels);
     kept_on_top(&mut made.cels, kept, &mut notes);
     Ok((made, notes))
@@ -640,8 +686,7 @@ fn compute(
         .collect::<Result<Vec<_>>>()?;
     let mut failed = Vec::new();
     done.into_iter().flatten().for_each(|d| {
-        cels[d.index].tween.made = made_hash(&d.marks);
-        cels[d.index].marks = d.marks;
+        finish(&mut cels[d.index], d.marks);
         failed.extend(d.failed);
     });
     if !failed.is_empty() {

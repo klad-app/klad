@@ -306,10 +306,11 @@ pub struct Posed {
 impl Posed {
     pub fn at(&self, t: f32, canvas: (u32, u32)) -> (Vec<Mark>, Pose) {
         let pose = between(&self.bones, &self.ik, &self.a, &self.b, t);
-        (
-            Rig::new(&self.bones, &self.ik, &self.weights, &pose).pose(&self.rest, canvas),
-            pose,
-        )
+        let mut marks = Rig::new(&self.bones, &self.ik, &self.weights, &pose).pose(&self.rest, canvas);
+        marks
+            .iter_mut()
+            .for_each(|m| m.set_author(klad_core::stroke::Author::Agent));
+        (marks, pose)
     }
 }
 
@@ -503,6 +504,92 @@ mod tests {
             .clone()
             .unwrap();
         assert!(kept.ik.is_empty() && (kept.angles["upper"] - solved["upper"]).abs() < 1e-4);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn in_betweens_on_bones_are_made_again_and_redone_on_the_bones() {
+        use klad_core::stroke::{Author, Stroke};
+        use klad_core::tween::made_hash;
+        let dir = arm("again");
+        edit(
+            &dir,
+            r#"{"op":"bone","layer":"l1","chain":["upper","fore"],"through":[[100,200],[300,200],[480,200]]}
+{"op":"weights","layer":"l1","auto":true}
+{"op":"pose","layer":"l1","from":0,"to":4,"bones":{"fore":-60}}"#,
+        )
+        .unwrap();
+        let make = r#"{"op":"inbetween","layers":["l1"],"from":0,"to":4}"#;
+        edit(&dir, make).unwrap();
+        let tweens = |b: &Bundle| -> Vec<(String, u32)> {
+            b.doc
+                .layer("l1")
+                .unwrap()
+                .cels()
+                .iter()
+                .filter(|c| c.tween.is_some())
+                .map(|c| (c.id.clone(), c.frame))
+                .collect()
+        };
+        let bundle = Bundle::open(&dir).unwrap();
+        assert_eq!(tweens(&bundle).iter().map(|t| t.1).collect::<Vec<_>>(), [1, 2, 3]);
+        tweens(&bundle).iter().for_each(|(id, _)| {
+            let cel = bundle
+                .doc
+                .layer("l1")
+                .unwrap()
+                .cels()
+                .iter()
+                .find(|c| &c.id == id)
+                .unwrap()
+                .clone();
+            let marks = bundle.read_marks("l1", id).unwrap();
+            assert_eq!(cel.tween.unwrap().made, made_hash(&marks), "{id} is hashed as made");
+            assert!(
+                marks.iter().all(|m| m.author() == Author::Agent),
+                "{id}'s marks are the agent's"
+            );
+        });
+        edit(&dir, make).expect("made again over the same keys, nobody drew on them");
+        edit(
+            &dir,
+            r#"{"op":"pose","layer":"l1","from":4,"to":4,"bones":{"fore":-90}}"#,
+        )
+        .unwrap();
+        edit(&dir, r#"{"op":"inbetween","redo":true}"#).expect("redone after the key changed");
+        let bundle = Bundle::open(&dir).unwrap();
+        let mid = bundle.doc.layer("l1").unwrap().content_at(2).unwrap().clone();
+        let fore = mid.pose.as_ref().expect("a redo keeps the pose").angles["fore"];
+        assert!(
+            (fore + 45.0).abs() < 1e-3,
+            "redone on the bones from the new key: {fore}"
+        );
+        let end = end_of(&bundle, 2);
+        let want = (
+            300.0 + 180.0 * (-45f32).to_radians().cos(),
+            200.0 + 180.0 * (-45f32).to_radians().sin(),
+        );
+        assert!((end.0 - want.0).hypot(end.1 - want.1) < 3.0, "{end:?} {want:?}");
+        let mut marks = bundle.read_marks("l1", &mid.id).unwrap();
+        marks.push(Mark::Stroke(Stroke {
+            author: Author::Human,
+            ..Stroke::new(99, "ink", [0.0, 0.0, 0.0, 1.0], 3.0, 1)
+                .with_points(&[(420.0, 60.0, 1.0), (440.0, 80.0, 1.0)], 8.0)
+        }));
+        let mut bundle = bundle;
+        bundle.replace_marks("l1", &mid.id, &marks, "editor", "pen").unwrap();
+        assert!(edit(&dir, make).is_err(), "an in-between drawn on is not made over");
+        let refused = edit(&dir, r#"{"op":"inbetween","redo":true}"#).unwrap_err();
+        assert!(format!("{refused:#}").contains("1 mark drawn by hand"), "{refused:#}");
+        edit(&dir, r#"{"op":"inbetween","redo":true,"keepDrawn":true}"#).unwrap();
+        let bundle = Bundle::open(&dir).unwrap();
+        let kept = bundle.read_marks("l1", &mid.id).unwrap();
+        assert_eq!(
+            kept.iter().filter(|m| m.author() == Author::Human).count(),
+            1,
+            "the hand stroke is kept, once"
+        );
+        assert_eq!(kept.len(), marks.len(), "nothing doubled");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

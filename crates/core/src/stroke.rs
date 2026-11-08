@@ -343,6 +343,13 @@ impl Mark {
         }
     }
 
+    pub fn set_author(&mut self, author: Author) {
+        match self {
+            Mark::Stroke(s) => s.author = author,
+            Mark::Fill(f) => f.author = author,
+        }
+    }
+
     pub fn as_stroke(&self) -> Option<&Stroke> {
         match self {
             Mark::Stroke(s) => Some(s),
