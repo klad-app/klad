@@ -1664,6 +1664,7 @@ fn stroke_at(s: &StrokePlan, line: &[P], sim: Sim, t: f32) -> Stroke {
             (Some(a), Some(b)) => Some(colour(a, b, t)),
             (a, b) => a.or(b),
         },
+        on: s.a.on.clone(),
         samples,
     }
 }

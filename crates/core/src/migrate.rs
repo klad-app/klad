@@ -10,7 +10,7 @@ pub fn migrate(value: Value) -> Result<Value> {
         .to_string();
     match format.as_str() {
         FORMAT => Ok(value),
-        "klad/4" => Ok(uncount(value)),
+        "klad/4" | "klad/5" => Ok(uncount(value)),
         "klad/1" | "klad/2" | "klad/3" => {
             let mut value = value;
             if let Some(layers) = value.get_mut("layers").and_then(Value::as_array_mut) {
@@ -76,6 +76,11 @@ mod tests {
             migrate(json!({"format": "klad/4", "rev": 9, "nextId": 40, "layers": []})).unwrap(),
             json!({"format": FORMAT, "layers": []}),
             "klad/5 keeps no counters in doc.json: they live in the copy's .cache"
+        );
+        assert_eq!(
+            migrate(json!({"format": "klad/5", "layers": []})).unwrap(),
+            json!({"format": FORMAT, "layers": []}),
+            "klad/6 adds attachments to stroke files; a klad/5 drawing opens unchanged"
         );
         assert_eq!(
             migrate(first).unwrap(),

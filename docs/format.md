@@ -1,4 +1,4 @@
-_Last updated: 2026-11-09 (format `klad/5`, stroke files `KLST` version 1, brushes `klad-brush/1`)_
+_Last updated: 2026-11-09 18:00 (format `klad/6`, stroke files `KLST` version 2, brushes `klad-brush/1`)_
 
 # The klad drawing format
 
@@ -32,13 +32,13 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
 - **Colours** are `"#rrggbb"` or `"#rrggbbaa"`: sRGB, straight (not premultiplied) alpha.
 - **Ids** are unique across the whole document and use letters, digits, `-` and `_`. Ids are case sensitive. klad makes new ones from a prefix (`l` layer, `c` cel, `n` node), a number, and the tag of the copy that made them: `l48qa`. Each copy of a drawing (a clone, a git worktree: any folder without `.cache/copy.json`) picks a two-letter tag the first time klad opens it and keeps it in `.cache/copy.json`, with counters that only go up, so two copies edited apart never make the same id; the copy a drawing was made in has no tag (`l48`). A folder copied by hand with its `.cache/` keeps the tag: delete `.cache/` in the copy to give it its own. Ids already in a drawing never change. Writers that make their own ids should do the same or use a long random part. A drawing with an id used twice does not open; `klad repair` gives every later one a new id.
 - **JSON** is UTF-8, written pretty with a stable key order. Keys at their default value are left out; readers must take the defaults listed below for missing keys. Most objects reject keys they do not know, so writers must not add their own.
-- **Versions.** `format` names the version of `doc.json` and everything it implies; this is `klad/5`. Each version opens the older `klad/` drawings and migrates them in memory (written back on the next change). A reader that meets a newer version than it knows should refuse to write the bundle. Drawings from before `klad/1` (`.draw` folders, formats `draw-anything/0` to `/9`) do not open.
+- **Versions.** `format` names the version of `doc.json` and everything it implies; this is `klad/6`. Each version opens the older `klad/` drawings and migrates them in memory (written back on the next change). A reader that meets a newer version than it knows should refuse to write the bundle. Drawings from before `klad/1` (`.draw` folders, formats `draw-anything/0` to `/9`) do not open.
 
 ## doc.json
 
 ```json
 {
-  "format": "klad/5",
+  "format": "klad/6",
   "canvas": { "width": 2048, "height": 2048, "background": "#f4efe6" },
   "timeline": { "fps": 12, "frames": 24, "origin": [1024, 1800],
     "clips": [{ "name": "run", "from": 0, "to": 11, "loop": true, "fps": 24 }] },
@@ -60,7 +60,7 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `format` | string | | `"klad/5"` |
+| `format` | string | | `"klad/6"` |
 | `canvas` | object | | `width`, `height` (px), `background` (a colour; none is transparent) |
 | `timeline` | object | 12 fps, 1 frame | see below |
 | `palette` | array | `[]` | swatches: `color`, optional `name` (unique, not starting with `#`) |
@@ -231,7 +231,7 @@ The file is one zstd frame (any level; klad uses 3). Inside:
 | Bytes | What |
 |---|---|
 | 4 | `KLST` |
-| 1 | the version: 1 |
+| 1 | the version: 2 (version 1 files read as strokes with nothing attached) |
 | varint | the number of marks |
 | ... | each mark: a kind byte (0 stroke, 1 fill), then its record |
 
@@ -250,11 +250,12 @@ Numbers: a **varint** is an unsigned LEB128 integer (7 bits per byte, low bits f
 | opacity | f32 | 0 to 1 |
 | flow | f32 | 0 to 1 |
 | seed | u32 | the seed of the brush's randomness, so a stroke replays the same |
-| channels | u8 | bits: 1 tilt, 2 time, 4 taper, 8 lock alpha, 16 cuts, 32 second colour |
+| channels | u8 | bits: 1 tilt, 2 time, 4 taper, 8 lock alpha, 16 cuts, 32 second colour, 64 attached |
 | author | u8 | 0 a person, 1 an agent |
 | taper | 2 f32 | if bit 4: px over which the start and end thin to a point, whatever the pressure |
 | cuts | cuts | if bit 16 |
 | second colour | colour | if bit 32: for brushes whose colour moves between two |
+| attached to | varint count, column | if bit 64: the ids of the marks in this drawing the stroke is attached to (see Attachments) |
 | samples | varint | n, the number of samples |
 | x, y | 2 columns | position in 1/16 px |
 | pressure | column | 0 to 4095 |
@@ -262,6 +263,14 @@ Numbers: a **varint** is an unsigned LEB128 integer (7 bits per byte, low bits f
 | time | column | if bit 2: milliseconds since the previous sample |
 
 A **column** is n signed varints, each the difference from the previous value (the first from 0). Without the tilt or time bit those values are 0. Bit 8 has no data: it marks a stroke made with lock alpha on.
+
+### Attachments
+
+An eraser, smudge or blender stroke (a brush with `"blend": "erase"`, or a `paint` of `smudge` or `blend`) records the marks it changed when it was drawn: the earlier marks in its drawing with paint under it. It moves, turns, is copied and is deleted with them, and splits when only some of them move.
+
+An attached eraser erases only its marks' share of each pixel. Every way a mark lands is linear in the pixel under it (premultiplied colour: paint `c a + p (1 - a)`, lock alpha `c a u + p (1 - a)` on the colour with alpha kept, erase `p (1 - a)`), so a pixel is a sum of each mark's share, each covered by what came after it. From the eraser's first mark up to the eraser, klad keeps that sum for the eraser's marks alone (its marks add their paint, every other mark covers it; smudges and blenders move it as they move the pixels), and the eraser subtracts `a` times that share instead of scaling the whole pixel. Where two attached erasers overlap, the later one takes from the earlier one's share the part their marks have in common: all of it when one's marks hold the other's, none when they share no mark, and the smaller of the two shares otherwise. An eraser with a wet stroke (`paint` of `wet`) between its first mark and itself, on the same tiles, erases in order like an unattached one. Ids that no longer exist in the drawing are ignored, and an eraser with none left erases in order.
+
+A reader that ignores attachments draws every drawing as it was when its erasers were drawn, which is the same picture until something attached moves. Smudge and blender strokes always act on whatever is under them; their attachments only say what they move with.
 
 ### Fills
 
@@ -335,3 +344,4 @@ Drawing a stroke: walk the samples, interpolate between them, stamp the tip ever
 | `klad/3` | paint layers under a skeleton get `bone`, attaching them to one bone (2026-11-08). `klad/1` and `klad/2` drawings open unchanged. |
 | `klad/4` | skeletons move to bones layers, and paint layers join one with `rig` (2026-11-08). Older drawings open without their bones, IK, weights links and the `pose` of their cels; the drawings themselves, posed ones too, stay. |
 | `klad/5` | `rev` and `nextId` leave `doc.json`, and new ids carry the tag of the copy that made them, so drawings diff and merge in git (2026-11-09). Older drawings open with their ids unchanged; their counters move to `.cache/copy.json`. |
+| `klad/6` | stroke files version 2: eraser, smudge and blender strokes record the marks they are attached to, and attached erasers erase only those (2026-11-09). Older drawings open unchanged, with nothing attached. |

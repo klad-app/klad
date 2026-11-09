@@ -10,7 +10,8 @@ pub const TILT_STEPS: f32 = 127.0;
 pub const ZSTD_LEVEL: i32 = 3;
 const MAGIC: &[u8; 4] = b"KLST";
 const OLD_MAGIC: &[u8; 4] = b"DAST";
-const VERSION: u8 = 1;
+const VERSION: u8 = 2;
+const READS: [u8; 2] = [1, 2];
 const MARK_STROKE: u8 = 0;
 const MARK_FILL: u8 = 1;
 const HAS_TILT: u8 = 1;
@@ -19,6 +20,7 @@ const HAS_TAPER: u8 = 4;
 const HAS_LOCK: u8 = 8;
 const HAS_CUTS: u8 = 16;
 const HAS_SECOND: u8 = 32;
+const HAS_ON: u8 = 64;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Sample {
@@ -85,6 +87,7 @@ pub struct Stroke {
     pub lock: bool,
     pub cuts: Vec<Cut>,
     pub second: Option<[u16; 4]>,
+    pub on: Vec<u32>,
     pub samples: Vec<Sample>,
 }
 
@@ -103,6 +106,7 @@ impl Stroke {
             lock: false,
             cuts: Vec::new(),
             second: None,
+            on: Vec::new(),
             samples: Vec::new(),
         }
     }
@@ -160,6 +164,7 @@ impl Stroke {
             (self.lock, HAS_LOCK),
             (!self.cuts.is_empty(), HAS_CUTS),
             (self.second.is_some(), HAS_SECOND),
+            (!self.on.is_empty(), HAS_ON),
         ]
         .iter()
         .filter(|(on, _)| *on)
@@ -214,6 +219,10 @@ fn encode_stroke(out: &mut Vec<u8>, stroke: &Stroke) {
     if let Some(second) = stroke.second {
         second.iter().for_each(|c| out.extend_from_slice(&c.to_le_bytes()));
     }
+    if channels & HAS_ON != 0 {
+        varint::put(out, stroke.on.len() as u64);
+        put_column(out, stroke.on.iter().map(|&id| id as i64));
+    }
     varint::put(out, stroke.samples.len() as u64);
     let s = &stroke.samples;
     put_column(out, s.iter().map(|v| v.x as i64));
@@ -259,6 +268,16 @@ fn decode_stroke(reader: &mut Reader) -> Result<Stroke> {
     } else {
         None
     };
+    let on = match channels & HAS_ON != 0 {
+        true => {
+            let count = reader.varint()? as usize;
+            read_column(reader, count)?
+                .into_iter()
+                .map(|id| Ok(u32::try_from(id)?))
+                .collect::<Result<Vec<_>>>()?
+        }
+        false => Vec::new(),
+    };
     let n = reader.varint()? as usize;
     let xs = read_column(reader, n)?;
     let ys = read_column(reader, n)?;
@@ -299,6 +318,7 @@ fn decode_stroke(reader: &mut Reader) -> Result<Stroke> {
         lock,
         cuts,
         second,
+        on,
         samples,
     })
 }
@@ -448,8 +468,8 @@ pub fn decode_raw(bytes: &[u8]) -> Result<Vec<Mark>> {
         _ => bail!("not a stroke file"),
     }
     let version = reader.u8()?;
-    if version != VERSION {
-        bail!("stroke file version {version} is not {VERSION}");
+    if !READS.contains(&version) {
+        bail!("stroke file version {version} is not one of {READS:?}: made by a newer klad");
     }
     let count = reader.varint()? as usize;
     let marks = (0..count)
@@ -499,6 +519,32 @@ mod tests {
     }
 
     #[test]
+    fn attachments_round_trip_change_the_fingerprint_and_version_1_files_still_read() {
+        let line = Stroke::new(1, "ink", [0.0, 0.0, 0.0, 1.0], 4.0, 1).with_points(&[(1.0, 1.0, 1.0), (9.0, 2.0, 0.5)], 0.0);
+        let free = Stroke::new(2, "eraser", [0.0, 0.0, 0.0, 1.0], 12.0, 2).with_points(&[(4.0, 0.0, 1.0), (4.0, 6.0, 1.0)], 0.0);
+        let attached = Stroke {
+            on: vec![1, 7 | (5 << 22), 3],
+            ..free.clone()
+        };
+        let marks: Vec<Mark> = vec![line.clone().into(), attached.clone().into()];
+        assert_eq!(decode_raw(&encode_raw(&marks)).unwrap(), marks);
+        assert_ne!(
+            fingerprint(&attached.clone().into()),
+            fingerprint(&free.clone().into()),
+            "attaching changes what a stroke draws, so caches must see it"
+        );
+        let mut old = encode_raw(&[line.clone().into(), free.clone().into()]);
+        old[4] = 1;
+        assert_eq!(
+            decode_raw(&old).unwrap(),
+            vec![Mark::Stroke(line), Mark::Stroke(free)],
+            "a version 1 file reads as strokes with nothing attached"
+        );
+        old[4] = 3;
+        assert!(decode_raw(&old).unwrap_err().to_string().contains("newer klad"));
+    }
+
+    #[test]
     fn quantisation_is_stable_under_re_quantising() {
         let s = Sample::quantize(10.37, -4.21, 0.333, (0.5, -0.25), 5.2);
         let (x, y) = s.pos();
@@ -518,7 +564,7 @@ mod tests {
         bytes[..4].copy_from_slice(OLD_MAGIC);
         assert!(decode_raw(&bytes).unwrap_err().to_string().contains("old .draw format"));
         bytes[..4].copy_from_slice(MAGIC);
-        bytes[4] = 2;
+        bytes[4] = VERSION + 1;
         assert!(decode_raw(&bytes).is_err());
     }
 
