@@ -89,8 +89,8 @@ pub struct Settings {
     pub pick_all_layers: bool,
     #[serde(default, rename = "developerTools", skip_serializing_if = "std::ops::Not::not")]
     pub developer: bool,
-    #[serde(default, rename = "eraserSoft", skip_serializing_if = "Option::is_none")]
-    pub eraser_soft: Option<f32>,
+    #[serde(default, rename = "eraserFeather", skip_serializing_if = "Option::is_none")]
+    pub eraser_feather: Option<f32>,
 }
 
 fn yes() -> bool {
@@ -115,7 +115,7 @@ impl Default for Settings {
             welcomed: false,
             pick_all_layers: true,
             developer: false,
-            eraser_soft: None,
+            eraser_feather: None,
         }
     }
 }

@@ -295,6 +295,22 @@ impl Editor {
                     &pictures,
                     "the shape each dab stamps: round, chalk or a picture",
                 );
+                if matches!(def.tip, TipDef::Round { .. }) {
+                    changed |= slider(
+                        ui,
+                        &mut def.feather,
+                        0.0..=1.0,
+                        "feather",
+                        "how far in the edge fades out like an airbrush; overlapping dabs don't build it back up",
+                    );
+                }
+                changed |= slider(
+                    ui,
+                    &mut def.fringe,
+                    0.0..=1.0,
+                    "fringe",
+                    "breaks the edge into streaks along the stroke, like a dry brush",
+                );
             });
             ui.vertical(|ui| {
                 changed |= slider(

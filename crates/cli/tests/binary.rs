@@ -574,3 +574,81 @@ fn modifiers_move_go_and_copy_with_their_marks_and_attach_again_when_moved_alone
     assert_eq!(copies[1]["on"], serde_json::json!([copies[0]["address"]]));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_brush_with_a_feathered_or_fringed_edge_goes_in_from_the_command_line() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-feather-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let eraser = |feather: &str, fringe: &str| {
+        format!(
+            r#"{{"format":"klad-brush/1","name":"Eraser","tip":{{"round":{{"hardness":0.85}}}},"spacing":0.06,"blend":"erase","feather":{feather},"fringe":{fringe}}}"#
+        )
+    };
+    let hash = |name: &str, brush: Option<String>| {
+        let path = dir.join(format!("{name}.klad"));
+        let path = path.to_str().unwrap();
+        draw(&["new", path, "--width", "200", "--height", "100"]);
+        draw(&[
+            "fill",
+            path,
+            "l1",
+            "--polygon",
+            "0,0 200,0 200,100 0,100",
+            "--color",
+            "#204060",
+        ]);
+        let id = match brush {
+            Some(def) => {
+                let file = dir.join(format!("{name}.json"));
+                std::fs::write(&file, def).unwrap();
+                assert!(draw(&["brushes", path, "--set", "soft-eraser", file.to_str().unwrap()]).contains("added"));
+                "soft-eraser"
+            }
+            None => "eraser",
+        };
+        draw(&[
+            "stroke",
+            path,
+            "l1",
+            "--brush",
+            id,
+            "--size",
+            "40",
+            "--path",
+            "M20 50 L180 50",
+        ]);
+        let out = run(&["render", path, "-o", dir.join(format!("{name}.png")).to_str().unwrap()]);
+        let said = String::from_utf8_lossy(&out.stderr).to_string() + &String::from_utf8_lossy(&out.stdout);
+        (
+            draw(&["brushes", path]),
+            said.split("hash ").nth(1).unwrap()[..16].to_string(),
+        )
+    };
+    let (_, plain) = hash("plain", None);
+    let (listed, feathered) = hash("feathered", Some(eraser("0.8", "0")));
+    assert!(listed.contains("round 0.85 +feather"), "{listed}");
+    assert_ne!(plain, feathered, "the feather softens the edge");
+    let (listed, fringed) = hash("fringed", Some(eraser("0", "1")));
+    assert!(listed.contains("round 0.85 +fringe"), "{listed}");
+    assert_ne!(plain, fringed, "the fringe frays it");
+    let file = dir.join("bad.json");
+    std::fs::write(&file, eraser("2", "0")).unwrap();
+    let path = dir.join("plain.klad");
+    let out = run(&[
+        "brushes",
+        path.to_str().unwrap(),
+        "--set",
+        "bad",
+        file.to_str().unwrap(),
+    ]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("feather"));
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -59,6 +59,8 @@ fn tip(def: &BrushDef) -> String {
         (matches!(def.paint, Some(brushes::PaintDef::Smudge { .. })), "smudge"),
         (matches!(def.paint, Some(brushes::PaintDef::Blend { .. })), "blend"),
         (def.body > 0.0, "body"),
+        (def.feather > 0.0, "feather"),
+        (def.fringe > 0.0, "fringe"),
     ]
     .iter()
     .filter(|(on, _)| *on)

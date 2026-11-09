@@ -1,4 +1,4 @@
-_Last updated: 2026-11-09 21:00_
+_Last updated: 2026-11-09 21:30_
 
 # Painting
 
@@ -8,7 +8,7 @@ Paint with klad's brushes, blend colours on the canvas and make brushes of your 
 
 ## Paint and erase
 
-Press **B** and paint on a paint layer. **E** switches to the eraser and back, and so does the eraser end of the pen. **[** and **]** make the brush smaller and bigger. With the eraser on, **soft** in the bar softens its edge.
+Press **B** and paint on a paint layer. **E** switches to the eraser and back, and so does the eraser end of the pen. **[** and **]** make the brush smaller and bigger. With the eraser on, **feather** in the bar fades its edge like an airbrush.
 
 An eraser stroke stays with the strokes it erased, like a mask that travels with them: move them and the cut goes along, without biting into what they land on. Smudges and blends stay with their strokes the same way. [Move an eraser on its own](selecting.md#move-an-eraser-on-its-own) to change that.
 

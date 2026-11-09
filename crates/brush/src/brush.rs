@@ -176,7 +176,12 @@ impl Brush {
     }
 
     pub fn with_pictures(def: &BrushDef, pictures: &Pictures) -> Result<Self> {
-        let tip = tip_of(&def.tip, pictures)?;
+        let tip = match tip_of(&def.tip, pictures)? {
+            Tip::Round { hardness } if def.feather > 0.0 => Tip::Round {
+                hardness: hardness.min(1.0 - def.feather),
+            },
+            tip => tip,
+        };
         let grain = def
             .grain
             .as_ref()

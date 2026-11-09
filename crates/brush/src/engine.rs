@@ -85,6 +85,7 @@ pub struct StrokePainter {
     reservoir_height: Option<f32>,
     previous: Option<(f32, f32)>,
     bristles: Option<Box<Bristles>>,
+    fringe: Option<Fringe>,
 }
 
 const STROKE_COLOUR_SEED: u64 = 0x9e37_79b9_7f4a_7c15;
@@ -140,6 +141,8 @@ impl StrokePainter {
             previous: None,
             bristles: (brush.def.body > 0.0)
                 .then(|| Box::new(Bristles::new(stroke.seed ^ 0x5bd1_e995, stroke.size, brush.scale))),
+            fringe: (brush.def.fringe > 0.0)
+                .then(|| Fringe::new(stroke.seed ^ 0x2c1b_3c6d, stroke.size, brush.def.fringe)),
         }
     }
 
@@ -174,8 +177,8 @@ impl StrokePainter {
         };
         let Some(prev) = self.last else {
             let pictured = matches!(self.brush.def.tip, klad_core::brushes::TipDef::Image { .. });
-            match (self.brush.angle, pictured) {
-                (Angle::Follow, true) => self.pending = Some(next),
+            match (self.brush.angle, pictured, self.fringe.is_some()) {
+                (Angle::Follow, true, _) | (_, _, true) => self.pending = Some(next),
                 _ => self.dab(next, 0.0, buffer, under),
             }
             self.last = Some(next);
@@ -342,17 +345,26 @@ impl StrokePainter {
             color,
             lift,
             pick: klad_core::rng::hash2(self.dabs as i32, self.seed as i32, 0x1eaf) as usize,
+            heading: self.heading,
+            along,
         };
+        let fringe = self.fringe.as_ref();
         match self.brush.def.paint {
-            Some(PaintDef::Smudge { strength }) => {
-                stamp_replace(buffer, &self.brush, dab, under, Replace::Smudge(shift), strength)
-            }
+            Some(PaintDef::Smudge { strength }) => stamp_replace(
+                buffer,
+                &self.brush,
+                dab,
+                fringe,
+                under,
+                Replace::Smudge(shift),
+                strength,
+            ),
             Some(PaintDef::Blend { strength }) => {
-                stamp_replace(buffer, &self.brush, dab, under, Replace::Blend, strength)
+                stamp_replace(buffer, &self.brush, dab, fringe, under, Replace::Blend, strength)
             }
             _ => {
                 let bristles = self.bristles.as_deref().map(|b| (b, b.load(along)));
-                stamp(buffer, &self.brush, dab, bristles)
+                stamp(buffer, &self.brush, dab, fringe, bristles)
             }
         }
     }
@@ -466,8 +478,51 @@ struct Dab {
     color: Option<[f32; 3]>,
     lift: Option<f32>,
     pick: usize,
+    heading: f32,
+    along: f32,
 }
 
+struct Fringe {
+    seed: u32,
+    across: f32,
+    along: f32,
+    band: f32,
+}
+
+impl Fringe {
+    fn new(seed: u32, size: f32, fringe: f32) -> Self {
+        Self {
+            seed,
+            across: (size / 2.5).clamp(5.0, 64.0),
+            along: 1.0 / (size * 0.9).max(4.0),
+            band: FRINGE * fringe,
+        }
+    }
+
+    fn reach(&self, dab: &Dab, px: f32, py: f32, radius: f32) -> f32 {
+        let (sin, cos) = (libm::sinf(dab.heading), libm::cosf(dab.heading));
+        let across = ((py * cos - px * sin) / radius).clamp(-1.0, 1.0);
+        let along = dab.along + px * cos + py * sin;
+        let a = (across + 1.0) * 0.5 * self.across;
+        let b = along * self.along;
+        let coarse = self.noise(a, b, 0);
+        let fine = self.noise(a * 2.7, b * 1.9, 1);
+        let g = smoothstep(0.25, 0.75, coarse * 0.6 + fine * 0.4);
+        1.0 - self.band * g
+    }
+
+    fn noise(&self, a: f32, b: f32, octave: u32) -> f32 {
+        let (i, j) = (libm::floorf(a), libm::floorf(b));
+        let (sa, sb) = (smoothstep(0.0, 1.0, a - i), smoothstep(0.0, 1.0, b - j));
+        let seed = self.seed.wrapping_add(octave.wrapping_mul(0x9e37_79b9));
+        let at = |di: i32, dj: i32| hash2_unit(i as i32 + di, j as i32 + dj, seed);
+        let top = at(0, 0) + (at(1, 0) - at(0, 0)) * sa;
+        let bottom = at(0, 1) + (at(1, 1) - at(0, 1)) * sa;
+        top + (bottom - top) * sb
+    }
+}
+
+const FRINGE: f32 = 0.55;
 const GROOVES: usize = 256;
 const RUN: f32 = 8.0;
 const EDGE: f32 = 2.5;
@@ -581,15 +636,18 @@ struct Edge {
 }
 
 impl Edge {
-    fn of(tip: &Tip, radius: f32) -> Option<Edge> {
-        match tip {
+    fn of(brush: &Brush, radius: f32) -> Option<Edge> {
+        match brush.tip {
             Tip::Round { hardness } => {
                 let solid = hardness * radius;
                 let fade = (radius - solid).max(1e-4);
                 Some(Edge {
                     solid,
                     fade,
-                    soft: smoothstep(0.5, 2.0, fade),
+                    soft: match brush.def.feather > 0.0 {
+                        true => 0.0,
+                        false => smoothstep(0.5, 2.0, fade),
+                    },
                 })
             }
             Tip::Mask(_) | Tip::Masks(_) => None,
@@ -612,6 +670,16 @@ impl Edge {
             self.fade * (ramp((reach + 0.5 - self.solid) / self.fade) - ramp((reach - 0.5 - self.solid) / self.fade));
         let cover = (1.0 - seen).clamp(0.0, 1.0);
         (cover, cover + (1.0 - cover) * self.soft)
+    }
+}
+
+fn fringed(u: f32, v: f32, reach: Option<f32>) -> (f32, f32, f32) {
+    match reach {
+        Some(r) => {
+            let (u, v) = (u / r, v / r);
+            (u, v, u * u + v * v)
+        }
+        None => (u, v, u * u + v * v),
     }
 }
 
@@ -684,7 +752,13 @@ fn area(buffer: &StrokeBuffer, dab: &Dab) -> Option<Area> {
     })
 }
 
-fn stamp(buffer: &mut StrokeBuffer, brush: &Brush, dab: Dab, bristles: Option<(&Bristles, f32)>) {
+fn stamp(
+    buffer: &mut StrokeBuffer,
+    brush: &Brush,
+    dab: Dab,
+    fringe: Option<&Fringe>,
+    bristles: Option<(&Bristles, f32)>,
+) {
     let Some(Area {
         x0,
         y0,
@@ -702,7 +776,7 @@ fn stamp(buffer: &mut StrokeBuffer, brush: &Brush, dab: Dab, bristles: Option<(&
     let inv_radius = 1.0 / radius;
     let inv_round = 1.0 / brush.def.roundness;
     let cols = buffer.grid().cols;
-    let edge = Edge::of(&brush.tip, radius);
+    let edge = Edge::of(brush, radius);
     let profile = bristles.map(|(b, load)| (b, b.profile(radius, brush.def.roundness, load, dab.p)));
     for ty in y0 / TILE..=(y1 - 1) / TILE {
         for tx in x0 / TILE..=(x1 - 1) / TILE {
@@ -729,9 +803,11 @@ fn stamp(buffer: &mut StrokeBuffer, brush: &Brush, dab: Dab, bristles: Option<(&
                 let row = (y - oy) * TILE;
                 for x in x0.max(ox)..x1.min(ox + TILE) {
                     let px = x as f32 + 0.5 - cx;
-                    let u = (px * cos + py * sin) * inv_radius;
-                    let v = (py * cos - px * sin) * inv_round * inv_radius;
-                    let d2 = u * u + v * v;
+                    let (u, v, d2) = fringed(
+                        (px * cos + py * sin) * inv_radius,
+                        (py * cos - px * sin) * inv_round * inv_radius,
+                        fringe.map(|f| f.reach(&dab, px, py, radius)),
+                    );
                     if d2 >= reach2 {
                         continue;
                     }
@@ -784,6 +860,7 @@ fn stamp_replace(
     buffer: &mut StrokeBuffer,
     brush: &Brush,
     dab: Dab,
+    fringe: Option<&Fringe>,
     under: Option<&Raster>,
     how: Replace,
     strength: f32,
@@ -812,9 +889,11 @@ fn stamp_replace(
         .filter(|&(x, y)| buffer.allowed((y / TILE) * cols + x / TILE))
         .filter_map(|(x, y)| {
             let (px, py) = (x as f32 + 0.5 - dab.cx, y as f32 + 0.5 - dab.cy);
-            let u = (px * cos + py * sin) * inv_radius;
-            let v = (py * cos - px * sin) * inv_round * inv_radius;
-            let d2 = u * u + v * v;
+            let (u, v, d2) = fringed(
+                (px * cos + py * sin) * inv_radius,
+                (py * cos - px * sin) * inv_round * inv_radius,
+                fringe.map(|f| f.reach(&dab, px, py, radius)),
+            );
             if d2 >= reach2 {
                 return None;
             }
@@ -1540,6 +1619,80 @@ mod tests {
         assert!(
             count("dry-brush") < count("plain") * 9 / 10,
             "the dual tip takes paint away"
+        );
+    }
+
+    fn round(id: &str, spacing: f32, feather: f32, fringe: f32) -> BrushSet {
+        let def = klad_core::brushes::BrushDef::parse(&format!(
+            r#"{{"name":"Round","tip":{{"round":{{"hardness":0.85}}}},"spacing":{spacing},"feather":{feather},"fringe":{fringe}}}"#
+        ))
+        .unwrap();
+        let mut set = BrushSet::presets();
+        set.insert(id, def);
+        set
+    }
+
+    #[test]
+    fn a_feathered_edge_fades_like_one_airbrush_pass_whatever_the_spacing() {
+        let across = |spacing: f32, feather: f32| {
+            let set = round("r", spacing, feather, 0.0);
+            let r = replay(
+                512,
+                128,
+                &[line("r", 60.0, (40.0, 64.0), (470.0, 64.0), (1.0, 1.0)).into()],
+                &set,
+            )
+            .unwrap()
+            .raster;
+            [0usize, 6, 12, 18, 24].map(|dy| alpha(&r, 256, 64 + dy))
+        };
+        let (dense, sparse) = (across(0.02, 1.0), across(0.12, 1.0));
+        assert!(dense[0] > 0.97, "the middle is all there: {dense:?}");
+        assert!(dense[3] < 0.5 && dense[4] < 0.2, "the edge fades out: {dense:?}");
+        dense.iter().zip(sparse).for_each(|(a, b)| {
+            assert!(
+                (a - b).abs() < 0.05,
+                "dabs don't build the fade back up: {dense:?} {sparse:?}"
+            )
+        });
+        let clean = across(0.06, 0.0);
+        assert!(
+            clean[3] > 0.97 && across(0.06, 0.3)[3] > 0.97,
+            "a little feather keeps the stroke's body"
+        );
+        assert!(across(0.06, 0.6)[3] < clean[3] - 0.2, "more feather fades further in");
+    }
+
+    #[test]
+    fn a_fringe_breaks_the_edge_into_streaks_along_the_stroke() {
+        let raster = |fringe: f32| {
+            let set = round("r", 0.06, 0.0, fringe);
+            replay(
+                512,
+                128,
+                &[line("r", 60.0, (40.0, 64.0), (470.0, 64.0), (1.0, 1.0)).into()],
+                &set,
+            )
+            .unwrap()
+            .raster
+        };
+        let flips = |r: &Raster, step: (usize, usize)| {
+            (100..400)
+                .flat_map(|x| (80..94).map(move |y| (x, y)))
+                .filter(|&(x, y)| (alpha(r, x, y) > 0.5) != (alpha(r, x + step.0, y + step.1) > 0.5))
+                .count()
+        };
+        let (fringed, plain) = (raster(1.0), raster(0.0));
+        assert!(
+            (100..400).all(|x| (54..74).all(|y| alpha(&fringed, x, y) > 0.95)),
+            "the middle stays whole"
+        );
+        assert_eq!(flips(&plain, (1, 0)), 0, "without a fringe the edge runs clean");
+        let (along, across) = (flips(&fringed, (1, 0)), flips(&fringed, (0, 1)));
+        assert!(across > 300, "the edge breaks up: {across}");
+        assert!(
+            along * 3 < across,
+            "into streaks along the stroke: {along} along, {across} across"
         );
     }
 

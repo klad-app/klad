@@ -213,13 +213,13 @@ impl Editor {
                 .text("size"),
         )
         .hint("brush size in canvas px ([ and ], or hold cmd alt and drag sideways on the canvas)");
-        if let Some(mut soft) = self.eraser_soft()
+        if let Some(mut feather) = self.eraser_feather()
             && ui
-                .add(egui::Slider::new(&mut soft, 0.0..=1.0).text("soft"))
-                .hint("how soft the eraser's edge is: 0 cuts clean, 1 fades out like an airbrush; the pen's eraser end too")
+                .add(egui::Slider::new(&mut feather, 0.0..=1.0).text("feather"))
+                .hint("how far in the eraser's edge fades: 0 cuts clean, 1 fades out like an airbrush; the pen's eraser end too")
                 .changed()
         {
-            self.set_eraser_soft(soft);
+            self.set_eraser_feather(feather);
         }
         ui.add(egui::Slider::new(&mut self.opacity, 0.05..=1.0).text("opacity"))
             .hint("a stroke never gets darker than this on its own");
@@ -234,6 +234,8 @@ impl Editor {
         if let Some(hardness) = t.hardness.as_mut().filter(|_| !erasing) {
             ui.add(egui::Slider::new(hardness, 0.0..=1.0).text("hardness"))
                 .hint("soft to hard edge; changing it draws as a variant of the brush");
+            ui.add(egui::Slider::new(&mut t.feather, 0.0..=1.0).text("feather"))
+                .hint("how far in the edge fades out like an airbrush, without dabs building it back up");
         }
         ui.add(egui::Slider::new(&mut t.size_min, 0.0..=1.0).text("lightest size"))
             .hint("the size at the lightest press, as a part of the full size");
@@ -260,7 +262,9 @@ impl Editor {
         }
         let (id, _) = self.shaped()?;
         if id != self.brush {
-            ui.small(format!("hardness or curve changed: draws as {id}, kept in the bundle"));
+            ui.small(format!(
+                "hardness, feather or curve changed: draws as {id}, kept in the bundle"
+            ));
         }
         Ok(())
     }
@@ -312,7 +316,7 @@ impl Editor {
                         self.check(|e| e.brush_more(ui));
                     })
                     .response
-                    .hint("hardness, pressure curve, taper, stabiliser and smoothing");
+                    .hint("hardness, feather, pressure curve, taper, stabiliser and smoothing");
                     self.command_button(ui, Cmd::BrushWindow, Some("edit"));
                     self.command_check(ui, Cmd::Symmetry, "mirror");
                     if let Some(axis) = self.mirror.as_mut() {

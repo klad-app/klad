@@ -1,4 +1,4 @@
-_Last updated: 2026-11-09 18:00 (format `klad/6`, stroke files `KLST` version 2, brushes `klad-brush/1`)_
+_Last updated: 2026-11-09 21:30 (format `klad/6`, stroke files `KLST` version 2, brushes `klad-brush/1`)_
 
 # The klad drawing format
 
@@ -315,6 +315,8 @@ When a lasso cuts across a mark, the mark is not split into new geometry: each p
 | `taper` | `[in, out]` px, used when a stroke has none of its own |
 | `stabilizer`, `smoothing` | how the editor steadies the pen while drawing (strokes store the result) |
 | `body` | bristle body for bristle brushes |
+| `feather` | 0 to 1 (0): how far in a round tip's edge fades out, as one pass of an airbrush would; overlapping dabs don't build the fade back up, so it looks the same whatever the spacing. It takes the place of a harder `hardness` (the tip is solid up to the smaller of `hardness` and 1 - `feather`) |
+| `fringe` | 0 to 1 (0): frays the edge into streaks along the stroke, like a dry brush: the tip reaches out by a different amount for each bristle line across it, varying slowly along the stroke and seeded by the stroke's `seed`; up to about half the radius at 1, the middle stays whole |
 
 A picture named by a tip or grain is `brushes/images/<name>.png` (dark is paint, or the alpha where there is one) when the bundle has it, and otherwise one of the pictures built into klad.
 

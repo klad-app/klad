@@ -2045,28 +2045,25 @@ fn erasers_follow_their_strokes_and_attached_only_and_detach_reach_them() {
 }
 
 #[test]
-fn the_eraser_has_a_soft_slider_that_stays_and_reaches_its_strokes() {
-    let path = sample("soft-eraser");
+fn the_eraser_has_a_feather_slider_that_stays_and_reaches_its_strokes() {
+    let path = sample("feather-eraser");
     let mut h = harness(editor(&path), vec2(1440.0, 900.0));
     activate(&mut h, "notes");
     h.key_press(Key::E);
     h.run_steps(2);
+    assert_eq!(h.state().eraser_feather(), Some(0.0), "the library eraser cuts clean");
     assert!(
-        h.state().eraser_soft().is_some_and(|soft| (soft - 0.15).abs() < 1e-4),
-        "the library eraser's own edge"
-    );
-    assert!(
-        h.query_all_by_label_contains("soft").count() > 0,
+        h.query_all_by_label_contains("feather").count() > 0,
         "the slider is in the bar"
     );
-    h.state_mut().set_eraser_soft(0.9);
+    h.state_mut().set_eraser_feather(0.9);
     h.key_press(Key::B);
     h.run_steps(2);
-    assert!(h.state().eraser_soft().is_none(), "brushes keep hardness under more");
+    assert!(h.state().eraser_feather().is_none(), "brushes keep theirs under more");
     h.key_press(Key::E);
     h.run_steps(2);
     assert_eq!(
-        h.state().eraser_soft(),
+        h.state().eraser_feather(),
         Some(0.9),
         "it stays when the eraser comes back"
     );
@@ -2079,12 +2076,9 @@ fn the_eraser_has_a_soft_slider_that_stays_and_reaches_its_strokes() {
         .map(|s| s.brush.clone())
         .unwrap();
     let def = h.state().scene.bundle.brush(&brush).unwrap().unwrap();
-    assert!(
-        def.hardness().is_some_and(|hardness| (hardness - 0.1).abs() < 1e-4),
-        "{brush} is a soft eraser: {:?}",
-        def.hardness()
-    );
-    assert_eq!(h.state().settings.eraser_soft, Some(0.9), "kept in the settings");
+    assert_eq!(def.feather, 0.9, "{brush} is a feathered eraser");
+    assert_eq!(def.hardness(), Some(0.85), "{brush} keeps the eraser's hardness");
+    assert_eq!(h.state().settings.eraser_feather, Some(0.9), "kept in the settings");
     let _ = std::fs::remove_dir_all(&path);
 }
 
@@ -3307,6 +3301,45 @@ fn the_cli_only_features_run_from_the_editor_and_give_what_the_cli_gives() {
         .collect();
     assert!(errors.is_empty(), "{errors:?}");
     std::fs::remove_dir_all(&base).unwrap();
+}
+
+#[test]
+fn the_brush_window_feathers_and_frays_a_round_brush() {
+    let path = sample("feather-fringe");
+    let mut h = harness(editor(&path), vec2(1440.0, 1400.0));
+    activate(&mut h, "lines");
+    h.state_mut().pick("ink");
+    h.key_press(Key::F5);
+    h.run_steps(3);
+    assert!(h.state().windows.brush);
+    ["feather", "fringe"].iter().for_each(|label| {
+        let track = h.get_by_role_and_label(Role::Slider, label).rect();
+        let at = egui::pos2(track.left() + track.width() * 0.9, track.center().y);
+        drag(&mut h, at, at);
+        h.run_steps(2);
+    });
+    let edited = h.state().custom.clone().unwrap();
+    assert!(
+        edited.feather > 0.7 && edited.fringe > 0.7,
+        "{} {}",
+        edited.feather,
+        edited.fringe
+    );
+    h.key_press(Key::F5);
+    h.run_steps(2);
+    let c = h.state().canvas_rect.center();
+    pen_line(&mut h, c + vec2(-60.0, 0.0), c + vec2(60.0, 0.0));
+    let brush = h
+        .state()
+        .scene
+        .active_marks()
+        .last()
+        .and_then(|m| m.as_stroke())
+        .map(|s| s.brush.clone())
+        .unwrap();
+    let def = h.state().scene.bundle.brush(&brush).unwrap().unwrap();
+    assert_eq!((def.feather, def.fringe), (edited.feather, edited.fringe), "{brush}");
+    let _ = std::fs::remove_dir_all(&path);
 }
 
 #[test]

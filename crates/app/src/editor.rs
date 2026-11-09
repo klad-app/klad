@@ -478,6 +478,7 @@ struct Live {
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Tuning {
     hardness: Option<f32>,
+    feather: f32,
     size_min: f32,
     size_gamma: f32,
     taper: [f32; 2],
@@ -494,6 +495,7 @@ impl Tuning {
         });
         Self {
             hardness: def.hardness(),
+            feather: def.feather,
             size_min: curve.min,
             size_gamma: curve.gamma,
             taper: def.taper,
@@ -507,6 +509,7 @@ impl Tuning {
         if let (Some(hardness), TipDef::Round { .. }) = (self.hardness, &def.tip) {
             def.tip = TipDef::Round { hardness };
         }
+        def.feather = self.feather;
         let old = Tuning::of(base);
         if (self.size_min, self.size_gamma) != (old.size_min, old.size_gamma) {
             def.dynamics.size.pressure = Some(Curve {
@@ -2763,28 +2766,26 @@ impl Editor {
 
     fn tuned(&self, id: &str, def: &BrushDef) -> Tuning {
         let tuning = Tuning::of(def);
-        match (id, self.settings.eraser_soft, tuning.hardness) {
-            ("eraser", Some(soft), Some(_)) => Tuning {
-                hardness: Some(1.0 - soft),
-                ..tuning
-            },
+        match (id, self.settings.eraser_feather, tuning.hardness) {
+            ("eraser", Some(feather), Some(_)) => Tuning { feather, ..tuning },
             _ => tuning,
         }
     }
 
-    pub(super) fn eraser_soft(&self) -> Option<f32> {
+    pub(super) fn eraser_feather(&self) -> Option<f32> {
         if self.is_on(Cmd::Eraser) != Some(true) {
             return None;
         }
-        let hardness = self.brushes.def("eraser").and_then(BrushDef::hardness)?;
-        Some(self.settings.eraser_soft.unwrap_or(1.0 - hardness))
+        let def = self.brushes.def("eraser").filter(|d| d.hardness().is_some())?;
+        Some(self.settings.eraser_feather.unwrap_or(def.feather))
     }
 
-    pub(super) fn set_eraser_soft(&mut self, soft: f32) {
-        self.settings.eraser_soft = Some(soft.clamp(0.0, 1.0));
+    pub(super) fn set_eraser_feather(&mut self, feather: f32) {
+        let feather = feather.clamp(0.0, 1.0);
+        self.settings.eraser_feather = Some(feather);
         self.settings_dirty = true;
         if self.brush == "eraser" {
-            self.tuning.hardness = Some(1.0 - soft.clamp(0.0, 1.0));
+            self.tuning.feather = feather;
         }
     }
 
@@ -4654,6 +4655,8 @@ mod tests {
             ..tuning
         };
         assert_eq!(harder.shape(ink).hardness(), Some(1.0));
+        let feathered = Tuning { feather: 0.5, ..tuning };
+        assert_eq!(feathered.shape(ink).feather, 0.5);
         let lighter = Tuning {
             size_min: 0.3,
             ..tuning
