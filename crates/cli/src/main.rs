@@ -1709,6 +1709,14 @@ enum Command {
     },
     #[command(about = "Paint cels with stroke counts and file sizes")]
     Info { bundle: PathBuf },
+    #[command(
+        about = "Give every layer, drawing or shape whose id is used twice (after a merge) a new id, moving its files along"
+    )]
+    Repair {
+        bundle: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "List the strokes and fills of a paint layer's cel at a frame")]
     Strokes {
         bundle: PathBuf,
@@ -3479,6 +3487,7 @@ fn run() -> Result<()> {
             scale,
         } => history::diff(&bundle, step, frame, scale)?,
         Command::Info { bundle } => info(&bundle)?,
+        Command::Repair { bundle, json } => repair(&bundle, json)?,
         Command::Strokes {
             bundle,
             layer,
@@ -3707,6 +3716,27 @@ pub fn copy_tag(doc: &klad_core::doc::Document) -> String {
         "" => String::new(),
         tag => format!("  copy {tag} (new ids end in {tag})"),
     }
+}
+
+fn repair(path: &Path, as_json: bool) -> Result<()> {
+    let repaired = Bundle::repair(path)?;
+    if as_json {
+        println!("{}", serde_json::to_string_pretty(&repaired)?);
+        return Ok(());
+    }
+    if repaired.renamed.is_empty() {
+        println!("nothing to repair: every id is used once");
+        return Ok(());
+    }
+    repaired
+        .renamed
+        .iter()
+        .for_each(|r| println!("{} {:?}: {} is now {}", r.what, r.name, r.from, r.to));
+    repaired
+        .files
+        .iter()
+        .for_each(|f| println!("{} {} to {}", if f.copied { "copied" } else { "moved" }, f.from, f.to));
+    Ok(())
 }
 
 fn info(path: &Path) -> Result<()> {

@@ -384,3 +384,46 @@ fn a_checkout_under_the_cache_renders_the_drawing_it_brings() {
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_merge_that_left_an_id_used_twice_is_repaired() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-repair-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let bundle = dir.join("a.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    draw(&["new", path, "--width", "200", "--height", "100", "--layers", "2"]);
+    draw(&["stroke", path, "l1", "--path", "M10 10 L190 90"]);
+    draw(&["stroke", path, "l3", "--path", "M10 90 L190 10"]);
+    let doc = std::fs::read_to_string(bundle.join("doc.json")).unwrap();
+    std::fs::write(bundle.join("doc.json"), doc.replace("\"l3\"", "\"l1\"")).unwrap();
+    std::fs::rename(
+        bundle.join("strokes/l3/c4.strokes"),
+        bundle.join("strokes/l1/c4.strokes"),
+    )
+    .unwrap();
+    let refused = run(&["info", path]);
+    let said = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        !refused.status.success() && said.contains("id l1 is used twice") && said.contains("klad repair"),
+        "{said}"
+    );
+    let repaired = draw(&["repair", path]);
+    assert!(repaired.contains("layer \"paint 2\": l1 is now l5"), "{repaired}");
+    assert!(
+        repaired.contains("moved strokes/l1/c4.strokes to strokes/l5/c4.strokes"),
+        "{repaired}"
+    );
+    let info = draw(&["info", path]);
+    assert!(
+        info.contains("l1      c2") && info.contains("l5      c4") && info.matches("1 strokes").count() == 2,
+        "{info}"
+    );
+    assert!(draw(&["repair", path]).contains("nothing to repair"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

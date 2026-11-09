@@ -17,6 +17,7 @@ pub mod ops;
 pub mod patch;
 pub mod path;
 pub mod pathedit;
+pub mod repair;
 pub mod retime;
 pub mod rig;
 pub mod rng;

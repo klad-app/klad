@@ -52,12 +52,23 @@ pub struct Start {
     pub sketch: bool,
     pub path: String,
     pub error: Option<String>,
+    pub repair: Option<PathBuf>,
+    pub repaired: Option<String>,
     pub section: Section,
     pub changed: bool,
     pub samples: Vec<Sample>,
     pub tour: bool,
     focused: bool,
     thumbs: BTreeMap<String, Thumb>,
+}
+
+fn repaired_words(done: &klad_core::bundle::Repaired) -> String {
+    let names: Vec<String> = done
+        .renamed
+        .iter()
+        .map(|r| format!("{} \"{}\" ({} is now {})", r.what, r.name, r.from, r.to))
+        .collect();
+    format!("repaired ids used twice: {}", names.join(", "))
 }
 
 impl Start {
@@ -76,6 +87,8 @@ impl Start {
             sketch: true,
             path: String::new(),
             error: None,
+            repair: None,
+            repaired: None,
             section,
             changed: false,
             samples: samples::shipped(),
@@ -239,9 +252,22 @@ impl Start {
                     });
                 });
             });
-            if let Some(error) = &self.error {
+            if let Some(error) = self.error.clone() {
                 ui.add_space(4.0);
                 ui.colored_label(theme::ERROR, error);
+                if let Some(path) = self.repair.clone()
+                    && ui.button("Repair and open").clicked()
+                {
+                    match klad_core::bundle::Bundle::repair(&path) {
+                        Ok(done) => {
+                            self.repaired = Some(repaired_words(&done));
+                            self.error = None;
+                            self.repair = None;
+                            chosen = Some(path);
+                        }
+                        Err(e) => self.error = Some(format!("{e:#}")),
+                    }
+                }
             }
             ui.add_space(10.0);
             chosen = chosen.take().or_else(|| self.recent_section(ui, settings));

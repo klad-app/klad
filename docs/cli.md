@@ -69,6 +69,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad notes`](#klad-notes): Notes the human pinned on the canvas; --done <id> marks one as handled, --clear-done removes the handled ones
 - [`klad diff`](#klad-diff): Before and after renders of a change, side by side (default: the last one)
 - [`klad info`](#klad-info): Paint cels with stroke counts and file sizes
+- [`klad repair`](#klad-repair): Give every layer, drawing or shape whose id is used twice (after a merge) a new id, moving its files along
 - [`klad strokes`](#klad-strokes): List the strokes and fills of a paint layer's cel at a frame
 - [`klad hash`](#klad-hash): Print pixel hashes, for comparing macOS and Linux renders
 - [`klad demo`](#klad-demo): Write a sample bundle (vector sky and hills, painted glow, clouds, hatching, grass)
@@ -3262,6 +3263,25 @@ Arguments:
 
 
 Options:
+  -h, --help
+          Print help
+```
+
+## klad repair
+
+```text
+Give every layer, drawing or shape whose id is used twice (after a merge) a new id, moving its files along
+
+Usage: klad repair [OPTIONS] <BUNDLE>
+
+Arguments:
+  <BUNDLE>
+
+
+Options:
+      --json
+
+
   -h, --help
           Print help
 ```

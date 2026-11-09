@@ -5,6 +5,7 @@ use crate::history::checkpoint;
 use crate::markedit::{self, LassoAction, MarkChange};
 use crate::migrate::migrate;
 use crate::ops::{Applied, ClipEdit, FillSpec, Op, PendingMarks, apply_all};
+use crate::repair;
 use crate::stroke::{Mark, Stroke, decode_cel, encode_cel, strokes_of};
 use crate::timing::{CelAction, FrameSpec};
 use anyhow::{Context, Result, bail};
@@ -78,6 +79,19 @@ pub fn now_ms() -> u64 {
         .map_or(0, |d| d.as_millis() as u64)
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Moved {
+    pub from: String,
+    pub to: String,
+    pub copied: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Repaired {
+    pub renamed: Vec<repair::Renamed>,
+    pub files: Vec<Moved>,
+}
+
 pub struct Bundle {
     pub root: PathBuf,
     pub doc: Document,
@@ -117,6 +131,15 @@ fn name_parts(doc: &mut Document, pending: &[PendingMarks]) {
 
 impl Bundle {
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
+        let bundle = Self::read(root)?;
+        bundle
+            .doc
+            .validate()
+            .with_context(|| format!("checking {}", bundle.root.join("doc.json").display()))?;
+        Ok(bundle)
+    }
+
+    fn read(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref().to_path_buf();
         remember(&root);
         let seen = here::fingerprint(&root);
@@ -128,7 +151,6 @@ impl Bundle {
         let (rev, next) = (counted("rev"), counted("nextId"));
         let value = migrate(raw).with_context(|| format!("opening {}", root.display()))?;
         let mut doc: Document = serde_json::from_value(value).with_context(|| format!("reading {}", path.display()))?;
-        doc.validate().with_context(|| format!("checking {}", path.display()))?;
         let (mut state, fresh) = here::load(&root);
         state.rev = state.rev.max(rev);
         state.next = state.next.max(next).max(highest_number(&doc));
@@ -139,6 +161,70 @@ impl Bundle {
         doc.next_id = state.next;
         doc.here = state.here();
         Ok(Self { root, doc, seen })
+    }
+
+    pub fn repair(root: impl AsRef<Path>) -> Result<Repaired> {
+        let mut bundle = Self::read(root)?;
+        let before = repair::cel_files(&bundle.doc);
+        let renamed = repair::ids(&mut bundle.doc);
+        bundle
+            .doc
+            .validate()
+            .with_context(|| format!("checking {}", bundle.root.join("doc.json").display()))?;
+        if renamed.is_empty() {
+            return Ok(Repaired::default());
+        }
+        let after = repair::cel_files(&bundle.doc);
+        let used = |layer: &str, cel: Option<&str>| {
+            after
+                .iter()
+                .any(|(l, cels)| l == layer && cel.is_none_or(|c| cels.iter().any(|x| x == c)))
+        };
+        let moves: Vec<(PathBuf, PathBuf, bool)> = before
+            .iter()
+            .zip(&after)
+            .flat_map(|((old, old_cels), (new, new_cels))| {
+                old_cels
+                    .iter()
+                    .zip(new_cels)
+                    .map(|(from, to)| {
+                        (
+                            bundle.strokes_path(old, from),
+                            bundle.strokes_path(new, to),
+                            used(old, Some(from)),
+                        )
+                    })
+                    .chain((old != new).then(|| (bundle.weights_path(old), bundle.weights_path(new), used(old, None))))
+                    .collect::<Vec<_>>()
+            })
+            .filter(|(from, to, _)| from != to && from.is_file())
+            .collect();
+        let relative = |p: &Path| {
+            p.strip_prefix(&bundle.root)
+                .unwrap_or(p)
+                .to_string_lossy()
+                .replace('\\', "/")
+        };
+        let files = moves
+            .iter()
+            .map(|(from, to, keep)| {
+                if let Some(parent) = to.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                match keep {
+                    true => fs::copy(from, to).map(|_| ())?,
+                    false => fs::rename(from, to)?,
+                }
+                Ok(Moved {
+                    from: relative(from),
+                    to: relative(to),
+                    copied: *keep,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        bundle.save()?;
+        bundle.stamp("repair")?;
+        Ok(Repaired { renamed, files })
     }
 
     pub fn brush_path(&self, id: &str) -> PathBuf {
@@ -784,6 +870,69 @@ mod tests {
             back.doc.ids()
         );
         assert_eq!(back.read_marks("l1", "c1").unwrap()[0].id(), 2);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_drawing_with_an_id_used_twice_is_refused_then_repaired() {
+        use crate::ops::parse_lines;
+        let dir = scratch("twice");
+        let mut doc = Document::new(64, 64);
+        doc.layers.push(Layer::paint("l48qa", "mine", "c49qa"));
+        doc.layers.push(Layer::paint("l70", "theirs", "c50qa"));
+        doc.next_id = 70;
+        let mut bundle = Bundle::create(&dir, doc).unwrap();
+        bundle
+            .apply(
+                &parse_lines(
+                    r#"{"op":"stroke","layer":"l48qa","path":"M1 1 L60 60"}
+{"op":"stroke","layer":"l70","path":"M60 1 L1 60"}
+{"op":"stroke","layer":"l70","path":"M30 1 L30 60"}"#,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let text = fs::read_to_string(dir.join("doc.json"))
+            .unwrap()
+            .replace("\"l70\"", "\"l48qa\"");
+        fs::write(dir.join("doc.json"), text).unwrap();
+        fs::rename(
+            dir.join("strokes/l70/c50qa.strokes"),
+            dir.join("strokes/l48qa/c50qa.strokes"),
+        )
+        .unwrap();
+        let refused = Bundle::open(&dir).err().unwrap();
+        assert!(refused.downcast_ref::<repair::UsedTwice>().is_some(), "{refused:#}");
+        assert!(
+            format!("{refused:#}").contains("id l48qa is used twice: klad repair"),
+            "{refused:#}"
+        );
+        let repaired = Bundle::repair(&dir).unwrap();
+        let to = repaired.renamed[0].to.clone();
+        assert_eq!(
+            (repaired.renamed[0].what, repaired.renamed[0].name.as_str()),
+            ("layer", "theirs")
+        );
+        assert_eq!(
+            repaired.files,
+            vec![Moved {
+                from: "strokes/l48qa/c50qa.strokes".into(),
+                to: format!("strokes/{to}/c50qa.strokes"),
+                copied: false
+            }]
+        );
+        let opened = Bundle::open(&dir).unwrap();
+        assert_eq!(opened.read_marks("l48qa", "c49qa").unwrap().len(), 1);
+        assert_eq!(
+            opened.read_marks(&to, "c50qa").unwrap().len(),
+            2,
+            "their strokes came along"
+        );
+        assert_eq!(
+            Bundle::repair(&dir).unwrap(),
+            Repaired::default(),
+            "nothing left to repair"
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 

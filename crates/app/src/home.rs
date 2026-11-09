@@ -58,6 +58,10 @@ pub(crate) struct Home {
     menus_shown: Option<std::time::Instant>,
 }
 
+fn used_twice(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<klad_core::repair::UsedTwice>().is_some()
+}
+
 impl Home {
     fn new(cc: &eframe::CreationContext, path: Option<&Path>) -> Result<Self> {
         let gpu = cc
@@ -108,6 +112,7 @@ impl Home {
             let mut start = Start::new(&self.settings, Section::Open);
             start.path = path.display().to_string();
             start.error = Some(format!("opening {}: {e:#}", path.display()));
+            start.repair = used_twice(&e).then(|| path.to_path_buf());
             self.start = Some(start);
         }
     }
@@ -118,6 +123,9 @@ impl Home {
             .as_ref()
             .map_or_else(|| self.settings.clone(), |e| e.settings.clone());
         let mut editor = Editor::open(ctx.clone(), path)?;
+        if let Some(words) = self.start.as_mut().and_then(|s| s.repaired.take()) {
+            editor.say(Tone::Done, words);
+        }
         settings.opened(path);
         editor.settings = settings.clone();
         editor.settings_path = self.settings_path.clone();
@@ -350,7 +358,10 @@ impl Home {
         {
             let message = format!("opening {}: {e:#}", path.display());
             match (self.start.as_mut(), self.editor.as_mut()) {
-                (Some(start), _) => start.error = Some(message),
+                (Some(start), _) => {
+                    start.error = Some(message);
+                    start.repair = used_twice(&e).then(|| path.clone());
+                }
                 (None, Some(editor)) => editor.error(message),
                 (None, None) => {}
             }
@@ -613,6 +624,32 @@ mod tests {
         assert!(missing.editor.is_none());
         let error = missing.start.as_ref().unwrap().error.clone().unwrap();
         assert!(error.contains("nowhere.klad"), "{error}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_drawing_with_an_id_used_twice_is_offered_a_repair() {
+        let dir = folder("twice");
+        let path = dir.join("merged.klad");
+        Bundle::blank(&path, &Blank { layers: 2, ..small() }, "cli").unwrap();
+        let doc = std::fs::read_to_string(path.join("doc.json")).unwrap();
+        std::fs::write(path.join("doc.json"), doc.replace("\"l3\"", "\"l1\"")).unwrap();
+        let mut start = home(&dir, &[]);
+        start.begin(&egui::Context::default(), Some(&path));
+        assert!(start.editor.is_none());
+        let error = start.start.as_ref().unwrap().error.clone().unwrap();
+        assert!(error.contains("used twice"), "{error}");
+        let mut h = harness(start);
+        h.get_by_label("Repair and open").click();
+        h.run_steps(3);
+        assert_eq!(opened(&h), path);
+        assert!(h.state().start.is_none());
+        assert!(
+            h.query_all_by_label_contains("repaired ids used twice")
+                .next()
+                .is_some()
+        );
+        assert!(Bundle::open(&path).is_ok());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -1315,7 +1315,7 @@ impl Document {
                     bail!("id {id:?} may only use letters, digits, - and _");
                 }
                 if !seen.insert(id) {
-                    bail!("id {id} is used twice");
+                    return Err(anyhow::Error::new(crate::repair::UsedTwice).context(format!("id {id} is used twice")));
                 }
                 Ok(())
             })?;
