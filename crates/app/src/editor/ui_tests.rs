@@ -1890,6 +1890,52 @@ fn v_picks_and_drags_the_stroke_under_the_pen_and_alt_drags_a_copy() {
 }
 
 #[test]
+fn recolouring_several_strokes_keeps_each_ones_shade() {
+    let path = sample("recolour");
+    Bundle::open(&path)
+        .unwrap()
+        .apply(
+            &parse_lines(
+                r##"{"op":"stroke","layer":"l6","path":"M100 100 L300 100","color":"#2f5a30","size":20}
+{"op":"stroke","layer":"l6","path":"M100 200 L300 200","color":"#a8dc84","size":20}"##,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    h.run_steps(3);
+    let ids: Vec<u32> = h
+        .state()
+        .scene
+        .marks_of("c6")
+        .iter()
+        .rev()
+        .take(2)
+        .map(|m| m.id())
+        .collect();
+    h.state_mut().tool = Tool::Strokes;
+    h.state_mut().picked = Some(super::Picked {
+        cel: "c6".into(),
+        ids: ids.clone(),
+        cut: None,
+        more: Vec::new(),
+    });
+    h.state_mut().color = klad_core::color::parse_hex("#e3962f").unwrap();
+    h.state_mut().invoke(Cmd::Recolour).unwrap();
+    h.run_steps(2);
+    let after: Vec<[f32; 3]> = ids
+        .iter()
+        .map(|id| {
+            let marks = h.state().scene.bundle.read_marks("l6", "c6").unwrap();
+            klad_core::color::to_oklab(marks.iter().find(|m| m.id() == *id).unwrap().color())
+        })
+        .collect();
+    assert!(after[0][0] > after[1][0], "the light stroke stays lighter: {after:?}");
+    assert!(after.iter().all(|lab| lab[2] > 0.05), "both turned warm: {after:?}");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn a_checkout_under_the_open_editor_shows_the_drawing_it_brings() {
     let path = sample("checkout");
     let mut h = harness(editor(&path), vec2(1440.0, 1000.0));

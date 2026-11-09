@@ -82,9 +82,56 @@ pub fn value_step(c: Rgba, by: f32) -> Rgba {
     from_oklab([(l + by).clamp(0.0, 1.0), a + by * 0.03, b + by * 0.15], c[3])
 }
 
+pub fn recolour(colours: &[Rgba], target: Rgba) -> Vec<Rgba> {
+    let n = colours.len().max(1) as f32;
+    let labs: Vec<[f32; 4]> = colours
+        .iter()
+        .map(|c| {
+            let [l, a, b] = to_oklab(*c);
+            [l, a, b, c[3]]
+        })
+        .collect();
+    let mean = labs.iter().fold([0.0; 4], |m, v| [0, 1, 2, 3].map(|i| m[i] + v[i] / n));
+    let [gl, ga, gb] = to_oklab(target);
+    let goal = [gl, ga, gb, target[3]];
+    labs.iter()
+        .map(|v| {
+            let [l, a, b, alpha] = [0, 1, 2, 3].map(|i| goal[i] + v[i] - mean[i]);
+            from_oklab([l.clamp(0.0, 1.0), a, b], alpha.clamp(0.0, 1.0)).map(|c| c.clamp(0.0, 1.0))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_recolour_moves_the_group_and_keeps_each_shade() {
+        let greens = ["#3f6a3a", "#79b85a", "#a8dc84"].map(|h| parse_hex(h).unwrap());
+        let amber = parse_hex("#e3962f").unwrap();
+        let moved = recolour(&greens, amber);
+        let light = |c: &Rgba| to_oklab(*c)[0];
+        assert!(
+            light(&moved[0]) < light(&moved[1]) && light(&moved[1]) < light(&moved[2]),
+            "the shades keep their order"
+        );
+        let mean = moved
+            .iter()
+            .map(|c| to_oklab(*c))
+            .fold([0.0; 3], |m, l| [0, 1, 2].map(|i| m[i] + l[i] / 3.0));
+        let goal = to_oklab(amber);
+        assert!(
+            (0..3).all(|i| (mean[i] - goal[i]).abs() < 0.02),
+            "the group's middle lands on the colour: {mean:?} {goal:?}"
+        );
+        assert!(moved.iter().all(|c| to_oklab(*c)[2] > 0.05), "every stroke turned warm");
+        assert_eq!(
+            to_hex(recolour(&greens[..1], amber)[0]),
+            "#e3962f",
+            "one mark takes the colour as it is"
+        );
+    }
 
     #[test]
     fn parses_short_and_alpha_forms() {

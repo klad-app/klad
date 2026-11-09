@@ -518,6 +518,18 @@ enum Command {
         #[command(flatten)]
         flags: EditFlags,
     },
+    #[command(
+        about = "Recolour strokes and fills together: the group moves to the colour and each keeps its own lighter or darker shade",
+        long_about = "Recolour strokes and fills together. The group's average colour moves to --to and every mark keeps its own difference from that average (in OKLab: lighter, darker, warmer, cooler), so painted strokes stay painted. One mark takes the colour as it is. One history step.\n\n  klad recolour art.klad c9:s12 c9:s13 c9:s40 --to '#e3962f'\n  klad recolour art.klad c9:s12 c9:s13 --to skin"
+    )]
+    Recolour {
+        bundle: PathBuf,
+        ids: Vec<String>,
+        #[arg(long, help = "The colour: #rrggbb or a palette name")]
+        to: String,
+        #[command(flatten)]
+        flags: EditFlags,
+    },
     #[command(about = "Remove layers, cels or nodes")]
     Rm {
         bundle: PathBuf,
@@ -2336,6 +2348,10 @@ fn run() -> Result<()> {
             };
             agent::edit(&bundle, &[op], &output(&flags, frame))?;
         }
+        Command::Recolour { bundle, ids, to, flags } => {
+            let ops = recolour_ops(&bundle, &ids, &to)?;
+            agent::edit(&bundle, &ops, &output(&flags, 0))?;
+        }
         Command::Rm { bundle, ids, flags } => {
             if ids.is_empty() {
                 return Err(anyhow!("give the ids to remove"));
@@ -3716,6 +3732,44 @@ pub fn copy_tag(doc: &klad_core::doc::Document) -> String {
         "" => String::new(),
         tag => format!("  copy {tag} (new ids end in {tag})"),
     }
+}
+
+fn recolour_ops(path: &Path, ids: &[String], to: &str) -> Result<Vec<Op>> {
+    if ids.is_empty() {
+        return Err(anyhow!("give the strokes and fills to recolour, as <cel>:s<id>"));
+    }
+    let bundle = Bundle::open(path)?;
+    let target = klad_core::color::parse_hex(&bundle.doc.resolve_color(to)?)?;
+    let owner = |cel: &str| {
+        bundle
+            .doc
+            .all_layers()
+            .iter()
+            .find(|l| l.cels().iter().any(|c| c.id == cel))
+            .map(|l| l.id.clone())
+            .ok_or_else(|| anyhow!("no drawing {cel}"))
+    };
+    let colours = ids
+        .iter()
+        .map(|id| {
+            let (cel, mark) = klad_core::markedit::parse_address(id)
+                .ok_or_else(|| anyhow!("{id} is not a stroke or fill: use <cel>:s<id>"))?;
+            let marks = bundle.read_marks(&owner(cel)?, cel)?;
+            marks
+                .iter()
+                .find(|m| m.id() == mark)
+                .map(klad_core::stroke::Mark::color)
+                .ok_or_else(|| anyhow!("{id} does not exist"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(klad_core::color::recolour(&colours, target)
+        .into_iter()
+        .zip(ids)
+        .map(|(c, id)| Op::Set {
+            id: id.clone(),
+            props: serde_json::Map::from_iter([("color".to_string(), serde_json::json!(klad_core::color::to_hex(c)))]),
+        })
+        .collect())
 }
 
 fn repair(path: &Path, as_json: bool) -> Result<()> {

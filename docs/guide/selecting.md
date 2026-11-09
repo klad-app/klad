@@ -1,4 +1,4 @@
-_Last updated: 2026-11-08 14:50_
+_Last updated: 2026-11-09 12:23_
 
 # Changing strokes
 
@@ -18,7 +18,7 @@ To pick on every layer instead of only the active one, switch the bar over the c
 
 ## Change what you selected
 
-Drag inside the box to move it, a corner to scale it and the knob to turn it. The bar next to the selection recolours it with the current colour, makes strokes thinner or thicker, duplicates it (**cmd D**) and deletes it (**Backspace**).
+Drag inside the box to move it, a corner to scale it and the knob to turn it. The bar next to the selection recolours it with the current colour, makes strokes thinner or thicker, duplicates it (**cmd D**) and deletes it (**Backspace**). Recolouring several strokes keeps each one's own lighter or darker shade, so a painted area stays painted.
 
 ## Bend a stroke
 

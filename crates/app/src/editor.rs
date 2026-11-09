@@ -3465,11 +3465,13 @@ impl Editor {
     }
 
     fn recolour_picked(&mut self) -> Result<()> {
-        let hex = color::hex(self.color);
+        let target = self.color;
         let sets = self.chosen_marks().map_or(Vec::new(), |(_, chosen)| {
-            chosen
-                .iter()
-                .map(|(cel, m)| (cel.clone(), m.id(), "color", json!(hex)))
+            let colours: Vec<_> = chosen.iter().map(|(_, m)| m.color()).collect();
+            klad_core::color::recolour(&colours, target)
+                .into_iter()
+                .zip(&chosen)
+                .map(|(c, (cel, m))| (cel.clone(), m.id(), "color", json!(klad_core::color::to_hex(c))))
                 .collect()
         });
         self.set_picked(sets)

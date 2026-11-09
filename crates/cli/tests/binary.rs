@@ -427,3 +427,33 @@ fn a_merge_that_left_an_id_used_twice_is_repaired() {
     assert!(draw(&["repair", path]).contains("nothing to repair"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn recolour_moves_strokes_together_and_keeps_their_shades() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-recolour-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let bundle = dir.join("a.klad");
+    let path = bundle.to_str().unwrap();
+    let draw = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    draw(&["new", path, "--width", "200", "--height", "100"]);
+    draw(&["stroke", path, "l1", "--path", "M10 10 L190 10", "--color", "#2f5a30"]);
+    draw(&["stroke", path, "l1", "--path", "M10 50 L190 50", "--color", "#a8dc84"]);
+    draw(&["recolour", path, "c2:s1", "c2:s2", "--to", "#e3962f"]);
+    let listed: serde_json::Value = serde_json::from_str(&draw(&["strokes", path, "l1", "--json"])).unwrap();
+    let colours: Vec<String> = listed["strokes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["color"].as_str().unwrap().to_string())
+        .collect();
+    let lab = |hex: &str| klad_core::color::to_oklab(klad_core::color::parse_hex(hex).unwrap());
+    assert!(lab(&colours[0])[0] < lab(&colours[1])[0], "{colours:?}");
+    assert!(colours.iter().all(|c| lab(c)[2] > 0.05), "both warm now: {colours:?}");
+    let log = draw(&["log", path]);
+    assert_eq!(log.matches("cli").count(), 3, "one history step: {log}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}

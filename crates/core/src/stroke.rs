@@ -322,6 +322,13 @@ impl From<Fill> for Mark {
 }
 
 impl Mark {
+    pub fn color(&self) -> Rgba {
+        match self {
+            Mark::Stroke(s) => s.color(),
+            Mark::Fill(f) => f.color(),
+        }
+    }
+
     pub fn id(&self) -> u32 {
         match self {
             Mark::Stroke(s) => s.id,

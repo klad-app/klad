@@ -64,6 +64,7 @@ Every stroke and fill has an address `<cel>:s<id>` (fills share the id counter w
 ```
 klad set art.klad c4:s12 color=#c84a3a size=6 brush=pencil
 klad set art.klad c4:s7 color=skin opacity=0.8
+klad recolour art.klad c4:s12 c4:s13 c4:s40 --to '#e3962f'   # several at once, each keeps its shade
 klad rm art.klad c4:s12 c4:s13
 klad transform art.klad c4:s3 c4:s5 --move 40,-10 --rotate 15 --scale 1.2
 klad transform art.klad --layer figure --move -120,0           # a whole layer or group: every drawing, its shapes, bones and poses
