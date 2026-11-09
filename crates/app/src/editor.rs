@@ -2754,22 +2754,50 @@ impl Editor {
 
     fn pick(&mut self, id: &str) {
         if let Some(def) = self.brushes.def(id) {
-            self.tuning = Tuning::of(def);
+            self.tuning = self.tuned(id, def);
             self.brush = id.to_string();
             self.custom = None;
             self.brush_window.name = def.name.clone();
         }
     }
 
+    fn tuned(&self, id: &str, def: &BrushDef) -> Tuning {
+        let tuning = Tuning::of(def);
+        match (id, self.settings.eraser_soft, tuning.hardness) {
+            ("eraser", Some(soft), Some(_)) => Tuning {
+                hardness: Some(1.0 - soft),
+                ..tuning
+            },
+            _ => tuning,
+        }
+    }
+
+    pub(super) fn eraser_soft(&self) -> Option<f32> {
+        if self.is_on(Cmd::Eraser) != Some(true) {
+            return None;
+        }
+        let hardness = self.brushes.def("eraser").and_then(BrushDef::hardness)?;
+        Some(self.settings.eraser_soft.unwrap_or(1.0 - hardness))
+    }
+
+    pub(super) fn set_eraser_soft(&mut self, soft: f32) {
+        self.settings.eraser_soft = Some(soft.clamp(0.0, 1.0));
+        self.settings_dirty = true;
+        if self.brush == "eraser" {
+            self.tuning.hardness = Some(1.0 - soft.clamp(0.0, 1.0));
+        }
+    }
+
     fn begin(&mut self, e: &PenEvent, c: Vec2) -> Result<()> {
         let (name, def, tuning) = if e.eraser {
-            let def = self
+            let base = self
                 .brushes
                 .def("eraser")
                 .cloned()
                 .ok_or_else(|| crate::report::bug("the eraser brush is missing from the library"))?;
-            let tuning = Tuning::of(&def);
-            ("eraser".to_string(), def, tuning)
+            let tuning = self.tuned("eraser", &base);
+            let def = tuning.shape(&base);
+            (pick_id("eraser", &def, &self.embedded), def, tuning)
         } else {
             let (name, def) = self.shaped()?;
             let tuning = match &self.custom {

@@ -2045,6 +2045,50 @@ fn erasers_follow_their_strokes_and_attached_only_and_detach_reach_them() {
 }
 
 #[test]
+fn the_eraser_has_a_soft_slider_that_stays_and_reaches_its_strokes() {
+    let path = sample("soft-eraser");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    activate(&mut h, "notes");
+    h.key_press(Key::E);
+    h.run_steps(2);
+    assert!(
+        h.state().eraser_soft().is_some_and(|soft| (soft - 0.15).abs() < 1e-4),
+        "the library eraser's own edge"
+    );
+    assert!(
+        h.query_all_by_label_contains("soft").count() > 0,
+        "the slider is in the bar"
+    );
+    h.state_mut().set_eraser_soft(0.9);
+    h.key_press(Key::B);
+    h.run_steps(2);
+    assert!(h.state().eraser_soft().is_none(), "brushes keep hardness under more");
+    h.key_press(Key::E);
+    h.run_steps(2);
+    assert_eq!(
+        h.state().eraser_soft(),
+        Some(0.9),
+        "it stays when the eraser comes back"
+    );
+    let c = h.state().canvas_rect.center();
+    pen_line(&mut h, c + vec2(-40.0, 0.0), c + vec2(40.0, 0.0));
+    let marks = h.state().scene.active_marks().to_vec();
+    let brush = marks
+        .last()
+        .and_then(|m| m.as_stroke())
+        .map(|s| s.brush.clone())
+        .unwrap();
+    let def = h.state().scene.bundle.brush(&brush).unwrap().unwrap();
+    assert!(
+        def.hardness().is_some_and(|hardness| (hardness - 0.1).abs() < 1e-4),
+        "{brush} is a soft eraser: {:?}",
+        def.hardness()
+    );
+    assert_eq!(h.state().settings.eraser_soft, Some(0.9), "kept in the settings");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn a_stroke_its_eraser_wiped_out_cannot_be_clicked_until_detached() {
     let path = sample("wiped");
     Bundle::open(&path)

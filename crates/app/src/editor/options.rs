@@ -213,6 +213,14 @@ impl Editor {
                 .text("size"),
         )
         .hint("brush size in canvas px ([ and ], or hold cmd alt and drag sideways on the canvas)");
+        if let Some(mut soft) = self.eraser_soft()
+            && ui
+                .add(egui::Slider::new(&mut soft, 0.0..=1.0).text("soft"))
+                .hint("how soft the eraser's edge is: 0 cuts clean, 1 fades out like an airbrush; the pen's eraser end too")
+                .changed()
+        {
+            self.set_eraser_soft(soft);
+        }
         ui.add(egui::Slider::new(&mut self.opacity, 0.05..=1.0).text("opacity"))
             .hint("a stroke never gets darker than this on its own");
         ui.add(egui::Slider::new(&mut self.flow, 0.02..=1.0).text("flow"))
@@ -221,8 +229,9 @@ impl Editor {
 
     fn brush_more(&mut self, ui: &mut egui::Ui) -> Result<()> {
         let current = self.brush.clone();
+        let erasing = self.is_on(Cmd::Eraser) == Some(true);
         let t = &mut self.tuning;
-        if let Some(hardness) = t.hardness.as_mut() {
+        if let Some(hardness) = t.hardness.as_mut().filter(|_| !erasing) {
             ui.add(egui::Slider::new(hardness, 0.0..=1.0).text("hardness"))
                 .hint("soft to hard edge; changing it draws as a variant of the brush");
         }
