@@ -2,10 +2,13 @@ klad
 Copyright 2026 Indicode BV
 
 The klad software is licensed under the PolyForm Internal Use License 1.0.0
-below, with these additional permissions:
+below, with the additional permissions and the limit that follow.
+
+Additional permissions:
 
 - Use of the software for your own personal purposes is also use for a
-  permitted purpose.
+  permitted purpose. This includes building the software from its source
+  code for that use, free of charge.
 - You may distribute changes and new works based on the software to
   Indicode BV, for example as a pull request, to propose them as a
   contribution to the software.
@@ -13,8 +16,19 @@ below, with these additional permissions:
   including the brush settings and brush pictures the software copies into
   them; fonts copied into them keep their own licences.
 
-Builds of the software that you buy, from Indicode BV or from a store such
-as itch.io or Steam, are licensed under these same terms.
+Limit for larger companies:
+
+- Use of the software for your company, under Internal Business Use below,
+  is use for a permitted purpose only if your company had less than
+  100,000 euros (or the same amount in another currency) in total revenue
+  in its prior tax year. If your company had more, each individual who uses
+  the software for your company needs a licence for the software bought
+  from Indicode BV or from a store that sells the software for it. Use by
+  an individual with such a bought licence is use for a permitted purpose.
+
+Buying a build of the software, from Indicode BV or from a store such as
+itch.io or Steam, gets you such a licence, and the build is licensed under
+these same terms.
 
 Third-party parts keep their own licences: see THIRD-PARTY-NOTICES.md.
 

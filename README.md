@@ -2,7 +2,7 @@
 
 ![The klad editor with a painted lantern prop open](docs/images/editor.png)
 
-A 2D art app you share with an AI agent. You draw and paint in the editor with a pen; the agent works on the same drawing through the `klad` command line, and each of you sees the other's changes within a second. Everything in a drawing stays editable: strokes are kept as data (their path, pressure and brush), vector shapes keep their points, and effects, light and depth are settings on layers. klad is source-available, not open source: you can read the code, build it and change it for yourself or inside your company, and send changes back, but not hand out copies of it (see [Licence](#licence)).
+A 2D art app you share with an AI agent. You draw and paint in the editor with a pen; the agent works on the same drawing through the `klad` command line, and each of you sees the other's changes within a second. Everything in a drawing stays editable: strokes are kept as data (their path, pressure and brush), vector shapes keep their points, and effects, light and depth are settings on layers. klad is source-available, not open source: you can read the code, build it and change it for yourself, free of charge, or inside a company with less than 100,000 euros a year in revenue, and send changes back, but not hand out copies of it. Larger companies buy a licence for each person who uses klad (see [Licence](#licence)).
 
 ![Three solids painted stroke by stroke by the agent](docs/images/solids.png)
 
@@ -57,7 +57,7 @@ Every build holds the `klad` command line tool, the editor, the fonts, the licen
 Building takes about ten minutes the first time.
 
 1. Install Rust with [rustup](https://rustup.rs) and [`just`](https://github.com/casey/just) (`brew install just`, or `cargo install just`). On Linux also `pkg-config`, `libfreetype-dev`, `libfontconfig1-dev`, `libxkbcommon-dev` and `libwayland-dev`.
-2. `git clone https://github.com/klad-app/klad && cd klad`, then `just compile` makes `klad` and `klad-editor` for the machine you are on, in `target/release/` (on Linux in `target/linux/release/`). What you build is for your own use or your company's (see [Licence](#licence)).
+2. `git clone https://github.com/klad-app/klad && cd klad`, then `just compile` makes `klad` and `klad-editor` for the machine you are on, in `target/release/` (on Linux in `target/linux/release/`). What you build is for your own use, or your company's if it had less than 100,000 euros in revenue last year (see [Licence](#licence)).
 3. `target/release/klad open` starts the editor on its start window: make a drawing and start painting, or take first steps (Help > First steps in the editor).
 4. `just samples` builds the sample drawings in `samples/` (a lantern, a walking creature, a running courier, an underground ruin, an inn sign, a tree, a meadow, painted solids, a bowl of lemons and the same painted over with brushwork, a bouncing ball, ink examples); open one with `target/release/klad open samples/lantern/lantern.klad`. The six listed in `samples/shipped.json` show in the start window and go into every build (`packaging/samples.sh`).
 5. On a Mac, `just app` makes `klad.app` and a disk image in `dist/`; `just dist` packs this machine's build as an archive. Each machine builds for itself: a Mac builds the Mac version, Linux the Linux one.
@@ -96,8 +96,8 @@ just samples    # build the sample drawings
 
 klad is source-available, not open source, copyright Indicode BV.
 
-- The app, meaning everything not listed in the next point, is under the [PolyForm Internal Use License 1.0.0](https://polyformproject.org/licenses/internal-use/1.0.0) with three additional permissions (`LICENSE`): you may use it for your own personal purposes as well as inside your company; you may send changes to Indicode BV to propose them as contributions; and the drawings you make with it are yours to share, with the brush settings and pictures klad copies into them. You may build it and change it for those uses; you may not distribute it, from source or as a build.
-- Builds you buy, on itch.io, Steam or from Indicode BV, are licensed under these same terms: one licence for the source and the builds, with no separate end-user licence.
+- The app, meaning everything not listed in the next point, is under the [PolyForm Internal Use License 1.0.0](https://polyformproject.org/licenses/internal-use/1.0.0) with three additional permissions and one limit (`LICENSE`): you may use it for your own personal purposes, building it from source free of charge, as well as inside your company; you may send changes to Indicode BV to propose them as contributions; and the drawings you make with it are yours to share, with the brush settings and pictures klad copies into them. The limit: a company (counted with the companies it controls or is controlled by) that had 100,000 euros or more in revenue in its last tax year needs a bought licence for each person who uses klad for it. You may build it and change it for those uses; you may not distribute it, from source or as a build.
+- Buying a build, on itch.io, Steam or from Indicode BV, gets you that bought licence, and the build is licensed under these same terms: one licence for the source and the builds, with no separate end-user licence.
 - These files are under the MIT License (`LICENSE-MIT`), so any program or agent can work with klad drawings: `docs/format.md` (the file format), `docs/cli.md` (the command reference), `docs/skill/` (the agent skill) and `crates/client/` (the `klad-client` crate).
 - Contributions are licensed to Indicode BV for inclusion in klad and in its sold builds, under the contributor licence agreement (`CLA.md`); see `CONTRIBUTING.md`.
 
