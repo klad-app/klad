@@ -4,7 +4,6 @@ use crate::fill::{fill_tiles, paint_fill_where};
 use crate::tiles::{Raster, StrokeBuffer, TILE, TILE_PX, Tile};
 use anyhow::Result;
 use half::f16;
-use klad_core::brushes::Curve;
 use klad_core::stroke::{Mark, Sample, Stroke, fingerprint};
 use rayon::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -54,12 +53,9 @@ fn painted(
 }
 
 fn reach(stroke: &Stroke, brushes: &BrushSet) -> Option<f32> {
-    let def = brushes.def(&stroke.brush)?;
-    let most = |c: Option<Curve>| c.map_or(1.0, |c| c.min.abs().max(c.max.abs()));
-    let size = &def.dynamics.size;
-    let radius =
-        0.5 * stroke.size * most(size.pressure) * most(size.tilt) * most(size.speed) * (1.0 + def.jitter.size.abs());
-    Some((radius.max(0.6) * (1.0 + 2.0 * def.jitter.scatter.abs()) + 2.0) * 1.25)
+    brushes
+        .def(&stroke.brush)
+        .map(|def| klad_core::attach::reach(stroke, def))
 }
 
 fn guess(raster: &Raster, brushes: &BrushSet, mark: &Mark) -> Vec<usize> {

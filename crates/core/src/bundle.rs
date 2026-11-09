@@ -1,3 +1,4 @@
+use crate::attach;
 use crate::brushes::{self, BrushDef};
 use crate::doc::{Document, Layer, Loc};
 use crate::here;
@@ -503,8 +504,33 @@ impl Bundle {
                 *made = markedit::paste(marks, copies, transform.as_ref(), cut.as_deref(), doc.mark_ids(cel))?;
                 Ok(())
             }
+            MarkChange::Add(_) => {
+                let from = marks.len();
+                markedit::apply(marks, change, cel, doc.mark_ids(cel))?;
+                self.attach_added(marks, from)
+            }
             _ => markedit::apply(marks, change, cel, doc.mark_ids(cel)),
         }
+    }
+
+    pub fn brush_defs<'a>(&self, ids: impl IntoIterator<Item = &'a str>) -> Result<BTreeMap<String, BrushDef>> {
+        ids.into_iter()
+            .collect::<BTreeSet<&str>>()
+            .into_iter()
+            .filter_map(|id| self.brush(id).map(|def| def.map(|d| (id.to_string(), d))).transpose())
+            .collect()
+    }
+
+    fn attach_added(&self, marks: &mut [Mark], from: usize) -> Result<()> {
+        let added = self.brush_defs(strokes_of(&marks[from..]).map(|s| s.brush.as_str()))?;
+        let attaching = strokes_of(&marks[from..])
+            .any(|s| s.on.is_empty() && added.get(&s.brush).and_then(attach::modifier).is_some());
+        if !attaching {
+            return Ok(());
+        }
+        let defs = self.brush_defs(strokes_of(marks).map(|s| s.brush.as_str()))?;
+        (from..marks.len()).for_each(|at| attach::attach(marks, at, |id| defs.get(id)));
+        Ok(())
     }
 
     fn marks_after(

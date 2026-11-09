@@ -1935,6 +1935,40 @@ fn recolouring_several_strokes_keeps_each_ones_shade() {
     let _ = std::fs::remove_dir_all(&path);
 }
 
+fn pen_line(h: &mut Harness<'static, Editor>, a: egui::Pos2, b: egui::Pos2) {
+    h.hover_at(a);
+    h.run_steps(1);
+    h.drag_at(a);
+    h.run_steps(1);
+    (1..=8).for_each(|i| {
+        h.hover_at(a + (b - a) * (i as f32 / 8.0));
+        h.run_steps(1);
+    });
+    h.drop_at(b);
+    h.run_steps(3);
+}
+
+#[test]
+fn an_eraser_drawn_in_the_editor_attaches_to_the_strokes_it_crossed() {
+    let path = sample("attach");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    activate(&mut h, "notes");
+    let c = h.state().canvas_rect.center();
+    pen_line(&mut h, c + vec2(-80.0, 0.0), c + vec2(80.0, 0.0));
+    pen_line(&mut h, c + vec2(-80.0, 120.0), c + vec2(80.0, 120.0));
+    h.key_press(Key::E);
+    h.run_steps(2);
+    pen_line(&mut h, c + vec2(0.0, -30.0), c + vec2(0.0, 30.0));
+    let marks = h.state().scene.active_marks().to_vec();
+    assert_eq!(marks.len(), 3);
+    assert_eq!(
+        marks[2].as_stroke().unwrap().on,
+        vec![marks[0].id()],
+        "the eraser holds the line it crossed, not the one below"
+    );
+    let _ = std::fs::remove_dir_all(&path);
+}
+
 #[test]
 fn a_checkout_under_the_open_editor_shows_the_drawing_it_brings() {
     let path = sample("checkout");

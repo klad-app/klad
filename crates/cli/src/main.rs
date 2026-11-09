@@ -3845,8 +3845,36 @@ fn strokes(path: &Path, layer: &str, frame: u32, after: u32, as_json: bool) -> R
     let strokes: Vec<_> = strokes_of(&marks).collect();
     let fills: Vec<_> = fills_of(&marks).collect();
     if as_json {
-        let list: Vec<serde_json::Value> = strokes.iter().map(|s| stroke_json(&cel.id, s, true)).collect();
-        let fills: Vec<serde_json::Value> = fills.iter().map(|f| fill_json(&cel.id, f)).collect();
+        let attached = klad_core::attach::attached(&marks);
+        let links = |value: &mut serde_json::Value, id: u32, on: Vec<u32>| {
+            let addresses = |ids: &[u32]| {
+                ids.iter()
+                    .map(|i| klad_core::markedit::address(&cel.id, *i))
+                    .collect::<Vec<_>>()
+            };
+            if !on.is_empty() {
+                value["on"] = serde_json::json!(addresses(&on));
+            }
+            if let Some(by) = attached.get(&id) {
+                value["attached"] = serde_json::json!(addresses(by));
+            }
+        };
+        let list: Vec<serde_json::Value> = strokes
+            .iter()
+            .map(|s| {
+                let mut value = stroke_json(&cel.id, s, true);
+                links(&mut value, s.id, klad_core::attach::live_on(&marks, s));
+                value
+            })
+            .collect();
+        let fills: Vec<serde_json::Value> = fills
+            .iter()
+            .map(|f| {
+                let mut value = fill_json(&cel.id, f);
+                links(&mut value, f.id, Vec::new());
+                value
+            })
+            .collect();
         println!(
             "{}",
             serde_json::json!({ "cel": cel.id, "strokes": list, "fills": fills, "order": marks.iter().map(|m| m.id()).collect::<Vec<_>>(), "parts": cel.parts })
@@ -3862,8 +3890,26 @@ fn strokes(path: &Path, layer: &str, frame: u32, after: u32, as_json: bool) -> R
     if !strokes.is_empty() {
         println!("id     author brush    size  samples    ms    Hz  pressure     tilt  bounds");
     }
+    let attached = klad_core::attach::attached(&marks);
+    let names = |ids: &[u32]| {
+        ids.iter()
+            .map(|i| klad_core::doc::mark_name(*i))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
     strokes.iter().for_each(|s| {
-        let part = cel.part_of(s.id).map_or(String::new(), |p| format!("  part {p}"));
+        let on = klad_core::attach::live_on(&marks, s);
+        let part = [
+            cel.part_of(s.id).map_or(String::new(), |p| format!("  part {p}")),
+            match on.is_empty() {
+                true => String::new(),
+                false => format!("  on {}", names(&on)),
+            },
+            attached
+                .get(&s.id)
+                .map_or(String::new(), |by| format!("  attached {}", names(by))),
+        ]
+        .concat();
         let ms: u32 = s.samples.iter().map(|v| v.dt_ms as u32).sum();
         let hz = s.samples.len().saturating_sub(1) as f64 / (ms.max(1) as f64 / 1000.0);
         let (lo, hi) = s.samples.iter().fold((f32::MAX, 0.0f32), |(lo, hi), v| {

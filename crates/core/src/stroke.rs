@@ -520,8 +520,10 @@ mod tests {
 
     #[test]
     fn attachments_round_trip_change_the_fingerprint_and_version_1_files_still_read() {
-        let line = Stroke::new(1, "ink", [0.0, 0.0, 0.0, 1.0], 4.0, 1).with_points(&[(1.0, 1.0, 1.0), (9.0, 2.0, 0.5)], 0.0);
-        let free = Stroke::new(2, "eraser", [0.0, 0.0, 0.0, 1.0], 12.0, 2).with_points(&[(4.0, 0.0, 1.0), (4.0, 6.0, 1.0)], 0.0);
+        let line =
+            Stroke::new(1, "ink", [0.0, 0.0, 0.0, 1.0], 4.0, 1).with_points(&[(1.0, 1.0, 1.0), (9.0, 2.0, 0.5)], 0.0);
+        let free = Stroke::new(2, "eraser", [0.0, 0.0, 0.0, 1.0], 12.0, 2)
+            .with_points(&[(4.0, 0.0, 1.0), (4.0, 6.0, 1.0)], 0.0);
         let attached = Stroke {
             on: vec![1, 7 | (5 << 22), 3],
             ..free.clone()

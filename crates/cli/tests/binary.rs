@@ -457,3 +457,37 @@ fn recolour_moves_strokes_together_and_keeps_their_shades() {
     assert_eq!(log.matches("cli").count(), 3, "one history step: {log}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn an_eraser_stroke_attaches_to_the_lines_it_crosses_and_says_so() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-attach-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let bundle = dir.join("a.klad");
+    let path = bundle.to_str().unwrap();
+    let draw = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    draw(&["new", path, "--width", "200", "--height", "100"]);
+    draw(&["stroke", path, "l1", "--path", "M10 20 L190 20"]);
+    draw(&["stroke", path, "l1", "--path", "M10 80 L190 80"]);
+    draw(&[
+        "stroke",
+        path,
+        "l1",
+        "--brush",
+        "eraser",
+        "--size",
+        "12",
+        "--path",
+        "M100 5 L100 35",
+    ]);
+    let listed: serde_json::Value = serde_json::from_str(&draw(&["strokes", path, "l1", "--json"])).unwrap();
+    let strokes = listed["strokes"].as_array().unwrap();
+    assert_eq!(strokes[2]["on"], serde_json::json!(["c2:s1"]));
+    assert_eq!(strokes[0]["attached"], serde_json::json!(["c2:s3"]));
+    assert!(strokes[1].get("attached").is_none());
+    assert!(draw(&["strokes", path, "l1"]).contains("on s1"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

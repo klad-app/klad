@@ -2863,9 +2863,13 @@ impl Editor {
         let brush = live.stroke.brush.clone();
         let erasing = live.brush.blend == klad_brush::brush::StrokeBlend::Erase;
         let blend = stroke_blend(&live.brush, live.stroke.lock).unwrap_or(live.brush.blend);
+        let attaching = Instant::now();
+        live.stroke.on = self.attaching(&live.stroke, &live.brush.def);
+        let attach = ms(attaching);
         let mut touched = self.scene.commit_stroke(live.stroke, &mut self.buffer, blend)?;
         if let Some((_, mut copy, _)) = live.twin {
             copy.id = self.scene.next_mark_id();
+            copy.on = self.attaching(&copy, &live.brush.def);
             touched.extend(self.scene.commit_stroke(copy, &mut self.mirror_buffer, blend)?);
         }
         let commit = ms(start);
@@ -2878,13 +2882,21 @@ impl Editor {
         }
         let count = self.scene.active_marks().len();
         let text = format!(
-            "{brush}: {samples} samples, {dabs} live dabs, {alone} B packed alone\nlayer file {bytes} B for {count} strokes and fills ({:.0} B each)\npen up {ended:.1} ms{}, commit {commit:.1} ms, save {:.1} ms",
+            "{brush}: {samples} samples, {dabs} live dabs, {alone} B packed alone\nlayer file {bytes} B for {count} strokes and fills ({:.0} B each)\npen up {ended:.1} ms{}, attach {attach:.1} ms, commit {commit:.1} ms, save {:.1} ms",
             bytes as f64 / count.max(1) as f64,
             if repainted { " (tapered repaint)" } else { "" },
             ms(saving)
         );
         self.measure("stroke", text);
         Ok(())
+    }
+
+    fn attaching(&self, stroke: &Stroke, def: &BrushDef) -> Vec<u32> {
+        let marks = self.scene.active_marks();
+        klad_core::attach::targets(marks, marks.len(), stroke, |id| match id == stroke.brush {
+            true => Some(def),
+            false => self.brushes.def(id).or_else(|| self.embedded.get(id)),
+        })
     }
 
     fn set_colour(&mut self, rgba: [f32; 4]) {
