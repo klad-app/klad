@@ -293,6 +293,57 @@ pub fn follow(marks: &mut Vec<Mark>, chosen: &[u32], ids: MarkIds) -> Followed {
     followed
 }
 
+pub fn bend(marks: &mut Vec<Mark>, target: u32, old: &[(f32, f32)], ids: MarkIds) {
+    let Some(new) = marks
+        .iter()
+        .find(|m| m.id() == target)
+        .and_then(Mark::as_stroke)
+        .map(|s| s.samples.iter().map(Sample::pos).collect::<Vec<_>>())
+    else {
+        return;
+    };
+    let live: BTreeSet<u32> = marks.iter().map(Mark::id).collect();
+    let (from, to) = ([old.to_vec()], [new]);
+    let bent = |stroke: &mut Stroke| {
+        stroke.samples.iter_mut().for_each(|sample| {
+            let moved = crate::tween::anchor(&from, sample.pos()).and_then(|a| crate::tween::place(&a, &to));
+            if let Some((x, y)) = moved {
+                sample.x = (x * crate::stroke::POS_SCALE).round() as i32;
+                sample.y = (y * crate::stroke::POS_SCALE).round() as i32;
+            }
+        })
+    };
+    let mut next = ids.next(marks);
+    let out = std::mem::take(marks).into_iter().flat_map(|mark| {
+        let Mark::Stroke(mut stroke) = mark else {
+            return vec![mark];
+        };
+        if stroke.id == target || !stroke.on.contains(&target) {
+            return vec![Mark::Stroke(stroke)];
+        }
+        let others: Vec<u32> = stroke
+            .on
+            .iter()
+            .copied()
+            .filter(|id| *id != target && live.contains(id))
+            .collect();
+        if others.is_empty() {
+            bent(&mut stroke);
+            return vec![Mark::Stroke(stroke)];
+        }
+        let mut copy = Stroke {
+            id: next,
+            on: vec![target],
+            ..stroke.clone()
+        };
+        next += 1;
+        bent(&mut copy);
+        stroke.on = others;
+        vec![Mark::Stroke(stroke), Mark::Stroke(copy)]
+    });
+    *marks = out.collect();
+}
+
 pub fn prune(marks: &mut Vec<Mark>, before: &BTreeSet<u32>) {
     let live: BTreeSet<u32> = marks.iter().map(Mark::id).collect();
     let gone = |id: &u32| before.contains(id) && !live.contains(id);
@@ -629,6 +680,47 @@ mod tests {
             },
         );
         assert_eq!(start_x(&marks, 2), 100.0, "a detached eraser stays put");
+    }
+
+    #[test]
+    fn bending_a_stroke_bends_its_erasers_and_splits_one_it_shares() {
+        let bend = |marks: &mut Vec<Mark>| {
+            edit(
+                marks,
+                crate::markedit::MarkChange::Set {
+                    id: 1,
+                    props: serde_json::json!({"path": "M10 50 L200 240"})
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                },
+            );
+        };
+        let mut alone = crossed();
+        if let Mark::Stroke(s) = &mut alone[2] {
+            s.on = vec![1];
+        }
+        bend(&mut alone);
+        let eraser = alone[2].as_stroke().unwrap();
+        let ends = (eraser.samples[0].pos(), eraser.samples[1].pos());
+        let near = |p: (f32, f32), q: (f32, f32)| (p.0 - q.0).abs() < 0.5 && (p.1 - q.1).abs() < 0.5;
+        assert!(
+            near(ends.0, (114.14, 125.86)) && near(ends.1, (57.57, 182.43)),
+            "the cut stays halfway along the line and turns with it: {ends:?}"
+        );
+        let mut shared = crossed();
+        bend(&mut shared);
+        assert_eq!(
+            on(&shared, 2),
+            (3, vec![2]),
+            "the eraser stays with the line that did not bend"
+        );
+        assert_eq!(on(&shared, 3).1, vec![1], "a copy right after it bent with the line");
+        assert_eq!(start_x(&shared, 2), 100.0);
+        assert_ne!(
+            shared[3].as_stroke().unwrap().samples[0].pos(),
+            shared[2].as_stroke().unwrap().samples[0].pos()
+        );
     }
 
     #[test]

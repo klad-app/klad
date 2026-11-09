@@ -653,11 +653,18 @@ pub fn apply_following(marks: &mut Vec<Mark>, change: &mut MarkChange, cel: &str
         MarkChange::Set { id, props } => {
             let at = position(marks, cel, *id)?;
             let what = address(cel, *id);
+            let line: Option<Vec<(f32, f32)>> = marks[at]
+                .as_stroke()
+                .filter(|_| props.contains_key("path"))
+                .map(|s| s.samples.iter().map(Sample::pos).collect());
             match &mut marks[at] {
                 Mark::Stroke(s) => set_stroke(s, props),
                 Mark::Fill(f) => set_fill(f, props),
             }
             .map_err(|e| anyhow!("set {what}: {e}"))?;
+            if let Some(line) = line {
+                attach::bend(marks, *id, &line, ids);
+            }
         }
         MarkChange::Remove { id } => {
             let at = position(marks, cel, *id)?;

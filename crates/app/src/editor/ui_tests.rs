@@ -2504,6 +2504,12 @@ fn the_brush_window_edits_a_brush_shows_it_and_saves_it_in_the_drawing() {
 #[test]
 fn a_bends_a_brush_stroke_and_the_stroke_keeps_its_pressure() {
     let path = sample("reshape");
+    Bundle::open(&path)
+        .unwrap()
+        .apply(
+            &parse_lines(r#"{"op":"stroke","layer":"l6","brush":"eraser","path":"M60 40 L60 65","size":10}"#).unwrap(),
+        )
+        .unwrap();
     let mut h = harness(editor(&path), vec2(1440.0, 900.0));
     activate(&mut h, "notes");
     h.key_press(Key::A);
@@ -2555,6 +2561,17 @@ fn a_bends_a_brush_stroke_and_the_stroke_keeps_its_pressure() {
             .all(|(a, b)| a.pressure == b.pressure)
     );
     assert_eq!(h.state().direct.as_ref().map(|d| d.node.clone()), Some(node));
+    let eraser_y = |h: &Harness<'static, Editor>| {
+        let marks = h.state().scene.bundle.read_marks("l6", "c6").unwrap();
+        let eraser = marks.last().unwrap().as_stroke().unwrap().clone();
+        assert_eq!(eraser.on, vec![1], "the eraser sits on the bent stroke");
+        eraser.samples.iter().map(|s| s.pos().1).sum::<f32>() / eraser.samples.len() as f32
+    };
+    let bent = eraser_y(&h);
+    assert!(
+        bent - 52.5 > moved * 0.5,
+        "the cut near the start moved down with the stroke: {bent} for a start moved {moved}"
+    );
     h.state_mut().invoke(Cmd::Undo).unwrap();
     h.run_steps(2);
     let undone = h.state().scene.bundle.read_marks("l6", "c6").unwrap()[0]
