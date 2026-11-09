@@ -73,7 +73,7 @@ klad render art.klad --focus c4:s12
 ```
 
 - Strokes take `color`, `size`, `opacity`, `flow`, `brush`, `taper` (`[in,out]` or `null`) and `path`; fills take `color` and `opacity`. The stroke keeps its path, pressure and seed, so a recoloured stroke is the same mark in a new colour.
-- Bending a stroke: `klad strokes --json` gives each stroke a fitted `path` (a few points); edit it and `klad reshape art.klad c4:s12 --path 'M...'` (or `set` with `path`). Every sample keeps its pressure, tilt and timing at the same fraction of the length, so the line keeps its weight and taper. The user does the same with A in the editor.
+- Bending a stroke: `klad strokes --json` gives each stroke a fitted `path` (a few points); edit it and `klad reshape art.klad c4:s12 --path 'M...'` (or `set` with `path`). Every sample keeps its pressure, tilt and timing at the same fraction of the length, so the line keeps its weight and taper; erasers, smudges and blenders attached to it bend along (one also on other marks splits). The user does the same with A in the editor.
 - `transform` moves, rotates (degrees, clockwise) and scales about `--pivot` (default: the middle of the marks' bounds). Stroke sizes and tapers scale with them; fills move by whole pixels and are resampled when turned or scaled. Ids in several cels need a `--pivot`.
 - In `apply`: `{"op":"set","id":"c4:s12","color":"#c84a3a"}`, `{"op":"rm","ids":["c4:s12"]}`, `{"op":"transform","ids":["c4:s3","c4:s5"],"x":40,"y":-10,"rotate":15,"sx":1.2,"sy":1.2}`.
 - Edits redraw only the tiles the marks touch, from the nearest checkpoint, so they are cheap on large cels.
