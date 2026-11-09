@@ -457,24 +457,9 @@ pub fn paint_fill_where(raster: &mut Raster, fill: &Fill, allowed: impl Fn(usize
             if !allowed(index) {
                 return false;
             }
-            let (tx, ty) = (index % raster.cols, index / raster.cols);
-            let (ox, oy) = (tx * TILE, ty * TILE);
-            let mut buffer = vec![0.0f32; TILE_PX];
-            let mut any = false;
-            (y0.max(oy)..y1.min(oy + TILE)).for_each(|y| {
-                (x0.max(ox)..x1.min(ox + TILE)).for_each(|x| {
-                    let a = c.at(x as u32, y as u32);
-                    if a > 0 {
-                        buffer[(y - oy) * TILE + x - ox] = a as f32 / 255.0;
-                        any = true;
-                    }
-                });
-            });
-            let mut paint = any;
-            if let Some(factor) = crate::cut::factor(&fill.cuts, (ox, oy)).filter(|_| any) {
-                buffer.iter_mut().zip(&factor).for_each(|(c, k)| *c *= k);
-                paint = buffer.iter().any(|c| *c > 0.0);
-            }
+            let Some((buffer, paint)) = fill_tile(raster, fill, index) else {
+                return false;
+            };
             if paint {
                 let target = match fill.lock {
                     true => raster.at_mut(index),
@@ -489,9 +474,41 @@ pub fn paint_fill_where(raster: &mut Raster, fill: &Fill, allowed: impl Fn(usize
                     blend_coverage(target, &buffer, color, fill.opacity, blend);
                 }
             }
-            any
+            true
         })
         .collect()
+}
+
+pub(crate) fn fill_tile(raster: &Raster, fill: &Fill, index: usize) -> Option<(Vec<f32>, bool)> {
+    let c = &fill.coverage;
+    let (w, h) = (raster.width as usize, raster.height as usize);
+    let (x0, y0) = (c.x as usize, c.y as usize);
+    let (x1, y1) = ((x0 + c.width as usize).min(w), (y0 + c.height as usize).min(h));
+    let (tx, ty) = (index % raster.cols, index / raster.cols);
+    let (ox, oy) = (tx * TILE, ty * TILE);
+    if c.is_empty() || x0.max(ox) >= x1.min(ox + TILE) || y0.max(oy) >= y1.min(oy + TILE) {
+        return None;
+    }
+    let mut buffer = vec![0.0f32; TILE_PX];
+    let mut any = false;
+    (y0.max(oy)..y1.min(oy + TILE)).for_each(|y| {
+        (x0.max(ox)..x1.min(ox + TILE)).for_each(|x| {
+            let a = c.at(x as u32, y as u32);
+            if a > 0 {
+                buffer[(y - oy) * TILE + x - ox] = a as f32 / 255.0;
+                any = true;
+            }
+        });
+    });
+    if !any {
+        return None;
+    }
+    let mut paint = true;
+    if let Some(factor) = crate::cut::factor(&fill.cuts, (ox, oy)) {
+        buffer.iter_mut().zip(&factor).for_each(|(c, k)| *c *= k);
+        paint = buffer.iter().any(|c| *c > 0.0);
+    }
+    Some((buffer, paint))
 }
 
 pub fn sample(raster: &Raster, x: f32, y: f32) -> [f32; 4] {

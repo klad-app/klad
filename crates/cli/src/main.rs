@@ -3855,15 +3855,19 @@ fn strokes(path: &Path, layer: &str, frame: u32, after: u32, as_json: bool) -> R
     let cel = owner
         .content_at(frame)
         .ok_or_else(|| anyhow!("layer {layer} has no cel at frame {frame}"))?;
-    let marks: Vec<_> = bundle
-        .read_marks(layer, &cel.id)?
-        .into_iter()
-        .filter(|m| m.id() > after)
-        .collect();
+    let all = bundle.read_marks(layer, &cel.id)?;
+    let marks: Vec<_> = all.iter().filter(|m| m.id() > after).cloned().collect();
     let strokes: Vec<_> = strokes_of(&marks).collect();
     let fills: Vec<_> = fills_of(&marks).collect();
     if as_json {
-        let attached = klad_core::attach::attached(&marks);
+        let hidden = klad_brush::scope::hidden(
+            bundle.doc.canvas.width,
+            bundle.doc.canvas.height,
+            &all,
+            &BrushSet::for_bundle(&bundle)?,
+            None,
+        );
+        let attached = klad_core::attach::attached(&all);
         let links = |value: &mut serde_json::Value, id: u32, on: Vec<u32>| {
             let addresses = |ids: &[u32]| {
                 ids.iter()
@@ -3876,12 +3880,15 @@ fn strokes(path: &Path, layer: &str, frame: u32, after: u32, as_json: bool) -> R
             if let Some(by) = attached.get(&id) {
                 value["attached"] = serde_json::json!(addresses(by));
             }
+            if hidden.contains(&id) {
+                value["hidden"] = serde_json::json!(true);
+            }
         };
         let list: Vec<serde_json::Value> = strokes
             .iter()
             .map(|s| {
                 let mut value = stroke_json(&cel.id, s, true);
-                links(&mut value, s.id, klad_core::attach::live_on(&marks, s));
+                links(&mut value, s.id, klad_core::attach::live_on(&all, s));
                 value
             })
             .collect();

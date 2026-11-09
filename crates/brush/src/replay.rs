@@ -1,6 +1,7 @@
 use crate::brush::{BrushSet, StrokeBlend};
 use crate::engine::{commit, draw_stroke_on, land_stroke};
 use crate::fill::{fill_tiles, paint_fill_where};
+use crate::scope::Scope;
 use crate::tiles::{Raster, StrokeBuffer, TILE, TILE_PX, Tile};
 use anyhow::Result;
 use half::f16;
@@ -41,7 +42,12 @@ fn painted(
     buffer: &mut StrokeBuffer,
     brushes: &BrushSet,
     mark: &Mark,
+    scope: &mut Scope,
+    at: usize,
 ) -> Result<(Vec<usize>, usize)> {
+    if !scope.is_empty() {
+        return scope.paint(raster, buffer, brushes, mark, at);
+    }
     Ok(match mark {
         Mark::Stroke(stroke) => {
             let brush = brushes.get(&stroke.brush)?;
@@ -98,6 +104,7 @@ fn tiled(width: u32, height: u32, marks: &[Mark], brushes: &BrushSet) -> Result<
         return Ok(None);
     }
     let guesses: Vec<Vec<usize>> = marks.iter().map(|m| guess(&raster, brushes, m)).collect();
+    let scope = Scope::plan(width, height, marks, brushes);
     let mut jobs: Vec<Vec<usize>> = vec![Vec::new(); tiles];
     guesses
         .iter()
@@ -113,10 +120,11 @@ fn tiled(width: u32, height: u32, marks: &[Mark], brushes: &BrushSet) -> Result<
             let mut only = vec![false; tiles];
             only[t] = true;
             buffer.set_mask(Some(only));
+            let mut scope = scope.fresh();
             let seen = job
                 .iter()
                 .map(|&i| {
-                    let (footprint, dabs) = painted(&mut own, &mut buffer, brushes, &marks[i])?;
+                    let (footprint, dabs) = painted(&mut own, &mut buffer, brushes, &marks[i], &mut scope, i)?;
                     Ok((i, footprint, dabs))
                 })
                 .collect::<Result<Vec<_>>>()?;
@@ -184,8 +192,9 @@ impl CelReplay {
         let mut cel = Self::new(width, height);
         let mut raster = Raster::new(width, height);
         let mut buffer = StrokeBuffer::new(width, height);
-        let dabs = marks.into_iter().try_fold(0usize, |dabs, mark| {
-            let (footprint, more) = painted(&mut raster, &mut buffer, brushes, &mark)?;
+        let mut scope = Scope::plan(width, height, &marks, brushes);
+        let dabs = marks.into_iter().enumerate().try_fold(0usize, |dabs, (at, mark)| {
+            let (footprint, more) = painted(&mut raster, &mut buffer, brushes, &mark, &mut scope, at)?;
             cel.record(&raster, mark, &footprint);
             Ok::<_, anyhow::Error>(dabs + more)
         })?;
@@ -311,7 +320,7 @@ impl CelReplay {
 
     pub fn paint(&mut self, raster: &mut Raster, mark: Mark, brushes: &BrushSet) -> Result<Vec<usize>> {
         let mut buffer = StrokeBuffer::new(self.width, self.height);
-        let (footprint, _) = painted(raster, &mut buffer, brushes, &mark)?;
+        let (footprint, _) = painted(raster, &mut buffer, brushes, &mark, &mut Scope::default(), 0)?;
         self.record(raster, mark, &footprint);
         Ok(footprint)
     }
@@ -348,8 +357,8 @@ impl CelReplay {
         let mut kept_old = vec![false; self.keys.len()];
         kept.iter().flatten().for_each(|&j| kept_old[j] = true);
         let prefix = kept.iter().enumerate().take_while(|(i, k)| **k == Some(*i)).count();
-        let base = self.checkpoints.iter().rposition(|c| c.at <= prefix).unwrap_or(0);
-        let start = self.checkpoints[base].at;
+        let mut base = self.checkpoints.iter().rposition(|c| c.at <= prefix).unwrap_or(0);
+        let mut start = self.checkpoints[base].at;
         let tiles = raster.cols * raster.rows;
         let mut dirty = vec![false; tiles];
         self.footprints
@@ -358,6 +367,36 @@ impl CelReplay {
             .filter(|(_, kept)| !**kept)
             .flat_map(|(f, _)| f)
             .for_each(|&t| dirty[t as usize] = true);
+        let mut scope = Scope::plan(self.width, self.height, &next, brushes);
+        let mut known: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+        if !scope.is_empty() {
+            let mut scratch = StrokeBuffer::new(self.width, self.height);
+            next.iter()
+                .enumerate()
+                .filter(|(i, _)| kept[*i].is_none())
+                .try_for_each(|(i, mark)| {
+                    let footprint = match mark {
+                        Mark::Stroke(stroke) => {
+                            draw_stroke_on(&mut scratch, brushes.get(&stroke.brush)?, stroke, Some(raster));
+                            let touched = scratch.touched().to_vec();
+                            scratch.reset();
+                            touched
+                        }
+                        Mark::Fill(fill) => fill_tiles(raster, fill),
+                    };
+                    footprint.iter().for_each(|&t| dirty[t] = true);
+                    known.insert(i, footprint);
+                    Ok::<_, anyhow::Error>(())
+                })?;
+            loop {
+                let need = scope.widen(start, &dirty, raster.cols);
+                if need >= start {
+                    break;
+                }
+                base = self.checkpoints.iter().rposition(|c| c.at <= need).unwrap_or(0);
+                start = self.checkpoints[base].at;
+            }
+        }
         let origin = self.checkpoints[base].tiles.clone();
         (0..tiles)
             .filter(|&t| dirty[t])
@@ -407,10 +446,16 @@ impl CelReplay {
             if let Some(j) = kept[i] {
                 let footprint = &self.footprints[j];
                 if footprint.iter().any(|&t| dirty[t as usize]) {
-                    painted(raster, &mut buffer, brushes, mark)?;
+                    painted(raster, &mut buffer, brushes, mark, &mut scope, i)?;
                     replayed += 1;
                 }
                 footprints.push(footprint.clone());
+                continue;
+            }
+            if let Some(footprint) = known.get(&i) {
+                painted(raster, &mut buffer, brushes, mark, &mut scope, i)?;
+                footprints.push(footprint.iter().map(|&t| t as u32).collect());
+                replayed += 1;
                 continue;
             }
             buffer.set_mask(None);
@@ -436,7 +481,9 @@ impl CelReplay {
                 catchup.set_mask(Some(only.clone()));
                 (start..i)
                     .filter(|&k| footprints[k].iter().any(|&t| only[t as usize]))
-                    .try_for_each(|k| painted(raster, &mut catchup, brushes, &next[k]).map(|_| ()))?;
+                    .try_for_each(|k| {
+                        painted(raster, &mut catchup, brushes, &next[k], &mut Scope::default(), k).map(|_| ())
+                    })?;
                 fresh.iter().for_each(|&t| dirty[t] = true);
             }
             buffer.set_mask(Some(dirty.clone()));

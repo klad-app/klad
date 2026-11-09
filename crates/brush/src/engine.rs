@@ -896,7 +896,14 @@ pub fn blend_coverage(target: &mut [f16], coverage: &[f32], color: Rgba, opacity
         });
 }
 
-fn blend_colours(target: &mut [f16], coverage: &[f32], paint: &[f32], color: Rgba, opacity: f32, blend: StrokeBlend) {
+pub(crate) fn blend_colours(
+    target: &mut [f16],
+    coverage: &[f32],
+    paint: &[f32],
+    color: Rgba,
+    opacity: f32,
+    blend: StrokeBlend,
+) {
     let alpha = (opacity * color[3]).clamp(0.0, 1.0);
     coverage
         .iter()
@@ -1053,7 +1060,14 @@ fn commit_cut(
     touched
 }
 
-fn land_body(raster: &mut Raster, buffer: &StrokeBuffer, index: usize, color: Rgba, opacity: f32, blend: StrokeBlend) {
+pub(crate) fn land_body(
+    raster: &mut Raster,
+    buffer: &StrokeBuffer,
+    index: usize,
+    color: Rgba,
+    opacity: f32,
+    blend: StrokeBlend,
+) {
     let (body, lift, ridge) = (buffer.body, buffer.lift(index), buffer.ridge(index));
     let Some(coverage) = buffer.coverage(index) else {
         return;

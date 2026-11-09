@@ -489,6 +489,21 @@ fn an_eraser_stroke_attaches_to_the_lines_it_crosses_and_says_so() {
     assert_eq!(strokes[0]["attached"], serde_json::json!(["c2:s3"]));
     assert!(strokes[1].get("attached").is_none());
     assert!(draw(&["strokes", path, "l1"]).contains("on s1"));
+    assert!(strokes.iter().all(|s| s.get("hidden").is_none()), "cut, not wiped");
+    draw(&["stroke", path, "l1", "--path", "M150 50 L160 50"]);
+    draw(&[
+        "stroke",
+        path,
+        "l1",
+        "--brush",
+        "eraser",
+        "--size",
+        "40",
+        "--path",
+        "M140 50 L170 50",
+    ]);
+    let wiped: serde_json::Value = serde_json::from_str(&draw(&["strokes", path, "l1", "--json"])).unwrap();
+    assert_eq!(wiped["strokes"][3]["hidden"], serde_json::json!(true));
     draw(&["detach", path, "c2:s1"]);
     let listed: serde_json::Value = serde_json::from_str(&draw(&["strokes", path, "l1", "--json"])).unwrap();
     assert!(listed["strokes"][2].get("on").is_none(), "detached from its line");

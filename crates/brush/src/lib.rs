@@ -7,6 +7,7 @@ pub mod grain;
 pub mod images;
 pub mod record;
 pub mod replay;
+pub mod scope;
 pub mod tiles;
 
 pub const ENGINE_VERSION: u32 = 6;
