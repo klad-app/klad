@@ -1969,6 +1969,119 @@ fn an_eraser_drawn_in_the_editor_attaches_to_the_strokes_it_crossed() {
     let _ = std::fs::remove_dir_all(&path);
 }
 
+fn on_screen(h: &Harness<'static, Editor>, x: f32, y: f32) -> egui::Pos2 {
+    let (view, rect) = (h.state().view.unwrap(), h.state().canvas_rect);
+    rect.min + view.to_screen(vec2(x, y), rect.size())
+}
+
+fn stroke_on(h: &Harness<'static, Editor>, id: u32) -> Option<klad_core::stroke::Stroke> {
+    h.state()
+        .scene
+        .bundle
+        .read_marks("l6", "c6")
+        .unwrap()
+        .into_iter()
+        .find(|m| m.id() == id)
+        .and_then(|m| m.as_stroke().cloned())
+}
+
+#[test]
+fn erasers_follow_their_strokes_and_attached_only_and_detach_reach_them() {
+    let path = sample("follow");
+    Bundle::open(&path)
+        .unwrap()
+        .apply(
+            &parse_lines(
+                r##"{"op":"stroke","layer":"l6","path":"M300 330 L480 330","size":20}
+{"op":"stroke","layer":"l6","path":"M100 360 L250 360","size":20}
+{"op":"stroke","layer":"l6","brush":"eraser","path":"M390 310 L390 350","size":30}"##,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    activate(&mut h, "lines");
+    h.run_steps(3);
+    let ids: Vec<u32> = h.state().scene.marks_of("c6").iter().map(|m| m.id()).collect();
+    let (line, other, eraser) = (ids[ids.len() - 3], ids[ids.len() - 2], ids[ids.len() - 1]);
+    assert_eq!(stroke_on(&h, eraser).unwrap().on, vec![line]);
+    h.state_mut().tool = Tool::Strokes;
+    let pick = |h: &mut Harness<'static, Editor>, ids: Vec<u32>| {
+        h.state_mut().picked = Some(super::Picked {
+            cel: "c6".into(),
+            ids,
+            cut: None,
+            more: Vec::new(),
+        });
+        h.run_steps(2);
+    };
+    pick(&mut h, vec![line]);
+    assert_eq!(h.state().attached_count(), 1);
+    let button = format!("{} 1 attached", Cmd::AttachedOnly.spec().icon);
+    assert_eq!(h.query_all_by_label(&button).count(), 1, "the selection bar shows it");
+    let before = stroke_on(&h, eraser).unwrap().samples[0].pos();
+    h.state_mut().invoke(Cmd::NudgeRight).unwrap();
+    h.run_steps(2);
+    assert_eq!(
+        stroke_on(&h, eraser).unwrap().samples[0].pos().0,
+        before.0 + 1.0,
+        "the eraser came along"
+    );
+    h.state_mut().invoke(Cmd::AttachedOnly).unwrap();
+    assert_eq!(h.state().picked.as_ref().unwrap().ids, vec![eraser]);
+    pick(&mut h, vec![other]);
+    assert!(
+        h.state().can_run(Cmd::Detach).is_some(),
+        "nothing attached to the other line"
+    );
+    pick(&mut h, vec![line]);
+    h.state_mut().invoke(Cmd::Delete).unwrap();
+    h.run_steps(2);
+    assert!(
+        stroke_on(&h, line).is_none() && stroke_on(&h, eraser).is_none(),
+        "nothing left behind"
+    );
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn a_stroke_its_eraser_wiped_out_cannot_be_clicked_until_detached() {
+    let path = sample("wiped");
+    Bundle::open(&path)
+        .unwrap()
+        .apply(
+            &parse_lines(
+                r##"{"op":"stroke","layer":"l6","path":"M300 330 L320 330","size":6}
+{"op":"stroke","layer":"l6","brush":"eraser","path":"M290 330 L330 330","size":60}"##,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    activate(&mut h, "lines");
+    h.run_steps(3);
+    let ids: Vec<u32> = h.state().scene.marks_of("c6").iter().map(|m| m.id()).collect();
+    let wiped = ids[ids.len() - 2];
+    h.key_press(Key::S);
+    h.run_steps(2);
+    let at = on_screen(&h, 310.0, 330.0);
+    let click = |h: &mut Harness<'static, Editor>| {
+        h.state_mut().picked = None;
+        click_with(h, at, Modifiers::NONE);
+        h.state().picked.as_ref().map(|p| p.ids.clone()).unwrap_or_default()
+    };
+    assert!(!click(&mut h).contains(&wiped), "a wiped stroke is not picked");
+    h.state_mut().invoke(Cmd::SelectAll).unwrap();
+    h.state_mut().invoke(Cmd::Detach).unwrap();
+    h.run_steps(2);
+    assert_eq!(
+        click(&mut h),
+        vec![wiped],
+        "detached, it picks again like any stroke under an eraser"
+    );
+    let _ = std::fs::remove_dir_all(&path);
+}
+
 #[test]
 fn a_checkout_under_the_open_editor_shows_the_drawing_it_brings() {
     let path = sample("checkout");

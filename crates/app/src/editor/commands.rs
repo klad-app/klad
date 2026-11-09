@@ -108,6 +108,18 @@ impl Editor {
             Cmd::SelectAll => (!self.active_paint() || self.scene.active_marks().is_empty())
                 .then(|| "the active layer has no strokes on this frame".to_string()),
             Cmd::Recolour | Cmd::Thinner | Cmd::Thicker => need_strokes().or(editing),
+            Cmd::AttachedOnly => need_strokes()
+                .or_else(|| {
+                    (self.attached_count() == 0)
+                        .then(|| "no eraser, smudge or blend is attached to the selected strokes".to_string())
+                })
+                .or(editing),
+            Cmd::Detach => need_strokes()
+                .or_else(|| {
+                    (!self.detachable())
+                        .then(|| "no eraser, smudge or blend is attached to the selected strokes".to_string())
+                })
+                .or(editing),
             Cmd::FillShape | Cmd::OutlineShape => self
                 .recolourable()
                 .is_none()
@@ -584,6 +596,8 @@ impl Editor {
             }
             Cmd::Thinner => self.size_picked(0.8)?,
             Cmd::Thicker => self.size_picked(1.25)?,
+            Cmd::AttachedOnly => self.select_attached()?,
+            Cmd::Detach => self.detach_picked()?,
             Cmd::FlipH => self.flip(true)?,
             Cmd::FlipV => self.flip(false)?,
             Cmd::TurnLeft90 => self.turn(-90.0)?,

@@ -1694,14 +1694,25 @@ impl Editor {
         });
     }
 
-    fn erased(&self) -> impl Fn(&Mark) -> bool + Copy + '_ {
-        let brushes = &self.brushes;
-        move |m: &Mark| {
-            m.as_stroke().is_some_and(|s| {
-                brushes
+    fn erased(&self) -> impl Fn(&[Mark], &Mark) -> bool + Copy + '_ {
+        move |marks: &[Mark], m: &Mark| {
+            let eraser = m.as_stroke().is_some_and(|s| {
+                self.brushes
                     .get(&s.brush)
                     .is_ok_and(|b| b.blend == klad_brush::brush::StrokeBlend::Erase)
-            })
+            });
+            eraser || !self.wiped(marks, &[m.id()]).is_empty()
+        }
+    }
+
+    fn wiped(&self, marks: &[Mark], among: &[u32]) -> BTreeSet<u32> {
+        let attached = klad_core::stroke::strokes_of(marks).any(|s| s.on.iter().any(|t| among.contains(t)));
+        match attached {
+            false => BTreeSet::new(),
+            true => {
+                let (w, h) = self.scene.size();
+                klad_brush::scope::hidden(w, h, marks, &self.brushes, Some(among))
+            }
         }
     }
 
@@ -1942,15 +1953,17 @@ impl Editor {
                 Some(polygon) => {
                     let sides = markedit::sides(marks, polygon);
                     let crossing = sides.iter().any(|(_, side)| *side == markedit::Side::Crossing);
-                    let inside = sides
+                    let mut inside: Vec<u32> = sides
                         .into_iter()
                         .filter(|(_, side)| *side == markedit::Side::Inside)
                         .map(|(id, _)| id)
                         .collect();
+                    let wiped = self.wiped(marks, &inside);
+                    inside.retain(|id| !wiped.contains(id));
                     (inside, crossing)
                 }
                 None => (
-                    markedit::pick(marks, (at.x, at.y), 5.0 / zoom, erased)
+                    markedit::pick(marks, (at.x, at.y), 5.0 / zoom, |m| erased(marks, m))
                         .into_iter()
                         .collect(),
                     false,
@@ -3489,6 +3502,94 @@ impl Editor {
         self.set_picked(sets)
     }
 
+    fn attached_parts(&self) -> Vec<(String, String, Vec<u32>)> {
+        self.picked_parts()
+            .into_iter()
+            .map(|(layer, cel, marks, ids)| {
+                let chosen: BTreeSet<u32> = ids.iter().copied().collect();
+                let attached = klad_core::stroke::strokes_of(marks)
+                    .filter(|s| !chosen.contains(&s.id) && s.on.iter().any(|t| chosen.contains(t)))
+                    .map(|s| s.id)
+                    .collect();
+                (layer, cel, attached)
+            })
+            .collect()
+    }
+
+    pub(super) fn attached_count(&self) -> usize {
+        self.attached_parts().iter().map(|(_, _, ids)| ids.len()).sum()
+    }
+
+    pub(super) fn detachable(&self) -> bool {
+        self.attached_count() > 0
+            || self.picked_parts().iter().any(|(_, _, marks, ids)| {
+                let live: BTreeSet<u32> = marks.iter().map(Mark::id).collect();
+                klad_core::stroke::strokes_of(marks)
+                    .any(|s| ids.contains(&s.id) && s.on.iter().any(|t| live.contains(t)))
+            })
+    }
+
+    fn select_attached(&mut self) -> Result<()> {
+        let Some(picked) = self.picked.clone() else {
+            return Ok(());
+        };
+        if picked.cut.is_some() {
+            self.say(
+                Tone::Refused,
+                "the lasso cut has not happened yet: move or edit the strokes first, then select what is attached",
+            );
+            return Ok(());
+        }
+        let parts = self.attached_parts();
+        let count: usize = parts.iter().map(|(_, _, ids)| ids.len()).sum();
+        let mut parts = parts.into_iter();
+        let Some((_, cel, ids)) = parts.next() else {
+            return Ok(());
+        };
+        self.picked = Some(Picked {
+            more: parts
+                .filter(|(_, _, ids)| !ids.is_empty())
+                .map(|(layer, cel, ids)| Part { layer, cel, ids })
+                .collect(),
+            ..Picked::whole(cel, ids)
+        });
+        self.say(
+            Tone::Done,
+            format!("{count} attached selected: they move and go on their own now, and attach to what they land on"),
+        );
+        Ok(())
+    }
+
+    fn detach_picked(&mut self) -> Result<()> {
+        let Some(picked) = self.picked.clone() else {
+            return Ok(());
+        };
+        let count = self.attached_count();
+        let (mut ops, after) = match &picked.cut {
+            Some(_) => self
+                .picked_ops(LassoAction::Transform(MarkTransform::default()))
+                .ok_or_else(|| anyhow!("the selection changed underneath: select the strokes again"))?,
+            None => (Vec::new(), Some(picked.clone())),
+        };
+        let ids: Vec<String> = after
+            .iter()
+            .flat_map(|p| {
+                std::iter::once((p.cel.clone(), p.ids.clone()))
+                    .chain(p.more.iter().map(|m| (m.cel.clone(), m.ids.clone())))
+            })
+            .flat_map(|(cel, ids)| ids.into_iter().map(move |id| address(&cel, id)))
+            .collect();
+        ops.push(Op::Detach { ids });
+        self.apply(ops)?;
+        self.picked = after;
+        self.forget_missing_selection();
+        self.say(
+            Tone::Done,
+            format!("{count} detached: they stay where they are and act on whatever is under them"),
+        );
+        Ok(())
+    }
+
     fn size_picked(&mut self, k: f32) -> Result<()> {
         let sets = self.chosen_marks().map_or(Vec::new(), |(_, chosen)| {
             chosen
@@ -3558,8 +3659,12 @@ impl Editor {
                 .map_or_else(String::new, |(l, c)| format!("on {}, frame {}", l.name, c.frame)),
             n => format!("on {} layers", n + 1),
         };
+        let attached = match self.attached_count() {
+            0 => String::new(),
+            n => format!(", {n} attached"),
+        };
         ui.label(format!(
-            "{} strokes, {fills} fills selected {place}{}",
+            "{} strokes, {fills} fills{attached} selected {place}{}",
             chosen.len() - fills,
             if picked.cut.is_some() {
                 "\n(with the parts crossing the lasso edge)"

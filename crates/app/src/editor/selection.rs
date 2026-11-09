@@ -270,6 +270,10 @@ impl Editor {
                 Cmd::Deselect,
             ],
         };
+        let attached = match selected {
+            Selected::Strokes => self.attached_count(),
+            _ => 0,
+        };
         let writing = self.writing();
         egui::Area::new(Id::unique("selection bar"))
             .order(egui::Order::Foreground)
@@ -280,6 +284,10 @@ impl Editor {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         commands.iter().for_each(|cmd| {
+                            if *cmd == Cmd::Delete && attached > 0 {
+                                self.command_button(ui, Cmd::AttachedOnly, Some(&format!("{attached} attached")));
+                                self.command_button(ui, Cmd::Detach, None);
+                            }
                             if *cmd == Cmd::Recolour {
                                 let swatch = crate::color::color32(self.color);
                                 let r = self.command_button(ui, *cmd, None);

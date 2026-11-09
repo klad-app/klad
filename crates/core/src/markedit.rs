@@ -495,7 +495,7 @@ pub fn pick(marks: &[Mark], at: (f32, f32), slack: f32, hidden: impl Fn(&Mark) -
         marks
             .iter()
             .rev()
-            .find(|m| !hidden(m) && cut::keeps(m.cuts(), at) && touches(m, at, slack))
+            .find(|m| cut::keeps(m.cuts(), at) && touches(m, at, slack) && !hidden(m))
             .map(Mark::id)
     };
     found(0.0).or_else(|| (slack > 0.0).then(|| found(slack)).flatten())

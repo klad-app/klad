@@ -1197,7 +1197,7 @@ impl Scene {
         at: (f32, f32),
         slack: f32,
         all: bool,
-        hidden: impl Fn(&Mark) -> bool + Copy,
+        hidden: impl Fn(&[Mark], &Mark) -> bool + Copy,
     ) -> Option<(Vec<usize>, u32)> {
         const SEEN: f32 = 0.05;
         let doc = &self.bundle.doc;
@@ -1227,17 +1227,15 @@ impl Scene {
                 Some((path, marks, seen))
             })
             .collect();
-        let painted = |marks: &[Mark]| klad_core::markedit::pick(marks, at, 0.0, hidden).is_some();
+        let pick = |marks: &[Mark], slack: f32| klad_core::markedit::pick(marks, at, slack, |m| hidden(marks, m));
         layers
             .iter()
-            .find(|(_, marks, seen)| seen.map_or_else(|| painted(marks), |a| a > SEEN))
-            .and_then(|(path, marks, _)| {
-                klad_core::markedit::pick(marks, at, slack, hidden).map(|id| (path.clone(), id))
-            })
+            .find(|(_, marks, seen)| seen.map_or_else(|| pick(marks, 0.0).is_some(), |a| a > SEEN))
+            .and_then(|(path, marks, _)| pick(marks, slack).map(|id| (path.clone(), id)))
             .or_else(|| {
-                layers.iter().find_map(|(path, marks, _)| {
-                    klad_core::markedit::pick(marks, at, slack, hidden).map(|id| (path.clone(), id))
-                })
+                layers
+                    .iter()
+                    .find_map(|(path, marks, _)| pick(marks, slack).map(|id| (path.clone(), id)))
             })
     }
 

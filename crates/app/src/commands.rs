@@ -43,6 +43,8 @@ pub enum Cmd {
     Recolour,
     Thinner,
     Thicker,
+    AttachedOnly,
+    Detach,
     FlipH,
     FlipV,
     Corner,
@@ -496,7 +498,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 169] = [
+    pub const ALL: [Cmd; 171] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -536,6 +538,8 @@ impl Cmd {
         Cmd::Recolour,
         Cmd::Thinner,
         Cmd::Thicker,
+        Cmd::AttachedOnly,
+        Cmd::Detach,
         Cmd::FlipH,
         Cmd::FlipV,
         Cmd::Corner,
@@ -1020,6 +1024,24 @@ impl Cmd {
                 T::None,
                 R::No,
                 "a quarter bigger",
+            ),
+            Cmd::AttachedOnly => spec(
+                "edit.attached-only",
+                "select only what is attached",
+                icon::LINK,
+                G::Edit,
+                T::None,
+                R::No,
+                "select the erasers, smudges and blends attached to the selected strokes, to move or delete them on their own",
+            ),
+            Cmd::Detach => spec(
+                "edit.detach",
+                "detach erasers, smudges and blends",
+                icon::UNLINK,
+                G::Edit,
+                T::None,
+                R::No,
+                "free what is attached to the selected strokes: it stays where it is and acts on whatever is under it",
             ),
             Cmd::FlipH => spec(
                 "edit.flip-h",
@@ -2231,6 +2253,8 @@ impl Cmd {
             Cmd::Recolour => "Recolour",
             Cmd::Thinner => "Thinner",
             Cmd::Thicker => "Thicker",
+            Cmd::AttachedOnly => "Attached only",
+            Cmd::Detach => "Detach",
             Cmd::FlipH => "Flip horizontal",
             Cmd::FlipV => "Flip vertical",
             Cmd::Corner => "Corner",
@@ -2442,7 +2466,17 @@ pub const MENUS: [Menu; 9] = [
                     Run(Cmd::NudgeDown),
                 ],
             ),
-            Sub("Strokes", &[Run(Cmd::Recolour), Run(Cmd::Thinner), Run(Cmd::Thicker)]),
+            Sub(
+                "Strokes",
+                &[
+                    Run(Cmd::Recolour),
+                    Run(Cmd::Thinner),
+                    Run(Cmd::Thicker),
+                    Line,
+                    Run(Cmd::AttachedOnly),
+                    Run(Cmd::Detach),
+                ],
+            ),
             Sub("Shape", &[Run(Cmd::FillShape), Run(Cmd::OutlineShape)]),
             Sub(
                 "Points",
