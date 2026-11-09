@@ -77,6 +77,8 @@ klad render art.klad --focus c4:s12
 - `transform` moves, rotates (degrees, clockwise) and scales about `--pivot` (default: the middle of the marks' bounds). Stroke sizes and tapers scale with them; fills move by whole pixels and are resampled when turned or scaled. Ids in several cels need a `--pivot`.
 - In `apply`: `{"op":"set","id":"c4:s12","color":"#c84a3a"}`, `{"op":"rm","ids":["c4:s12"]}`, `{"op":"transform","ids":["c4:s3","c4:s5"],"x":40,"y":-10,"rotate":15,"sx":1.2,"sy":1.2}`.
 - Edits redraw only the tiles the marks touch, from the nearest checkpoint, so they are cheap on large cels.
+- Erasers, smudges and blenders attach to the marks they were drawn over (earlier marks in the drawing with paint under them; reaching a smudge's smear takes the smudge's marks). `klad strokes --json` gives a modifier `on` (the addresses it is attached to), a mark `attached` (the modifiers on it), and `hidden: true` for a mark its attached erasers wipe out completely. An attached eraser erases only its marks, so moved with them it leaves what they land on whole.
+- Edits follow attachments: `transform` and `lasso` move the modifiers whose marks all move, and split one whose marks move only in part (a copy for the moved marks lands right after it); `rm` removes a modifier left with no marks; `copy` takes every modifier attached to a copied mark. Addressing a modifier itself moves it on its own, and it attaches again to what it lands on. `klad detach art.klad c4:s40` (a modifier, or a mark to free everything attached to it; `{"op":"detach","ids":[...]}`) leaves it where it is, erasing or smudging whatever is under it again.
 
 ## Lasso
 
@@ -89,6 +91,7 @@ klad lasso art.klad l4 --polygon '...' --cut --rm
 ```
 
 - Without a move, turn, scale, flip or `--rm` it lists the strokes and fills inside the polygon and those crossing its edge.
+- The lasso picks plain marks; erasers, smudges and blenders attached to them follow (see above).
 - Without `--cut` only whole marks move (strokes whose points are all inside, fills whose pixels are). With `--cut` each mark crossing the edge is split: the outside part stays put, the inside part becomes a new mark that moves with the rest, so nothing outside the lasso changes. The output names the moved marks (`lasso on l4 moved c2:s10 ...`); they stay strokes and can be edited again.
 - `klad transform` takes `--flip h` or `--flip v` too. In `transform` and `lasso`, `--scale` scales the marks; their previews use the default size.
 - In `apply`: `{"op":"lasso","layer":"l4","polygon":[[600,600],[1400,560],[1450,1300]],"cut":true,"x":40,"y":-25}` (also `rotate`, `sx`, `sy`, `scale`, `pivot`, or `"rm":true`).
