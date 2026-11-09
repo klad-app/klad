@@ -4344,53 +4344,77 @@ fn guide_pictures() {
     moments.iter().for_each(|(name, sample, layer, moment)| {
         let source = std::fs::canonicalize(samples.join(sample))
             .expect("run just samples first, or point KLAD_SAMPLES at built samples");
-        let dir = std::env::temp_dir().join(format!("draw-guide-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join(source.file_name().unwrap());
-        let copied = std::process::Command::new("cp")
-            .arg("-R")
-            .arg(&source)
-            .arg(&path)
-            .status()
-            .unwrap();
-        assert!(copied.success());
-        let gpu = egui_kittest::wgpu::create_render_state(
-            egui_kittest::wgpu::default_wgpu_setup(),
-            egui_wgpu::RendererOptions::PREDICTABLE,
-        );
-        let mut settings = Settings::default();
-        settings.layout.timeline_height = 210.0;
-        let mut first = crate::home::Home::with(settings, None, Some(gpu.clone()));
-        first.open(&egui::Context::default(), &path).unwrap();
-        let mut h = Harness::builder()
-            .with_size(vec2(1600.0, 1000.0))
-            .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(gpu))
-            .build_ui_state(|ui, home: &mut crate::home::Home| home.frame(ui), first);
-        let settle = |h: &mut Harness<'static, crate::home::Home>| {
-            let started = std::time::Instant::now();
-            while !h.state().editor.as_ref().unwrap().canvas_current() && started.elapsed().as_secs() < 180 {
-                h.step();
-                h.render().unwrap();
-                std::thread::sleep(std::time::Duration::from_millis(20));
-            }
-            h.state_mut().editor.as_mut().unwrap().redraw_canvas();
-            (0..8).for_each(|_| {
-                h.step();
-                h.render().unwrap();
-            });
-        };
-        settle(&mut h);
-        let ed = h.state_mut().editor.as_mut().unwrap();
-        let id = ed.scene.bundle.doc.find_layer(layer).unwrap().id.clone();
-        if let Some(klad_core::doc::Loc::Layer(at)) = ed.scene.bundle.doc.locate(&id) {
-            ed.activate(at).unwrap();
-        }
-        moment(ed).unwrap();
-        settle(&mut h);
-        h.render().unwrap().save(out.join(format!("{name}.png"))).unwrap();
-        std::fs::remove_dir_all(&dir).unwrap();
+        editor_picture(&source, layer, *moment, &out.join(format!("{name}.png")));
     });
+}
+
+fn editor_picture(source: &Path, layer: &str, moment: Moment, out: &Path) {
+    let name = out.file_stem().unwrap().to_string_lossy().to_string();
+    let dir = std::env::temp_dir().join(format!("draw-guide-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(source.file_name().unwrap());
+    let copied = std::process::Command::new("cp")
+        .arg("-R")
+        .arg(source)
+        .arg(&path)
+        .status()
+        .unwrap();
+    assert!(copied.success());
+    let gpu = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut settings = Settings::default();
+    settings.layout.timeline_height = 210.0;
+    let mut first = crate::home::Home::with(settings, None, Some(gpu.clone()));
+    first.open(&egui::Context::default(), &path).unwrap();
+    let mut h = Harness::builder()
+        .with_size(vec2(1600.0, 1000.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(gpu))
+        .build_ui_state(|ui, home: &mut crate::home::Home| home.frame(ui), first);
+    let settle = |h: &mut Harness<'static, crate::home::Home>| {
+        let started = std::time::Instant::now();
+        while !h.state().editor.as_ref().unwrap().canvas_current() && started.elapsed().as_secs() < 180 {
+            h.step();
+            h.render().unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        h.state_mut().editor.as_mut().unwrap().redraw_canvas();
+        (0..8).for_each(|_| {
+            h.step();
+            h.render().unwrap();
+        });
+    };
+    settle(&mut h);
+    let ed = h.state_mut().editor.as_mut().unwrap();
+    let id = ed.scene.bundle.doc.find_layer(layer).unwrap().id.clone();
+    if let Some(klad_core::doc::Loc::Layer(at)) = ed.scene.bundle.doc.locate(&id) {
+        ed.activate(at).unwrap();
+    }
+    moment(ed).unwrap();
+    settle(&mut h);
+    h.render().unwrap().save(out).unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+#[ignore]
+fn a_picture_of_the_editor() {
+    let var = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("set {name}"));
+    let (bundle, layer, out) = (
+        var("KLAD_PICTURE_BUNDLE"),
+        var("KLAD_PICTURE_LAYER"),
+        var("KLAD_PICTURE_OUT"),
+    );
+    let moment: Moment = |ed| {
+        ed.invoke(Cmd::Brush)?;
+        if let Ok(brush) = std::env::var("KLAD_PICTURE_BRUSH") {
+            ed.pick(&brush);
+        }
+        Ok(())
+    };
+    editor_picture(&std::fs::canonicalize(bundle).unwrap(), &layer, moment, Path::new(&out));
 }
 
 #[test]
