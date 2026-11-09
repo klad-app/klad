@@ -489,5 +489,73 @@ fn an_eraser_stroke_attaches_to_the_lines_it_crosses_and_says_so() {
     assert_eq!(strokes[0]["attached"], serde_json::json!(["c2:s3"]));
     assert!(strokes[1].get("attached").is_none());
     assert!(draw(&["strokes", path, "l1"]).contains("on s1"));
+    draw(&["detach", path, "c2:s1"]);
+    let listed: serde_json::Value = serde_json::from_str(&draw(&["strokes", path, "l1", "--json"])).unwrap();
+    assert!(listed["strokes"][2].get("on").is_none(), "detached from its line");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn modifiers_move_go_and_copy_with_their_marks_and_attach_again_when_moved_alone() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-follow-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let bundle = dir.join("a.klad");
+    let path = bundle.to_str().unwrap();
+    let draw = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let listed = |frame: &str| -> Vec<serde_json::Value> {
+        let text = draw(&["strokes", path, "l1", "--frame", frame, "--json"]);
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        value["strokes"].as_array().unwrap().clone()
+    };
+    draw(&["new", path, "--width", "400", "--height", "200"]);
+    draw(&["stroke", path, "l1", "--path", "M10 40 L390 40"]);
+    draw(&["stroke", path, "l1", "--path", "M10 140 L390 140"]);
+    draw(&[
+        "stroke",
+        path,
+        "l1",
+        "--brush",
+        "eraser",
+        "--size",
+        "12",
+        "--path",
+        "M100 25 L100 55",
+    ]);
+    draw(&["transform", path, "c2:s1", "--move", "0,20"]);
+    let eraser = listed("0")[2].clone();
+    assert_eq!(eraser["on"], serde_json::json!(["c2:s1"]));
+    assert_eq!(
+        eraser["bounds"][1],
+        serde_json::json!(45.0),
+        "the eraser came along with its line"
+    );
+    draw(&["transform", path, "c2:s3", "--move", "0,80"]);
+    assert_eq!(
+        listed("0")[2]["on"],
+        serde_json::json!(["c2:s2"]),
+        "moved on its own, it attaches to what it lands on"
+    );
+    draw(&["rm", path, "c2:s2"]);
+    assert_eq!(listed("0").len(), 1, "the eraser went with the only line it was on");
+    draw(&[
+        "stroke",
+        path,
+        "l1",
+        "--brush",
+        "eraser",
+        "--size",
+        "12",
+        "--path",
+        "M200 45 L200 75",
+    ]);
+    let map = draw(&["copy", path, "c2:s1", "--frame", "4"]);
+    assert_eq!(map.matches("->").count(), 2, "the line and its eraser: {map}");
+    let copies = listed("4");
+    assert_eq!(copies.len(), 2);
+    assert_eq!(copies[1]["on"], serde_json::json!([copies[0]["address"]]));
     std::fs::remove_dir_all(&dir).unwrap();
 }

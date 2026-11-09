@@ -530,6 +530,16 @@ enum Command {
         #[command(flatten)]
         flags: EditFlags,
     },
+    #[command(
+        about = "Detach eraser, smudge and blender strokes from the marks they are attached to",
+        long_about = "Detach eraser, smudge and blender strokes from the marks they are attached to. Give the modifier strokes, or marks to detach every modifier attached to them. A detached eraser erases whatever is under it again, and none of them move with other marks any more. One history step.\n\n  klad detach art.klad c9:s40\n  klad detach art.klad c9:s12 c9:s13"
+    )]
+    Detach {
+        bundle: PathBuf,
+        ids: Vec<String>,
+        #[command(flatten)]
+        flags: EditFlags,
+    },
     #[command(about = "Remove layers, cels or nodes")]
     Rm {
         bundle: PathBuf,
@@ -2351,6 +2361,14 @@ fn run() -> Result<()> {
         Command::Recolour { bundle, ids, to, flags } => {
             let ops = recolour_ops(&bundle, &ids, &to)?;
             agent::edit(&bundle, &ops, &output(&flags, 0))?;
+        }
+        Command::Detach { bundle, ids, flags } => {
+            if ids.is_empty() {
+                return Err(anyhow!(
+                    "give the strokes to detach, or marks to detach what is attached to them"
+                ));
+            }
+            agent::edit(&bundle, &[Op::Detach { ids }], &output(&flags, 0))?;
         }
         Command::Rm { bundle, ids, flags } => {
             if ids.is_empty() {

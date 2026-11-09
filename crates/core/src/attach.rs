@@ -1,4 +1,5 @@
 use crate::brushes::{BrushBlend, BrushDef, Curve, PaintDef};
+use crate::doc::MarkIds;
 use crate::fill::Fill;
 use crate::stroke::{Mark, Sample, Stroke};
 use std::collections::{BTreeMap, BTreeSet};
@@ -241,6 +242,109 @@ pub fn attached(marks: &[Mark]) -> BTreeMap<u32, Vec<u32>> {
     map
 }
 
+pub fn following(marks: &[Mark]) -> BTreeSet<u32> {
+    let live: BTreeSet<u32> = marks.iter().map(Mark::id).collect();
+    crate::stroke::strokes_of(marks)
+        .filter(|s| s.on.iter().any(|id| live.contains(id)))
+        .map(|s| s.id)
+        .collect()
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Followed {
+    pub moving: Vec<u32>,
+    pub alone: Vec<u32>,
+}
+
+pub fn follow(marks: &mut Vec<Mark>, chosen: &[u32], ids: MarkIds) -> Followed {
+    let live: BTreeSet<u32> = marks.iter().map(Mark::id).collect();
+    let picked: BTreeSet<u32> = chosen.iter().copied().collect();
+    let mut next = ids.next(marks);
+    let mut followed = Followed {
+        moving: chosen.to_vec(),
+        alone: Vec::new(),
+    };
+    let out = std::mem::take(marks).into_iter().flat_map(|mark| {
+        let Mark::Stroke(mut stroke) = mark else {
+            return vec![mark];
+        };
+        let targets: Vec<u32> = stroke.on.iter().copied().filter(|id| live.contains(id)).collect();
+        let held: Vec<u32> = targets.iter().copied().filter(|id| picked.contains(id)).collect();
+        let whole = held.len() == targets.len();
+        match (picked.contains(&stroke.id), targets.is_empty(), held.is_empty(), whole) {
+            (_, true, ..) | (false, _, true, _) | (true, _, _, true) => {}
+            (true, ..) => followed.alone.push(stroke.id),
+            (false, _, _, true) => followed.moving.push(stroke.id),
+            (false, ..) => {
+                let copy = Stroke {
+                    id: next,
+                    on: held.clone(),
+                    ..stroke.clone()
+                };
+                next += 1;
+                followed.moving.push(copy.id);
+                stroke.on = targets.into_iter().filter(|id| !held.contains(id)).collect();
+                return vec![Mark::Stroke(stroke), Mark::Stroke(copy)];
+            }
+        }
+        vec![Mark::Stroke(stroke)]
+    });
+    *marks = out.collect();
+    followed
+}
+
+pub fn prune(marks: &mut Vec<Mark>, before: &BTreeSet<u32>) {
+    let live: BTreeSet<u32> = marks.iter().map(Mark::id).collect();
+    let gone = |id: &u32| before.contains(id) && !live.contains(id);
+    marks.retain(|m| match m {
+        Mark::Stroke(s) if s.on.iter().any(gone) => s.on.iter().any(|id| live.contains(id)),
+        _ => true,
+    });
+    marks.iter_mut().for_each(|m| {
+        if let Mark::Stroke(s) = m {
+            s.on.retain(|id| !gone(id));
+        }
+    });
+}
+
+pub fn join(marks: &mut [Mark], pieces: &[(u32, u32)]) {
+    marks.iter_mut().for_each(|m| {
+        if let Mark::Stroke(s) = m {
+            let more: Vec<u32> = pieces
+                .iter()
+                .filter(|(from, _)| s.on.contains(from))
+                .map(|(_, part)| *part)
+                .collect();
+            s.on.extend(more);
+        }
+    });
+}
+
+pub fn detach(marks: &mut [Mark], ids: &[u32]) -> usize {
+    marks
+        .iter_mut()
+        .filter_map(|m| match m {
+            Mark::Stroke(s) if !s.on.is_empty() && (ids.contains(&s.id) || s.on.iter().any(|t| ids.contains(t))) => {
+                s.on.clear();
+                Some(())
+            }
+            _ => None,
+        })
+        .count()
+}
+
+pub fn remap(copied: &mut [Mark], made: &[crate::markedit::Copied]) {
+    let to: BTreeMap<(&str, u32), u32> = made.iter().map(|c| ((c.cel.as_str(), c.from), c.to)).collect();
+    copied.iter_mut().zip(made).for_each(|(m, c)| {
+        if let Mark::Stroke(s) = m {
+            s.on =
+                s.on.iter()
+                    .filter_map(|id| to.get(&(c.cel.as_str(), *id)).copied())
+                    .collect();
+        }
+    });
+}
+
 pub fn attach<'a>(marks: &mut [Mark], at: usize, def_of: impl Fn(&str) -> Option<&'a BrushDef>) {
     let on = match marks.get(at).and_then(Mark::as_stroke) {
         Some(stroke) if stroke.on.is_empty() => targets(marks, at, stroke, &def_of),
@@ -350,6 +454,181 @@ mod tests {
             vec![1],
             "an unattached smudge counts by what was under it"
         );
+    }
+
+    fn crossed() -> Vec<Mark> {
+        let mut eraser = line(3, "eraser", 12.0, (100.0, 30.0), (100.0, 110.0));
+        if let Mark::Stroke(s) = &mut eraser {
+            s.on = vec![1, 2];
+        }
+        vec![
+            line(1, "ink", 6.0, (10.0, 50.0), (200.0, 50.0)),
+            line(2, "ink", 6.0, (10.0, 90.0), (200.0, 90.0)),
+            eraser,
+        ]
+    }
+
+    fn edit(marks: &mut Vec<Mark>, mut change: crate::markedit::MarkChange) -> Vec<u32> {
+        crate::markedit::apply_following(marks, &mut change, "c1", MarkIds::default()).unwrap()
+    }
+
+    fn moved(x: f32) -> crate::markedit::MarkTransform {
+        crate::markedit::MarkTransform {
+            x,
+            ..Default::default()
+        }
+    }
+
+    fn on(marks: &[Mark], at: usize) -> (u32, Vec<u32>) {
+        let s = marks[at].as_stroke().unwrap();
+        (s.id, s.on.clone())
+    }
+
+    fn start_x(marks: &[Mark], at: usize) -> f32 {
+        marks[at].as_stroke().unwrap().samples[0].pos().0
+    }
+
+    #[test]
+    fn moving_every_mark_of_a_modifier_takes_it_along_and_moving_some_splits_it() {
+        let mut marks = crossed();
+        edit(
+            &mut marks,
+            crate::markedit::MarkChange::Transform {
+                ids: vec![1, 2],
+                transform: moved(40.0),
+            },
+        );
+        assert_eq!(marks.len(), 3);
+        assert_eq!(start_x(&marks, 2), 140.0, "the eraser came along");
+        let mut marks = crossed();
+        edit(
+            &mut marks,
+            crate::markedit::MarkChange::Transform {
+                ids: vec![1],
+                transform: moved(40.0),
+            },
+        );
+        assert_eq!(marks.len(), 4);
+        assert_eq!(
+            on(&marks, 2),
+            (3, vec![2]),
+            "the original stays with the line that stayed"
+        );
+        assert_eq!(
+            on(&marks, 3),
+            (4, vec![1]),
+            "a copy right after it goes with the moved line"
+        );
+        assert_eq!((start_x(&marks, 2), start_x(&marks, 3)), (100.0, 140.0));
+    }
+
+    #[test]
+    fn a_turn_is_about_the_chosen_marks_not_the_ones_that_follow() {
+        let mut marks = crossed();
+        edit(
+            &mut marks,
+            crate::markedit::MarkChange::Transform {
+                ids: vec![1, 2],
+                transform: crate::markedit::MarkTransform {
+                    rotate: 180.0,
+                    ..Default::default()
+                },
+            },
+        );
+        let first = marks[0].as_stroke().unwrap().samples[0].pos();
+        assert!(
+            (first.0 - 200.0).abs() < 0.1 && (first.1 - 90.0).abs() < 0.1,
+            "{first:?}"
+        );
+    }
+
+    #[test]
+    fn deleting_marks_drops_them_from_modifiers_and_a_modifier_left_with_none_goes() {
+        let mut marks = crossed();
+        edit(&mut marks, crate::markedit::MarkChange::Remove { id: 1 });
+        assert_eq!(on(&marks, 1), (3, vec![2]));
+        edit(&mut marks, crate::markedit::MarkChange::Remove { id: 2 });
+        assert!(marks.is_empty(), "the eraser went with its last line");
+        let mut loose = vec![
+            line(1, "ink", 6.0, (0.0, 0.0), (9.0, 0.0)),
+            line(2, "eraser", 6.0, (0.0, 0.0), (9.0, 0.0)),
+        ];
+        edit(&mut loose, crate::markedit::MarkChange::Remove { id: 1 });
+        assert_eq!(loose.len(), 1, "an unattached eraser stays, as before");
+    }
+
+    #[test]
+    fn a_lasso_takes_plain_marks_and_their_modifiers_follow() {
+        let mut marks = crossed();
+        let around_first = vec![[0.0, 40.0], [220.0, 40.0], [220.0, 60.0], [0.0, 60.0]];
+        assert_eq!(crate::markedit::lassoed(&marks, &around_first), vec![1]);
+        let around_eraser = vec![[90.0, 20.0], [110.0, 20.0], [110.0, 120.0], [90.0, 120.0]];
+        assert!(
+            crate::markedit::lassoed(&marks, &around_eraser).is_empty(),
+            "an attached eraser is not picked on its own"
+        );
+        let mut change = crate::markedit::MarkChange::Lasso {
+            polygon: around_first,
+            cut: false,
+            action: crate::markedit::LassoAction::Transform(moved(40.0)),
+            chosen: Vec::new(),
+        };
+        crate::markedit::apply_following(&mut marks, &mut change, "c1", MarkIds::default()).unwrap();
+        assert_eq!(on(&marks, 3), (4, vec![1]));
+        assert_eq!(start_x(&marks, 3), 140.0);
+    }
+
+    #[test]
+    fn a_piece_cut_off_by_the_lasso_joins_the_modifiers_of_its_mark() {
+        let mut marks = crossed();
+        let left_half = vec![[0.0, 40.0], [60.0, 40.0], [60.0, 60.0], [0.0, 60.0]];
+        let mut change = crate::markedit::MarkChange::Lasso {
+            polygon: left_half,
+            cut: true,
+            action: crate::markedit::LassoAction::Transform(moved(0.0)),
+            chosen: Vec::new(),
+        };
+        crate::markedit::apply_following(&mut marks, &mut change, "c1", MarkIds::default()).unwrap();
+        let ids: Vec<u32> = marks.iter().map(Mark::id).collect();
+        assert_eq!(
+            ids,
+            vec![1, 4, 2, 3, 5],
+            "the piece sits after its mark, the eraser's copy after the eraser"
+        );
+        assert_eq!(on(&marks, 3), (3, vec![1, 2]));
+        assert_eq!(on(&marks, 4), (5, vec![4]));
+    }
+
+    #[test]
+    fn a_modifier_moved_on_its_own_is_reported_for_attaching_again() {
+        let mut marks = crossed();
+        let alone = edit(
+            &mut marks,
+            crate::markedit::MarkChange::Transform {
+                ids: vec![3],
+                transform: moved(300.0),
+            },
+        );
+        assert_eq!(alone, vec![3]);
+        assert_eq!(marks.len(), 3);
+    }
+
+    #[test]
+    fn detaching_a_modifier_or_its_marks_leaves_it_where_it_is() {
+        let mut marks = crossed();
+        edit(&mut marks, crate::markedit::MarkChange::Detach { ids: vec![1] });
+        assert_eq!(on(&marks, 2), (3, vec![]));
+        let mut marks = crossed();
+        edit(&mut marks, crate::markedit::MarkChange::Detach { ids: vec![3] });
+        assert_eq!(on(&marks, 2), (3, vec![]));
+        edit(
+            &mut marks,
+            crate::markedit::MarkChange::Transform {
+                ids: vec![1, 2],
+                transform: moved(40.0),
+            },
+        );
+        assert_eq!(start_x(&marks, 2), 100.0, "a detached eraser stays put");
     }
 
     #[test]

@@ -124,6 +124,9 @@ pub enum Op {
         ids: Vec<String>,
         transform: MarkTransform,
     },
+    Detach {
+        ids: Vec<String>,
+    },
     Shift(ShiftSpec),
     Path {
         id: String,
@@ -1494,6 +1497,17 @@ impl Op {
                     ids,
                     transform: MarkTransform::parse(&mut map)?,
                 }
+            }
+            "detach" => {
+                let mut ids: Vec<String> = match map.remove("ids") {
+                    Some(v) => serde_json::from_value(v).map_err(|_| anyhow!("ids must be a list of strings"))?,
+                    None => Vec::new(),
+                };
+                ids.extend(take_str(&mut map, "id")?);
+                if ids.is_empty() {
+                    bail!("detach needs an id or ids (strokes and fills, <cel>:s<id>)");
+                }
+                Op::Detach { ids }
             }
             "path" => Op::Path {
                 id: take_str(&mut map, "id")?.ok_or_else(|| anyhow!("path needs the id of a path, rect or ellipse"))?,
@@ -3396,6 +3410,24 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
                         transform: *transform,
                     },
                 );
+                Ok::<_, anyhow::Error>(())
+            })?;
+            out.changed.extend(ids.iter().cloned());
+        }
+        Op::Detach { ids } => {
+            let mut cels: Vec<(String, Vec<u32>)> = Vec::new();
+            ids.iter().try_for_each(|id| {
+                let (cel, mark) = parse_address(id)
+                    .ok_or_else(|| anyhow!("detach takes strokes and fills (<cel>:s<id>), not {id}"))?;
+                match cels.iter_mut().find(|(c, _)| c == cel) {
+                    Some((_, marks)) => marks.push(mark),
+                    None => cels.push((cel.to_string(), vec![mark])),
+                }
+                Ok::<_, anyhow::Error>(())
+            })?;
+            cels.into_iter().try_for_each(|(cel, marks)| {
+                let layer = mark_owner(doc, &cel)?;
+                out.push(&layer, &cel, MarkChange::Detach { ids: marks });
                 Ok::<_, anyhow::Error>(())
             })?;
             out.changed.extend(ids.iter().cloned());

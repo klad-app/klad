@@ -28,6 +28,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad add`](#klad-add): Add a layer, cel or shape
 - [`klad set`](#klad-set): Change properties: klad set art.klad n4 fill=#ff0000 transform.rotate=15 (null removes)
 - [`klad recolour`](#klad-recolour): Recolour strokes and fills together: the group moves to the colour and each keeps its own lighter or darker shade
+- [`klad detach`](#klad-detach): Detach eraser, smudge and blender strokes from the marks they are attached to
 - [`klad rm`](#klad-rm): Remove layers, cels or nodes
 - [`klad transform`](#klad-transform): Move, rotate or scale strokes and fills (<cel>:s<id>), or a whole layer or group (--layer)
 - [`klad lasso`](#klad-lasso): Lasso strokes and fills on a paint layer; --cut also takes the parts crossing the edge
@@ -951,6 +952,40 @@ Options:
       --to <TO>
           The colour: #rrggbb or a palette name
 
+      --render
+          Render a preview after the edit and print its path
+
+      --scale <SCALE>
+          Preview scale (default: longest side 1024 px)
+
+      --json
+          Print the result as JSON
+
+      --overlay <OVERLAY>
+          Draw on the preview: ids, bbox, grid or all (comma separated)
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## klad detach
+
+```text
+Detach eraser, smudge and blender strokes from the marks they are attached to. Give the modifier strokes, or marks to detach every modifier attached to them. A detached eraser erases whatever is under it again, and none of them move with other marks any more. One history step.
+
+  klad detach art.klad c9:s40
+  klad detach art.klad c9:s12 c9:s13
+
+Usage: klad detach [OPTIONS] <BUNDLE> [IDS]...
+
+Arguments:
+  <BUNDLE>
+
+
+  [IDS]...
+
+
+Options:
       --render
           Render a preview after the edit and print its path
 

@@ -1971,6 +1971,27 @@ mod tests {
     }
 
     #[test]
+    fn an_in_between_keeps_what_its_eraser_is_attached_to() {
+        let eraser = |x: f32| {
+            let mut e = stroke(2, &[(x, -10.0), (x, 10.0)], 8.0);
+            if let Mark::Stroke(s) = &mut e {
+                s.brush = "eraser".into();
+                s.on = vec![1];
+            }
+            e
+        };
+        let a = vec![stroke(1, &[(0.0, 0.0), (100.0, 0.0)], 4.0), eraser(50.0)];
+        let b = vec![stroke(1, &[(0.0, 40.0), (100.0, 40.0)], 4.0), eraser(60.0)];
+        let between = plan(&a, &b, Match::Id, &[]).at(0.5);
+        let on: Vec<Vec<u32>> = between
+            .iter()
+            .filter_map(Mark::as_stroke)
+            .map(|s| s.on.clone())
+            .collect();
+        assert_eq!(on, vec![vec![], vec![1]]);
+    }
+
+    #[test]
     fn line_ends_that_touch_in_both_keys_touch_in_between() {
         let bar = |dy: f32| stroke(1, &[(0.0, 100.0 + dy), (200.0, 100.0 + dy)], 6.0);
         let post_a = stroke(2, &[(60.0, 0.0), (60.0, 98.0)], 4.0);

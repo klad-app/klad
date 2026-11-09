@@ -1,3 +1,4 @@
+use crate::attach;
 use crate::color::{parse_hex, to_u16};
 use crate::cut::{self, Cut, Keep, inside_polygon};
 use crate::doc::MarkIds;
@@ -5,6 +6,7 @@ use crate::fill::{Coverage, Fill, FillSource};
 use crate::stroke::{Mark, POS_SCALE, Sample, Stroke};
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Map, Value};
+use std::collections::BTreeSet;
 
 pub type Affine = [f32; 6];
 
@@ -143,6 +145,9 @@ pub enum MarkChange {
         count: usize,
         ids: Vec<u32>,
     },
+    Detach {
+        ids: Vec<u32>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -169,6 +174,7 @@ impl MarkChange {
             MarkChange::Lasso { chosen, .. } => chosen.clone(),
             MarkChange::Paste { made, .. } => made.iter().map(|c| c.to).collect(),
             MarkChange::Put(marks) => marks.iter().map(Mark::id).collect(),
+            MarkChange::Detach { ids } => ids.clone(),
             MarkChange::Copy { .. } | MarkChange::Part { .. } => Vec::new(),
         }
     }
@@ -560,8 +566,10 @@ pub fn sides(marks: &[Mark], polygon: &[[f32; 2]]) -> Vec<(u32, Side)> {
     if polygon.len() < 3 {
         return Vec::new();
     }
+    let following = attach::following(marks);
     marks
         .iter()
+        .filter(|m| !following.contains(&m.id()))
         .map(|m| (m.id(), side(m, polygon)))
         .filter(|(_, side)| *side != Side::Outside)
         .collect()
@@ -589,6 +597,7 @@ pub fn split(marks: &mut Vec<Mark>, polygon: &[[f32; 2]], cut: bool, ids: MarkId
         .filter(|(_, s)| *s == Side::Crossing)
         .map(|(id, _)| *id)
         .collect();
+    let mut pieces: Vec<(u32, u32)> = Vec::new();
     let sliced = std::mem::take(marks).into_iter().flat_map(|mut mark| {
         if !crossing.contains(&mark.id()) {
             return vec![mark];
@@ -596,6 +605,7 @@ pub fn split(marks: &mut Vec<Mark>, polygon: &[[f32; 2]], cut: bool, ids: MarkId
         let mut part = mark.clone();
         part.set_id(next);
         chosen.push(next);
+        pieces.push((mark.id(), next));
         next += 1;
         mark.cuts_mut().push(Cut {
             keep: Keep::Outside,
@@ -608,6 +618,7 @@ pub fn split(marks: &mut Vec<Mark>, polygon: &[[f32; 2]], cut: bool, ids: MarkId
         vec![mark, part]
     });
     *marks = sliced.collect();
+    attach::join(marks, &pieces);
     chosen
 }
 
@@ -624,6 +635,12 @@ fn position(marks: &[Mark], cel: &str, id: u32) -> Result<usize> {
 }
 
 pub fn apply(marks: &mut Vec<Mark>, change: &mut MarkChange, cel: &str, ids: MarkIds) -> Result<()> {
+    apply_following(marks, change, cel, ids).map(|_| ())
+}
+
+pub fn apply_following(marks: &mut Vec<Mark>, change: &mut MarkChange, cel: &str, ids: MarkIds) -> Result<Vec<u32>> {
+    let before: BTreeSet<u32> = marks.iter().map(Mark::id).collect();
+    let mut alone = Vec::new();
     match change {
         MarkChange::Add(added) => {
             let next = ids.next(marks);
@@ -645,8 +662,14 @@ pub fn apply(marks: &mut Vec<Mark>, change: &mut MarkChange, cel: &str, ids: Mar
         MarkChange::Remove { id } => {
             let at = position(marks, cel, *id)?;
             marks.remove(at);
+            attach::prune(marks, &before);
         }
-        MarkChange::Transform { ids, transform } => transform_marks(marks, ids, transform, cel)?,
+        MarkChange::Transform { ids: chosen, transform } => {
+            let pivot = pivot_of(marks, chosen, transform, cel)?;
+            let followed = attach::follow(marks, chosen, ids);
+            transform_marks(marks, &followed.moving, transform.affine(pivot), cel)?;
+            alone = followed.alone;
+        }
         MarkChange::Lasso {
             polygon,
             cut,
@@ -668,8 +691,16 @@ pub fn apply(marks: &mut Vec<Mark>, change: &mut MarkChange, cel: &str, ids: Mar
                 );
             }
             match action {
-                LassoAction::Transform(transform) => transform_marks(marks, chosen, transform, cel)?,
-                LassoAction::Remove => marks.retain(|m| !chosen.contains(&m.id())),
+                LassoAction::Transform(transform) => {
+                    let pivot = pivot_of(marks, chosen, transform, cel)?;
+                    let followed = attach::follow(marks, chosen, ids);
+                    transform_marks(marks, &followed.moving, transform.affine(pivot), cel)?;
+                    alone = followed.alone;
+                }
+                LassoAction::Remove => {
+                    marks.retain(|m| !chosen.contains(&m.id()));
+                    attach::prune(marks, &before);
+                }
             }
         }
         MarkChange::Put(put) => *marks = put.clone(),
@@ -686,8 +717,12 @@ pub fn apply(marks: &mut Vec<Mark>, change: &mut MarkChange, cel: &str, ids: Mar
             bail!("{cel} copies the marks of {from}; copies are resolved by the bundle")
         }
         MarkChange::Paste { .. } => bail!("{cel} takes copies of other marks; copies are resolved by the bundle"),
+        MarkChange::Detach { ids } => {
+            ids.iter().try_for_each(|id| position(marks, cel, *id).map(|_| ()))?;
+            attach::detach(marks, ids);
+        }
     }
-    Ok(())
+    Ok(alone)
 }
 
 pub fn paste(
@@ -720,6 +755,7 @@ pub fn paste(
             )
         })
         .unzip();
+    attach::remap(&mut copied, &made);
     if let Some(t) = transform {
         let pivot = match t.pivot {
             Some(p) => p,
@@ -736,17 +772,20 @@ pub fn paste(
     Ok(made)
 }
 
-fn transform_marks(marks: &mut [Mark], ids: &[u32], transform: &MarkTransform, cel: &str) -> Result<()> {
+fn pivot_of(marks: &[Mark], ids: &[u32], transform: &MarkTransform, cel: &str) -> Result<[f32; 2]> {
     let at: Vec<usize> = ids.iter().map(|id| position(marks, cel, *id)).collect::<Result<_>>()?;
-    let pivot = match transform.pivot {
+    Ok(match transform.pivot {
         Some(p) => p,
         None => {
             let chosen: Vec<&Mark> = at.iter().map(|&i| &marks[i]).collect();
             let [x0, y0, x1, y1] = union(&chosen).ok_or_else(|| anyhow!("nothing to transform"))?;
             [(x0 + x1) / 2.0, (y0 + y1) / 2.0]
         }
-    };
-    let a = transform.affine(pivot);
+    })
+}
+
+fn transform_marks(marks: &mut [Mark], ids: &[u32], a: Affine, cel: &str) -> Result<()> {
+    let at: Vec<usize> = ids.iter().map(|id| position(marks, cel, *id)).collect::<Result<_>>()?;
     at.iter().for_each(|&i| transform_mark(&mut marks[i], a));
     Ok(())
 }

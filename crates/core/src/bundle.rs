@@ -491,9 +491,15 @@ impl Bundle {
                                 true => Ok(()),
                                 false => bail!("{} does not exist", markedit::address(&source.cel, *id)),
                             })?;
+                        let chosen: BTreeSet<u32> = source.ids.iter().copied().collect();
+                        let taken: BTreeSet<u32> = strokes_of(&from)
+                            .filter(|s| s.on.iter().any(|id| chosen.contains(id)))
+                            .map(|s| s.id)
+                            .chain(chosen.iter().copied())
+                            .collect();
                         Ok(from
                             .into_iter()
-                            .filter(|m| source.ids.contains(&m.id()))
+                            .filter(|m| taken.contains(&m.id()))
                             .map(|m| (source.cel.clone(), m))
                             .collect::<Vec<_>>())
                     })
@@ -509,8 +515,28 @@ impl Bundle {
                 markedit::apply(marks, change, cel, doc.mark_ids(cel))?;
                 self.attach_added(marks, from)
             }
-            _ => markedit::apply(marks, change, cel, doc.mark_ids(cel)),
+            _ => {
+                let alone = markedit::apply_following(marks, change, cel, doc.mark_ids(cel))?;
+                self.reattach(marks, &alone)
+            }
         }
+    }
+
+    fn reattach(&self, marks: &mut [Mark], alone: &[u32]) -> Result<()> {
+        if alone.is_empty() {
+            return Ok(());
+        }
+        let defs = self.brush_defs(strokes_of(marks).map(|s| s.brush.as_str()))?;
+        marks.iter_mut().for_each(|m| {
+            if let Mark::Stroke(s) = m
+                && alone.contains(&s.id)
+            {
+                s.on.clear();
+            }
+        });
+        let at: Vec<usize> = (0..marks.len()).filter(|&i| alone.contains(&marks[i].id())).collect();
+        at.into_iter().for_each(|i| attach::attach(marks, i, |id| defs.get(id)));
+        Ok(())
     }
 
     pub fn brush_defs<'a>(&self, ids: impl IntoIterator<Item = &'a str>) -> Result<BTreeMap<String, BrushDef>> {
@@ -626,6 +652,7 @@ pub fn summarize(ops: &[Op]) -> String {
             Op::Fill(spec) => format!("fill on {}", spec.layer),
             Op::Palette(_) => "palette".to_string(),
             Op::Transform { ids, .. } => format!("transform {}", ids.join(" ")),
+            Op::Detach { ids } => format!("detach {}", ids.join(" ")),
             Op::Shift(spec) => format!("transform {}", spec.layer),
             Op::Path { id, .. } => format!("path {id}"),
             Op::Copy(spec) => format!(
