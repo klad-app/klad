@@ -8,7 +8,7 @@ use klad_core::doc::{Document, Kind};
 use klad_core::fill::{Fill, FillRef, FillSource};
 use klad_core::markedit::address;
 use klad_core::ops::FillSpec;
-use klad_core::stroke::{Author, Mark, next_id};
+use klad_core::stroke::{Author, Mark};
 use klad_render::{Rasters, View, compose, fill_reference};
 use rayon::prelude::*;
 use serde_json::json;
@@ -160,7 +160,7 @@ pub fn like(bundle: &Bundle, spec: &mut FillSpec) -> Result<Vec<String>> {
                 }
                 let id = match place {
                     Some(_) => fill.id,
-                    None if out.iter().any(|m| m.id() == fill.id) => next_id(&out),
+                    None if out.iter().any(|m| m.id() == fill.id) => bundle.doc.mark_ids(cel).next(&out),
                     None => fill.id,
                 };
                 let made = Mark::Fill(Fill {
@@ -334,7 +334,7 @@ fn gap_render(bundle: &Bundle, found: &FrameGaps, rasters_from: &BrushSet) -> Re
     let path = bundle
         .cache_dir()
         .join("renders")
-        .join(format!("r{}-gaps-f{}.png", doc.rev, found.frame));
+        .join(format!("r{:016x}-gaps-f{}.png", bundle.seen, found.frame));
     write_atomic(&path, &image.png()?)?;
     Ok(path)
 }

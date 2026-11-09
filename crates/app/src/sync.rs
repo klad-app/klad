@@ -12,7 +12,11 @@ pub struct Watch {
 pub fn relevant(path: &Path) -> bool {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     !name.contains(".tmp-")
-        && (name == "doc.json" || name == "sync.json" || name == "notes.json" || name.ends_with(".strokes"))
+        && (name == "doc.json"
+            || name == "sync.json"
+            || name == "notes.json"
+            || name.ends_with(".strokes")
+            || name.ends_with(".weights"))
 }
 
 pub fn watch(root: &Path, ctx: egui::Context) -> Result<Watch> {
@@ -42,6 +46,7 @@ mod tests {
         assert!(relevant(Path::new("a.klad/.cache/sync.json")));
         assert!(relevant(Path::new("a.klad/.cache/notes.json")));
         assert!(relevant(Path::new("a.klad/strokes/l1/c0.strokes")));
+        assert!(relevant(Path::new("a.klad/weights/l1.weights")));
         assert!(!relevant(Path::new("a.klad/doc.json.tmp-123")));
         assert!(!relevant(Path::new("a.klad/.cache/tiles/l1.raster")));
     }

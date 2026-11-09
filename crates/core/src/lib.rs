@@ -6,6 +6,7 @@ pub mod cut;
 pub mod doc;
 pub mod fill;
 pub mod generators;
+pub mod here;
 pub mod history;
 pub mod keys;
 pub mod look;

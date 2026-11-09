@@ -197,7 +197,7 @@ pub fn render_path(bundle: &Bundle, frame: u32, view: View, tag: &str) -> PathBu
     bundle
         .cache_dir()
         .join("renders")
-        .join(format!("r{}{frame}{region}{scale}{tag}.png", bundle.doc.rev))
+        .join(format!("r{:016x}{frame}{region}{scale}{tag}.png", bundle.seen))
 }
 
 #[derive(Default)]
@@ -895,6 +895,7 @@ pub fn ls(path: &Path, frame: u32, as_json: bool) -> Result<()> {
             "canvas": doc.canvas,
             "timeline": doc.timeline,
             "rev": doc.rev,
+            "copy": doc.here.tag,
             "frame": frame,
             "layers": layers,
         });
@@ -913,8 +914,11 @@ pub fn ls(path: &Path, frame: u32, as_json: bool) -> Result<()> {
         .as_deref()
         .map_or(String::new(), |b| format!("  background {b}"));
     println!(
-        "{}x{}  rev {}{timing}{background}",
-        doc.canvas.width, doc.canvas.height, doc.rev
+        "{}x{}  rev {}{timing}{background}{}",
+        doc.canvas.width,
+        doc.canvas.height,
+        doc.rev,
+        crate::copy_tag(doc)
     );
     layers.iter().rev().for_each(|l| print_layer(l, 0, t.frames));
     Ok(())

@@ -988,7 +988,7 @@ impl Editor {
         {
             return Ok(());
         }
-        if self.scene.disk_rev() == Some(self.scene.bundle.doc.rev) {
+        if !self.scene.bundle.changed_on_disk() {
             self.external = None;
             return Ok(());
         }
@@ -1197,10 +1197,10 @@ impl Editor {
 
     fn refresh_cut(&mut self) {
         let rev = self.scene.bundle.doc.rev;
-        let Some((key, polygon, ids, more)) = self.picked.as_ref().and_then(|p| {
+        let Some((key, cel, polygon, ids, more)) = self.picked.as_ref().and_then(|p| {
             p.cut
                 .clone()
-                .map(|polygon| (p.key(), polygon, p.ids.clone(), p.more.clone()))
+                .map(|polygon| (p.key(), p.cel.clone(), polygon, p.ids.clone(), p.more.clone()))
         }) else {
             self.cut_view = None;
             return;
@@ -1208,9 +1208,10 @@ impl Editor {
         if self.cut_view.as_ref().is_some_and(|v| v.key == key && v.rev == rev) {
             return;
         }
-        let split = |source: &[Mark], ids: Vec<u32>| {
+        let doc = &self.scene.bundle.doc;
+        let split = |cel: &str, source: &[Mark], ids: Vec<u32>| {
             let mut marks = source.to_vec();
-            let lassoed = markedit::split(&mut marks, &polygon, true);
+            let lassoed = markedit::split(&mut marks, &polygon, true, doc.mark_ids(cel));
             let chosen: Vec<u32> = lassoed
                 .iter()
                 .copied()
@@ -1218,11 +1219,11 @@ impl Editor {
                 .collect();
             (marks, lassoed, chosen)
         };
-        let (marks, lassoed, chosen) = split(self.scene.active_marks(), ids);
+        let (marks, lassoed, chosen) = split(&cel, self.scene.active_marks(), ids);
         let more = more
             .into_iter()
             .map(|p| {
-                let (marks, lassoed, chosen) = split(self.scene.marks_of(&p.cel), p.ids);
+                let (marks, lassoed, chosen) = split(&p.cel, self.scene.marks_of(&p.cel), p.ids);
                 PartView {
                     layer: p.layer,
                     cel: p.cel,

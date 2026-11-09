@@ -14,7 +14,7 @@ use klad_core::look::Effect;
 use klad_core::ops::{Applied, Op, apply_all};
 use klad_core::patch::{Patch, diff};
 use klad_core::rng::{FNV_OFFSET, fnv};
-use klad_core::stroke::{Mark, Stroke, decode_cel, encode_cel, next_id};
+use klad_core::stroke::{Mark, Stroke, decode_cel, encode_cel};
 use klad_render::onion::{self, Ghost, Onion, Onions};
 use klad_render::{
     Rasters, Swap, SwapTiles, TileItem, TileJob, compose_tile, fill_reference, flatten_with, rasterize_nodes,
@@ -1281,6 +1281,7 @@ impl Scene {
             rev: doc.rev,
             bundle: Bundle {
                 root: self.bundle.root.clone(),
+                seen: self.bundle.seen,
                 doc: doc.clone(),
             },
             rasters,
@@ -1642,7 +1643,8 @@ impl Scene {
     }
 
     pub fn next_mark_id(&self) -> u32 {
-        next_id(self.active_marks())
+        let cel = self.active_cel().unwrap_or_default();
+        self.bundle.doc.mark_ids(&cel).next(self.active_marks())
     }
 
     pub fn commit_stroke(
@@ -1817,6 +1819,7 @@ impl Scene {
         Some(FrameJob {
             bundle: Bundle {
                 root: self.bundle.root.clone(),
+                seen: self.bundle.seen,
                 doc: doc.clone(),
             },
             paint: paint.into_iter().filter(|(_, c)| !self.cels.contains_key(c)).collect(),
@@ -1981,6 +1984,7 @@ impl Scene {
             rev: doc.rev,
             bundle: Bundle {
                 root: self.bundle.root.clone(),
+                seen: self.bundle.seen,
                 doc: doc.clone(),
             },
             rasters,
@@ -2013,6 +2017,7 @@ impl Scene {
             rev: doc.rev,
             bundle: Bundle {
                 root: self.bundle.root.clone(),
+                seen: self.bundle.seen,
                 doc: doc.clone(),
             },
             rasters: Rasters::new(),
@@ -2240,14 +2245,10 @@ impl Scene {
         let bytes = encode_cel(data.marks())?;
         write_atomic(&self.bundle.strokes_path(&layer, &cel), &bytes)?;
         data.file_hash = fnv(FNV_OFFSET, &bytes);
+        self.bundle.doc.note_marks(&cel, data.marks());
         self.bundle.save()?;
         self.bundle.stamp("editor")?;
         Ok(bytes.len())
-    }
-
-    pub fn disk_rev(&self) -> Option<u64> {
-        let text = fs::read_to_string(self.bundle.root.join("doc.json")).ok()?;
-        serde_json::from_str::<serde_json::Value>(&text).ok()?["rev"].as_u64()
     }
 
     pub fn reload(&mut self, brushes: &BrushSet) -> Result<Vec<usize>> {
@@ -2360,6 +2361,7 @@ impl Scene {
             rev: self.bundle.doc.rev,
             bundle: Bundle {
                 root: self.bundle.root.clone(),
+                seen: self.bundle.seen,
                 doc: self.bundle.doc.clone(),
             },
             frame: self.frame,
@@ -3237,12 +3239,11 @@ mod tests {
         assert_eq!(other.rasters["cb"].hash(), scene.rasters["cb"].hash());
         assert!(scene.step(klad_core::history::Stack::Undo, &brushes).unwrap().is_some());
         assert_eq!(scene.rasters["cb"].hash(), before);
-        let rev = scene.bundle.doc.rev;
         let mut outside = Bundle::open(&dir).unwrap();
         let ops =
             klad_core::ops::parse_lines(r#"{"op":"stroke","layer":"a","path":"M10 10 L200 100","size":12}"#).unwrap();
         outside.apply(&ops).unwrap();
-        assert_eq!(scene.disk_rev(), Some(rev + 1));
+        assert!(scene.bundle.changed_on_disk());
         let dirty = scene.reload(&brushes).unwrap();
         assert!(!dirty.is_empty() && dirty.len() < scene.all_tiles().len(), "{dirty:?}");
         assert_eq!(scene.cels["ca"].marks().len(), 31);

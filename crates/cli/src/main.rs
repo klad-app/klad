@@ -3702,12 +3702,25 @@ fn hash(path: &Path, frame: u32, use_cache: bool) -> Result<()> {
     Ok(())
 }
 
+pub fn copy_tag(doc: &klad_core::doc::Document) -> String {
+    match doc.here.tag.as_str() {
+        "" => String::new(),
+        tag => format!("  copy {tag} (new ids end in {tag})"),
+    }
+}
+
 fn info(path: &Path) -> Result<()> {
     let bundle = Bundle::open(path)?;
     let doc = &bundle.doc;
     println!(
-        "{}x{}  rev {}  {}  {} frames at {} fps",
-        doc.canvas.width, doc.canvas.height, doc.rev, doc.format, doc.timeline.frames, doc.timeline.fps
+        "{}x{}  rev {}  {}  {} frames at {} fps{}",
+        doc.canvas.width,
+        doc.canvas.height,
+        doc.rev,
+        doc.format,
+        doc.timeline.frames,
+        doc.timeline.fps,
+        copy_tag(doc)
     );
     doc.all_layers()
         .iter()
@@ -3757,11 +3770,10 @@ fn strokes(path: &Path, layer: &str, frame: u32, after: u32, as_json: bool) -> R
         return Ok(());
     }
     println!(
-        "cel {}: address a stroke or fill as {}:s<id>, for example {}:s{}",
+        "cel {}: address a stroke or fill as {}:s<id>, for example {}",
         cel.id,
         cel.id,
-        cel.id,
-        marks.first().map_or(1, |m| m.id())
+        klad_core::markedit::address(&cel.id, marks.first().map_or(1, |m| m.id()))
     );
     if !strokes.is_empty() {
         println!("id     author brush    size  samples    ms    Hz  pressure     tilt  bounds");
@@ -3781,7 +3793,7 @@ fn strokes(path: &Path, layer: &str, frame: u32, after: u32, as_json: bool) -> R
         let [x0, y0, x1, y1] = s.bounds().unwrap_or_default();
         println!(
             "{:<6} {:<6} {:<7} {:>5.1} {:>8} {:>5} {:>5.0}  {lo:.2}-{hi:.2}  {tilt:>7.2}  {x0:.0},{y0:.0} {:.0}x{:.0}{}{part}",
-            format!("s{}", s.id),
+            klad_core::doc::mark_name(s.id),
             s.author.name(),
             s.brush,
             s.size,
@@ -3812,7 +3824,7 @@ fn strokes(path: &Path, layer: &str, frame: u32, after: u32, as_json: bool) -> R
         let [x0, y0, x1, y1] = f.bounds().unwrap_or_default();
         println!(
             "       {:<6} {:<6} {} {source:<35} {:>7}  {x0:.0},{y0:.0} {:.0}x{:.0}{}{part}",
-            format!("s{}", f.id),
+            klad_core::doc::mark_name(f.id),
             f.author.name(),
             hex8(f.color()),
             f.coverage.pixels(),

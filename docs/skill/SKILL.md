@@ -59,7 +59,7 @@ klad stroke art.klad l4 --brush ink --size 5 --taper 8,20 --path 'M100 100 L140 
 
 ## Editing strokes and fills
 
-Every stroke and fill has an address `<cel>:s<id>` (fills share the id counter with strokes). `klad strokes art.klad <layer>` lists them with the cel id on top.
+Every stroke and fill has an address `<cel>:s<id>` (fills share the id counter with strokes). `klad strokes art.klad <layer>` lists them with the cel id on top. In a clone or worktree of a drawing, new ids end in that copy's two-letter tag (`l48qa`, `c12:s349qa`, shown by `klad info`); use them as printed, and the `address` field in JSON.
 
 ```
 klad set art.klad c4:s12 color=#c84a3a size=6 brush=pencil

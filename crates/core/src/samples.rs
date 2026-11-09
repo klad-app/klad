@@ -72,6 +72,7 @@ pub fn copy(sample: &Sample, folder: &Path) -> Result<PathBuf> {
     fs::create_dir_all(folder).with_context(|| format!("making {}", folder.display()))?;
     let to = free_path(folder, &sample.name);
     copy_dir(&sample.path, &to).with_context(|| format!("copying {} to {}", sample.name, to.display()))?;
+    crate::here::write(&to, &crate::here::start())?;
     Ok(to)
 }
 
@@ -117,6 +118,11 @@ mod tests {
         assert_eq!(second, mine.join("rock 2.klad"));
         assert!(Bundle::open(&second).is_ok());
         assert!(!first.join(".cache/thumb.png").exists(), "the cache stays behind");
+        assert_eq!(
+            Bundle::open(&first).unwrap().doc.here.tag,
+            "",
+            "a sample copied out is a new drawing"
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 }

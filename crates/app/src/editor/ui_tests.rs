@@ -1890,6 +1890,26 @@ fn v_picks_and_drags_the_stroke_under_the_pen_and_alt_drags_a_copy() {
 }
 
 #[test]
+fn a_checkout_under_the_open_editor_shows_the_drawing_it_brings() {
+    let path = sample("checkout");
+    let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
+    h.run_steps(3);
+    let file = path.join("strokes/l6/c6.strokes");
+    let before = std::fs::read(&file).unwrap();
+    let marks = h.state().scene.marks_of("c6").len();
+    Bundle::open(&path)
+        .unwrap()
+        .apply(&parse_lines(r#"{"op":"stroke","layer":"l6","path":"M100 100 L300 300"}"#).unwrap())
+        .unwrap();
+    settle(&mut h, |ed| ed.scene.marks_of("c6").len() == marks + 1);
+    std::fs::write(&file, &before).unwrap();
+    settle(&mut h, |ed| {
+        ed.scene.marks_of("c6").len() == marks && !ed.scene.bundle.changed_on_disk()
+    });
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn an_agent_edit_while_the_editor_is_open_shows_in_the_history_and_keeps_its_author() {
     let path = sample("agent-row");
     let mut h = harness(editor(&path), vec2(1440.0, 1000.0));
@@ -1902,8 +1922,7 @@ fn an_agent_edit_while_the_editor_is_open_shows_in_the_history_and_keeps_its_aut
         .apply(&parse_lines(r#"{"op":"stroke","layer":"l6","path":"M100 100 L300 300"}"#).unwrap())
         .unwrap();
     settle(&mut h, |ed| {
-        ed.scene.bundle.read_marks("l6", "c6").unwrap().len() == 3
-            && ed.scene.disk_rev() == Some(ed.scene.bundle.doc.rev)
+        ed.scene.bundle.read_marks("l6", "c6").unwrap().len() == 3 && !ed.scene.bundle.changed_on_disk()
     });
     h.run_steps(2);
     let first = |h: &mut Harness<'static, Editor>| {

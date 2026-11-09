@@ -405,10 +405,6 @@ pub fn fills_of(marks: &[Mark]) -> impl Iterator<Item = &Fill> {
     marks.iter().filter_map(Mark::as_fill)
 }
 
-pub fn next_id(marks: &[Mark]) -> u32 {
-    marks.iter().map(Mark::id).max().map_or(1, |m| m + 1)
-}
-
 fn encode_mark(out: &mut Vec<u8>, mark: &Mark) {
     match mark {
         Mark::Stroke(s) => {
@@ -549,7 +545,10 @@ mod tests {
         assert_eq!(strokes_of(&back).count(), 2);
         assert_eq!(fills_of(&back).next(), Some(&fill));
         assert_eq!(back[1].bounds(), Some([30.0, 40.0, 200.0, 90.0]));
-        assert_eq!(next_id(&back), strokes[0].id.max(strokes[1].id).max(7) + 1);
+        assert_eq!(
+            crate::doc::MarkIds::default().next(&back),
+            strokes[0].id.max(strokes[1].id).max(7) + 1
+        );
     }
 
     #[test]

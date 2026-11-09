@@ -10,13 +10,13 @@ pub fn migrate(value: Value) -> Result<Value> {
         .to_string();
     match format.as_str() {
         FORMAT => Ok(value),
+        "klad/4" => Ok(uncount(value)),
         "klad/1" | "klad/2" | "klad/3" => {
             let mut value = value;
-            value["format"] = Value::from(FORMAT);
             if let Some(layers) = value.get_mut("layers").and_then(Value::as_array_mut) {
                 layers.iter_mut().for_each(unrig);
             }
-            Ok(value)
+            Ok(uncount(value))
         }
         old if old.starts_with("draw-anything/") => bail!(
             "a drawing in the old .draw format ({old}); this klad opens {FORMAT} drawings (.klad) only and does not convert old ones"
@@ -24,6 +24,15 @@ pub fn migrate(value: Value) -> Result<Value> {
         "" => bail!("not a klad drawing: doc.json has no format"),
         other => bail!("format {other} is not {FORMAT}: made by another or a newer klad"),
     }
+}
+
+fn uncount(mut value: Value) -> Value {
+    value["format"] = Value::from(FORMAT);
+    if let Some(map) = value.as_object_mut() {
+        map.remove("rev");
+        map.remove("nextId");
+    }
+    value
 }
 
 fn unrig(layer: &mut Value) {
@@ -62,6 +71,12 @@ mod tests {
         let first = json!({"format": "klad/1", "rev": 3, "layers": [{"id": "l1", "kind": "paint", "cels": [{"id": "c1", "frame": 0}]}]});
         let mut moved = first.clone();
         moved["format"] = json!(FORMAT);
+        moved.as_object_mut().unwrap().remove("rev");
+        assert_eq!(
+            migrate(json!({"format": "klad/4", "rev": 9, "nextId": 40, "layers": []})).unwrap(),
+            json!({"format": FORMAT, "layers": []}),
+            "klad/5 keeps no counters in doc.json: they live in the copy's .cache"
+        );
         assert_eq!(
             migrate(first).unwrap(),
             moved,

@@ -708,6 +708,7 @@ fn compute(
     let accept = accept_colours(bundle, keys, &brushes)?;
     let view = Bundle {
         root: bundle.root.clone(),
+        seen: bundle.seen,
         doc: staged.clone(),
     };
     let frames: BTreeSet<u32> = jobs.iter().map(|j| j.frame).collect();

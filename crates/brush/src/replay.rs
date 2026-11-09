@@ -556,7 +556,7 @@ mod tests {
         let mut out = marks.to_vec();
         changes
             .into_iter()
-            .for_each(|mut c| markedit::apply(&mut out, &mut c, "c1").unwrap());
+            .for_each(|mut c| markedit::apply(&mut out, &mut c, "c1", Default::default()).unwrap());
         out
     }
 
@@ -790,7 +790,7 @@ mod tests {
         let polygon = vec![[300.0, 200.0], [620.0, 220.0], [600.0, 520.0], [280.0, 480.0]];
         let before = replay(W, H, &all, &brushes()).unwrap().raster;
         let mut split = all.clone();
-        let chosen = markedit::split(&mut split, &polygon, true);
+        let chosen = markedit::split(&mut split, &polygon, true, Default::default());
         assert!(chosen.len() > all.len() / 10, "{} chosen", chosen.len());
         let unmoved = replay(W, H, &split, &brushes()).unwrap().raster;
         let far = |x: usize, y: usize| !(270..=630).contains(&x) || !(190..=530).contains(&y);

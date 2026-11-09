@@ -110,10 +110,10 @@ impl Job {
                 .ok_or_else(|| anyhow!("cel {} is not in memory", pending.cel))?;
             let mut replay = replay.clone();
             let mut marks = replay.marks().to_vec();
-            pending
-                .changes
-                .iter_mut()
-                .try_for_each(|change| snap.bundle.apply_change(&plan, &mut marks, change, &pending.cel))?;
+            pending.changes.iter_mut().try_for_each(|change| {
+                snap.bundle
+                    .apply_change(&snap.bundle.doc, &plan, &mut marks, change, &pending.cel)
+            })?;
             let mut raster = rasters.get(&pending.cel).cloned().unwrap_or_else(|| Raster::new(w, h));
             changed.extend(replay.update(&mut raster, marks, &snap.brushes)?.tiles);
             rasters.insert(pending.cel.clone(), raster);

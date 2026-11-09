@@ -1,4 +1,4 @@
-_Last updated: 2026-11-08 (format `klad/4`, stroke files `KLST` version 1, brushes `klad-brush/1`)_
+_Last updated: 2026-11-09 (format `klad/5`, stroke files `KLST` version 1, brushes `klad-brush/1`)_
 
 # The klad drawing format
 
@@ -20,26 +20,25 @@ klad is the reference: when this text and klad's renders disagree, klad is right
 | `fonts/<file>` | fonts used by `text` nodes, with their licence files | for every `font` |
 | `weights/<owner>.weights` | how much each bone of a skeleton moves each part of the drawing | for every bones layer with `bones` |
 | `.gitignore` | `.cache/`, so a drawing can live in a git repository | no |
-| `.cache/` | rebuildable pixels, the undo history, the editor's selection and pinned notes | no: never read it as data |
+| `.cache/` | rebuildable pixels, the undo history, the editor's selection and pinned notes, and `copy.json`: this copy's tag and id counters | no: never read it as data |
 
 Everything outside `.cache/` is the drawing. Copy, version or zip those files and the drawing renders the same on another machine. Read the selection and the notes through `klad selection --json` and `klad notes --json`, not from `.cache/`.
 
-Writers replace files atomically (write a temporary file, then rename), so a reader that watches the folder never sees half a file. `rev` in `doc.json` grows by one on every write.
+Writers replace files atomically (write a temporary file, then rename), so a reader that watches the folder never sees half a file. Nothing in the drawing changes unless the drawing does: `doc.json` holds no revision or id counter, so an edit to one stroke changes its stroke file and nothing else, and git diffs and merges only what was edited. A program that wants to know whether a drawing changed compares the files (their size and modified time, or their bytes).
 
 ## Conventions
 
 - **Coordinates** are canvas pixels, origin at the top left, y down. Angles are degrees; positive turns clockwise on screen.
 - **Colours** are `"#rrggbb"` or `"#rrggbbaa"`: sRGB, straight (not premultiplied) alpha.
-- **Ids** are unique across the whole document and use letters, digits, `-` and `_`. klad makes new ones from a prefix (`l` layer, `c` cel, `n` node) and `nextId`. Ids are case sensitive.
+- **Ids** are unique across the whole document and use letters, digits, `-` and `_`. Ids are case sensitive. klad makes new ones from a prefix (`l` layer, `c` cel, `n` node), a number, and the tag of the copy that made them: `l48qa`. Each copy of a drawing (a clone, a git worktree: any folder without `.cache/copy.json`) picks a two-letter tag the first time klad opens it and keeps it in `.cache/copy.json`, with counters that only go up, so two copies edited apart never make the same id; the copy a drawing was made in has no tag (`l48`). A folder copied by hand with its `.cache/` keeps the tag: delete `.cache/` in the copy to give it its own. Ids already in a drawing never change. Writers that make their own ids should do the same or use a long random part.
 - **JSON** is UTF-8, written pretty with a stable key order. Keys at their default value are left out; readers must take the defaults listed below for missing keys. Most objects reject keys they do not know, so writers must not add their own.
-- **Versions.** `format` names the version of `doc.json` and everything it implies; this is `klad/4`. Each version opens the older `klad/` drawings and migrates them in memory (written back on the next change). A reader that meets a newer version than it knows should refuse to write the bundle. Drawings from before `klad/1` (`.draw` folders, formats `draw-anything/0` to `/9`) do not open.
+- **Versions.** `format` names the version of `doc.json` and everything it implies; this is `klad/5`. Each version opens the older `klad/` drawings and migrates them in memory (written back on the next change). A reader that meets a newer version than it knows should refuse to write the bundle. Drawings from before `klad/1` (`.draw` folders, formats `draw-anything/0` to `/9`) do not open.
 
 ## doc.json
 
 ```json
 {
-  "format": "klad/4",
-  "rev": 42,
+  "format": "klad/5",
   "canvas": { "width": 2048, "height": 2048, "background": "#f4efe6" },
   "timeline": { "fps": 12, "frames": 24, "origin": [1024, 1800],
     "clips": [{ "name": "run", "from": 0, "to": 11, "loop": true, "fps": 24 }] },
@@ -53,8 +52,7 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
         { "id": "n5", "type": "rect", "x": 0, "y": 0, "w": 2048, "h": 900,
           "fill": { "linear": { "from": [0, 0], "to": [0, 900], "stops": [[0, "#121d31"], [1, "#4a6a8c"]] } } }
       ] }] }
-  ],
-  "nextId": 7
+  ]
 }
 ```
 
@@ -62,15 +60,13 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `format` | string | | `"klad/4"` |
-| `rev` | integer | | grows by one on every write |
+| `format` | string | | `"klad/5"` |
 | `canvas` | object | | `width`, `height` (px), `background` (a colour; none is transparent) |
 | `timeline` | object | 12 fps, 1 frame | see below |
 | `palette` | array | `[]` | swatches: `color`, optional `name` (unique, not starting with `#`) |
 | `layers` | array | | the layers, **bottom first** |
 | `export` | object | `{}` | `godot`: the folder Godot exports go to, relative to the folder holding the bundle |
 | `atmosphere` | object | none | fog by depth: `color` (`#9aa8b8`), `top` (a colour higher up), `density` (0.5), `blur` (1), `desaturate` (0.15) |
-| `nextId` | integer | 0 | the counter new ids are made from |
 
 Strokes and fills store their colour, so the palette is a list of names for colours, never a reference: renaming or recolouring a swatch changes nothing drawn.
 
@@ -228,7 +224,7 @@ Constraints are solved parent first, by the position of the limb's top bone (A f
 
 ## Stroke files
 
-`strokes/<layer>/<cel>.strokes` holds the marks of one paint drawing, in the order they are drawn: brush strokes and fills. Every mark has an id, unique within its drawing, from one counter shared by strokes and fills. A mark's address is `<cel>:s<id>`.
+`strokes/<layer>/<cel>.strokes` holds the marks of one paint drawing, in the order they are drawn: brush strokes and fills. Every mark has an id, unique within its drawing, shared by strokes and fills. A mark's address is `<cel>:s<id>`. An id is a `u32`: its top 10 bits name the copy that made it (0 for none, else 1 + 26 × first letter + second letter, with `a` as 0) and its low 22 bits are a number counted per copy, so `s349qa` is 349 made by the copy tagged `qa`, stored as `(1 + 16 × 26 + 0) << 22 | 349`. Ids from before `klad/5`, and those of the copy a drawing was made in, are plain numbers: `s348`. Addresses accept the number in either form.
 
 The file is one zstd frame (any level; klad uses 3). Inside:
 
@@ -338,3 +334,4 @@ Drawing a stroke: walk the samples, interpolate between them, stamp the tip ever
 | `klad/2` | skeletons get `ik` constraints and poses their `ik` targets (2026-11-07). `klad/1` drawings open unchanged. |
 | `klad/3` | paint layers under a skeleton get `bone`, attaching them to one bone (2026-11-08). `klad/1` and `klad/2` drawings open unchanged. |
 | `klad/4` | skeletons move to bones layers, and paint layers join one with `rig` (2026-11-08). Older drawings open without their bones, IK, weights links and the `pose` of their cels; the drawings themselves, posed ones too, stay. |
+| `klad/5` | `rev` and `nextId` leave `doc.json`, and new ids carry the tag of the copy that made them, so drawings diff and merge in git (2026-11-09). Older drawings open with their ids unchanged; their counters move to `.cache/copy.json`. |

@@ -83,11 +83,10 @@ impl Running<'_> {
             }
             let stored = self.stored[&pending.cel].clone();
             let mut marks = stored.clone();
-            pending
-                .changes
-                .clone()
-                .iter_mut()
-                .try_for_each(|c| self.bundle.apply_change(&applied.marks, &mut marks, c, &pending.cel))?;
+            pending.changes.clone().iter_mut().try_for_each(|c| {
+                self.bundle
+                    .apply_change(&self.bundle.doc, &applied.marks, &mut marks, c, &pending.cel)
+            })?;
             let before = self.painted.get(&pending.cel).cloned().unwrap_or(stored);
             let (w, h) = (doc.canvas.width, doc.canvas.height);
             let raster = self

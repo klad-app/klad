@@ -336,3 +336,51 @@ fn a_chain_and_its_ik_are_set_up_and_posed_from_the_command_line() {
     assert!(json[0]["poses"][0]["solved"]["thigh"].is_number());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_checkout_under_the_cache_renders_the_drawing_it_brings() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-checkout-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let bundle = dir.join("a.klad");
+    let path = bundle.to_str().unwrap();
+    let draw = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let render = || {
+        let printed = draw(&["render", path]);
+        std::fs::read(printed.lines().last().unwrap().trim()).unwrap()
+    };
+    let files = || ["doc.json", "strokes/l1/c2.strokes"].map(|f| std::fs::read(bundle.join(f)).ok());
+    let put = |kept: &[Option<Vec<u8>>; 2]| {
+        ["doc.json", "strokes/l1/c2.strokes"]
+            .iter()
+            .zip(kept)
+            .for_each(|(f, bytes)| match bytes {
+                Some(bytes) => std::fs::write(bundle.join(f), bytes).unwrap(),
+                None => {
+                    let _ = std::fs::remove_file(bundle.join(f));
+                }
+            });
+    };
+    draw(&["new", path, "--width", "200", "--height", "100"]);
+    let base = files();
+    draw(&["stroke", path, "l1", "--path", "M10 10 L190 90", "--size", "8"]);
+    let one = files();
+    let first = render();
+    put(&base);
+    draw(&["stroke", path, "l1", "--path", "M10 90 L190 10", "--size", "8"]);
+    let other = render();
+    assert_ne!(
+        first, other,
+        "the other branch, after as many edits, is not the first one's render"
+    );
+    put(&one);
+    assert_eq!(
+        render(),
+        first,
+        "checking the first branch out again renders it, not the cached other"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}

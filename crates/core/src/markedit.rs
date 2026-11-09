@@ -1,7 +1,8 @@
 use crate::color::{parse_hex, to_u16};
 use crate::cut::{self, Cut, Keep, inside_polygon};
+use crate::doc::MarkIds;
 use crate::fill::{Coverage, Fill, FillSource};
-use crate::stroke::{Mark, POS_SCALE, Sample, Stroke, next_id};
+use crate::stroke::{Mark, POS_SCALE, Sample, Stroke};
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Map, Value};
 
@@ -14,12 +15,12 @@ pub const TRANSFORM_KEYS: &[&str] = &["x", "y", "rotate", "sx", "sy", "pivot"];
 
 pub fn parse_address(text: &str) -> Option<(&str, u32)> {
     let (cel, mark) = text.split_once(':')?;
-    let id = mark.strip_prefix('s')?.parse().ok()?;
+    let id = crate::doc::parse_mark(mark)?;
     crate::doc::valid_id(cel).then_some((cel, id))
 }
 
 pub fn address(cel: &str, id: u32) -> String {
-    format!("{cel}:s{id}")
+    format!("{cel}:{}", crate::doc::mark_name(id))
 }
 
 pub fn apply_affine(a: Affine, (x, y): (f32, f32)) -> (f32, f32) {
@@ -572,9 +573,9 @@ pub enum LassoAction {
     Remove,
 }
 
-pub fn split(marks: &mut Vec<Mark>, polygon: &[[f32; 2]], cut: bool) -> Vec<u32> {
+pub fn split(marks: &mut Vec<Mark>, polygon: &[[f32; 2]], cut: bool, ids: MarkIds) -> Vec<u32> {
     let found = sides(marks, polygon);
-    let mut next = next_id(marks);
+    let mut next = ids.next(marks);
     let mut chosen: Vec<u32> = found
         .iter()
         .filter(|(_, s)| *s == Side::Inside)
@@ -622,10 +623,10 @@ fn position(marks: &[Mark], cel: &str, id: u32) -> Result<usize> {
         .ok_or_else(|| anyhow!("{} does not exist", address(cel, id)))
 }
 
-pub fn apply(marks: &mut Vec<Mark>, change: &mut MarkChange, cel: &str) -> Result<()> {
+pub fn apply(marks: &mut Vec<Mark>, change: &mut MarkChange, cel: &str, ids: MarkIds) -> Result<()> {
     match change {
         MarkChange::Add(added) => {
-            let next = next_id(marks);
+            let next = ids.next(marks);
             added
                 .iter_mut()
                 .enumerate()
@@ -655,7 +656,7 @@ pub fn apply(marks: &mut Vec<Mark>, change: &mut MarkChange, cel: &str) -> Resul
             if polygon.len() < 3 {
                 bail!("a lasso needs at least 3 points");
             }
-            *chosen = split(marks, polygon, *cut);
+            *chosen = split(marks, polygon, *cut, ids);
             if chosen.is_empty() {
                 bail!(
                     "the lasso holds no strokes or fills of {cel}{}",
@@ -694,8 +695,9 @@ pub fn paste(
     copies: Vec<(String, Mark)>,
     transform: Option<&MarkTransform>,
     cut: Option<&[[f32; 2]]>,
+    ids: MarkIds,
 ) -> Result<Vec<Copied>> {
-    let mut next = next_id(marks);
+    let mut next = ids.next(marks);
     let (made, mut copied): (Vec<Copied>, Vec<Mark>) = copies
         .into_iter()
         .map(|(cel, mut mark)| {
@@ -830,7 +832,7 @@ mod tests {
             id: 1,
             props: props(json!({"color":"#ff0000","size":4,"brush":"pencil","taper":null})),
         };
-        apply(&mut marks, &mut set, "c1").unwrap();
+        apply(&mut marks, &mut set, "c1", MarkIds::default()).unwrap();
         let s = marks[0].as_stroke().unwrap();
         assert_eq!(
             (s.color, s.size, s.brush.as_str(), s.taper),
@@ -840,17 +842,19 @@ mod tests {
             id: 2,
             props: props(json!({"opacity":0.5})),
         };
-        apply(&mut marks, &mut fill, "c1").unwrap();
+        apply(&mut marks, &mut fill, "c1", MarkIds::default()).unwrap();
         assert_eq!(marks[1].as_fill().unwrap().opacity, 0.5);
         let mut typo = MarkChange::Set {
             id: 2,
             props: props(json!({"size":3})),
         };
-        let err = apply(&mut marks, &mut typo, "c1").unwrap_err().to_string();
+        let err = apply(&mut marks, &mut typo, "c1", MarkIds::default())
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("c1:s2") && err.contains("color, opacity"), "{err}");
         let mut missing = MarkChange::Remove { id: 9 };
         assert!(
-            apply(&mut marks, &mut missing, "c1")
+            apply(&mut marks, &mut missing, "c1", MarkIds::default())
                 .unwrap_err()
                 .to_string()
                 .contains("c1:s9")
@@ -868,7 +872,7 @@ mod tests {
                 ..Default::default()
             },
         };
-        apply(&mut marks, &mut moved, "c1").unwrap();
+        apply(&mut marks, &mut moved, "c1", MarkIds::default()).unwrap();
         assert_eq!(marks[0].as_stroke().unwrap().samples[0].pos(), (15.0, 7.5));
         let mut turned = MarkChange::Transform {
             ids: vec![1],
@@ -879,7 +883,7 @@ mod tests {
                 ..Default::default()
             },
         };
-        apply(&mut marks, &mut turned, "c1").unwrap();
+        apply(&mut marks, &mut turned, "c1", MarkIds::default()).unwrap();
         let s = marks[0].as_stroke().unwrap();
         let (a, b) = (s.samples[0].pos(), s.samples[1].pos());
         assert!((a.0 - 25.0).abs() < 0.07 && (a.1 + 12.5).abs() < 0.07, "{a:?}");
@@ -898,7 +902,7 @@ mod tests {
                 ..Default::default()
             },
         };
-        apply(&mut marks, &mut moved, "c1").unwrap();
+        apply(&mut marks, &mut moved, "c1", MarkIds::default()).unwrap();
         let f = marks[0].as_fill().unwrap();
         assert_eq!(
             (f.coverage.x, f.coverage.y, f.coverage.width, f.coverage.height),
@@ -915,7 +919,7 @@ mod tests {
                 ..Default::default()
             },
         };
-        apply(&mut marks, &mut doubled, "c1").unwrap();
+        apply(&mut marks, &mut doubled, "c1", MarkIds::default()).unwrap();
         let f = marks[0].as_fill().unwrap();
         assert_eq!((f.coverage.x, f.coverage.y), (20, 20));
         assert_eq!((f.coverage.width, f.coverage.height), (40, 20));
@@ -966,7 +970,7 @@ mod tests {
             chosen: Vec::new(),
         };
         let mut plain = marks.clone();
-        apply(&mut plain, &mut whole, "c1").unwrap();
+        apply(&mut plain, &mut whole, "c1", MarkIds::default()).unwrap();
         assert_eq!(whole.ids(), vec![2]);
         assert_eq!(plain[0], marks[0]);
         let mut change = MarkChange::Lasso {
@@ -978,7 +982,7 @@ mod tests {
             }),
             chosen: Vec::new(),
         };
-        apply(&mut marks, &mut change, "c1").unwrap();
+        apply(&mut marks, &mut change, "c1", MarkIds::default()).unwrap();
         assert_eq!(marks.iter().map(Mark::id).collect::<Vec<_>>(), [1, 3, 2]);
         assert_eq!(change.ids(), vec![2, 3]);
         let (stay, part) = (marks[0].as_stroke().unwrap(), marks[1].as_stroke().unwrap());
@@ -998,7 +1002,7 @@ mod tests {
             action: LassoAction::Remove,
             chosen: Vec::new(),
         };
-        apply(&mut gone, &mut rm, "c1").unwrap();
+        apply(&mut gone, &mut rm, "c1", MarkIds::default()).unwrap();
         assert_eq!(gone.len(), 1);
         assert_eq!(gone[0].cuts()[0].keep, Keep::Outside);
         let mut empty = MarkChange::Lasso {
@@ -1007,7 +1011,7 @@ mod tests {
             action: LassoAction::Remove,
             chosen: Vec::new(),
         };
-        assert!(apply(&mut gone, &mut empty, "c1").is_err());
+        assert!(apply(&mut gone, &mut empty, "c1", MarkIds::default()).is_err());
     }
 
     #[test]
@@ -1025,7 +1029,7 @@ mod tests {
                 ..Default::default()
             },
         };
-        apply(&mut marks, &mut flip, "c1").unwrap();
+        apply(&mut marks, &mut flip, "c1", MarkIds::default()).unwrap();
         let s = marks[0].as_stroke().unwrap();
         assert_eq!(s.samples[0].pos(), (60.0, 30.0));
         assert_eq!(s.size, 4.0);
@@ -1036,7 +1040,7 @@ mod tests {
     fn adds_take_the_next_ids() {
         let mut marks = vec![line(4)];
         let mut add = MarkChange::Add(vec![line(0), square(0)]);
-        apply(&mut marks, &mut add, "c1").unwrap();
+        apply(&mut marks, &mut add, "c1", MarkIds::default()).unwrap();
         assert_eq!(marks.iter().map(Mark::id).collect::<Vec<_>>(), [4, 5, 6]);
         assert_eq!(add.ids(), [5, 6]);
     }
@@ -1070,7 +1074,7 @@ mod tests {
             id: 1,
             props: serde_json::from_str(r#"{"path":"M0 0 C 30 -40 70 40 100 0"}"#).unwrap(),
         };
-        apply(&mut marks, &mut change, "c1").unwrap();
+        apply(&mut marks, &mut change, "c1", MarkIds::default()).unwrap();
         let Mark::Stroke(curved) = &marks[0] else { panic!() };
         assert!(curved.samples[5].pos().1 < -5.0, "{:?}", curved.samples[5].pos());
         assert!(reshape(&mut curved.clone(), "").is_err());

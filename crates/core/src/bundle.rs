@@ -1,5 +1,6 @@
 use crate::brushes::{self, BrushDef};
 use crate::doc::{Document, Layer, Loc};
+use crate::here;
 use crate::history::checkpoint;
 use crate::markedit::{self, LassoAction, MarkChange};
 use crate::migrate::migrate;
@@ -47,41 +48,28 @@ impl Default for Blank {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Changed {
-    pub disk: u64,
-    pub here: u64,
-}
+pub struct Changed;
 
 impl std::fmt::Display for Changed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "the document changed while this edit was being made (rev {} on disk, {} when it started); nothing was written, run it again",
-            self.disk, self.here
+            "the drawing changed on disk while this edit was being made; nothing was written, run it again"
         )
     }
 }
 
 impl std::error::Error for Changed {}
 
-pub fn disk_rev(root: &Path) -> Option<u64> {
-    let path = root.join("doc.json");
-    let mut head = vec![0u8; 4096];
-    let read = {
-        use std::io::Read;
-        fs::File::open(&path).ok()?.read(&mut head).ok()?
-    };
-    let text = String::from_utf8_lossy(&head[..read]);
-    let quick = text.find("\"rev\"").and_then(|at| {
-        let rest = text[at + 5..].trim_start().strip_prefix(':')?.trim_start();
-        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-        let end = rest[digits.len()..].chars().next()?;
-        (!digits.is_empty() && matches!(end, ',' | '\n' | ' ' | '\r' | '}')).then(|| digits.parse().ok())?
-    });
-    quick.or_else(|| {
-        let text = fs::read_to_string(&path).ok()?;
-        serde_json::from_str::<serde_json::Value>(&text).ok()?["rev"].as_u64()
-    })
+fn highest_number(doc: &Document) -> u64 {
+    doc.ids()
+        .iter()
+        .filter_map(|id| {
+            let digits: String = id.chars().skip(1).take_while(char::is_ascii_digit).collect();
+            digits.parse().ok()
+        })
+        .max()
+        .unwrap_or(0)
 }
 
 pub fn now_ms() -> u64 {
@@ -93,6 +81,7 @@ pub fn now_ms() -> u64 {
 pub struct Bundle {
     pub root: PathBuf,
     pub doc: Document,
+    pub seen: u64,
 }
 
 fn name_parts(doc: &mut Document, pending: &[PendingMarks]) {
@@ -130,15 +119,26 @@ impl Bundle {
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref().to_path_buf();
         remember(&root);
+        let seen = here::fingerprint(&root);
         let path = root.join("doc.json");
         let text = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         let raw: serde_json::Value =
             serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        let counted = |key: &str| raw.get(key).and_then(serde_json::Value::as_u64).unwrap_or(0);
+        let (rev, next) = (counted("rev"), counted("nextId"));
         let value = migrate(raw).with_context(|| format!("opening {}", root.display()))?;
-        let doc: Document = serde_json::from_value(value).with_context(|| format!("reading {}", path.display()))?;
+        let mut doc: Document = serde_json::from_value(value).with_context(|| format!("reading {}", path.display()))?;
         doc.validate().with_context(|| format!("checking {}", path.display()))?;
-        let bundle = Self { root, doc };
-        Ok(bundle)
+        let (mut state, fresh) = here::load(&root);
+        state.rev = state.rev.max(rev);
+        state.next = state.next.max(next).max(highest_number(&doc));
+        if fresh {
+            let _ = here::write(&root, &state);
+        }
+        doc.rev = state.rev;
+        doc.next_id = state.next;
+        doc.here = state.here();
+        Ok(Self { root, doc, seen })
     }
 
     pub fn brush_path(&self, id: &str) -> PathBuf {
@@ -221,7 +221,9 @@ impl Bundle {
         remember(&root);
         fs::create_dir_all(&root)?;
         write_atomic(&root.join(".gitignore"), b".cache/\n")?;
-        let mut bundle = Self { root, doc };
+        let mut doc = doc;
+        doc.here = here::start().here();
+        let mut bundle = Self { root, doc, seen: 0 };
         bundle.save()?;
         Ok(bundle)
     }
@@ -251,10 +253,24 @@ impl Bundle {
     }
 
     pub fn save(&mut self) -> Result<()> {
-        self.doc.rev += 1;
+        let disk = here::read(&self.root).filter(|s| s.tag == self.doc.here.tag);
+        self.doc.rev = disk.as_ref().map_or(0, |s| s.rev).max(self.doc.rev) + 1;
         let mut text = serde_json::to_string_pretty(&self.doc)?;
         text.push('\n');
-        write_atomic(&self.root.join("doc.json"), text.as_bytes())
+        write_atomic(&self.root.join("doc.json"), text.as_bytes())?;
+        let state = here::write(&self.root, &here::State::of(&self.doc))?;
+        self.doc.next_id = state.next;
+        self.doc.here = state.here();
+        self.settle();
+        Ok(())
+    }
+
+    pub fn settle(&mut self) {
+        self.seen = here::fingerprint(&self.root);
+    }
+
+    pub fn changed_on_disk(&self) -> bool {
+        here::fingerprint(&self.root) != self.seen
     }
 
     pub fn strokes_path(&self, layer: &str, cel: &str) -> PathBuf {
@@ -316,7 +332,7 @@ impl Bundle {
                 pending
                     .changes
                     .iter_mut()
-                    .try_for_each(|change| self.apply_change(&plan, &mut marks, change, &pending.cel))?;
+                    .try_for_each(|change| self.apply_change(&doc, &plan, &mut marks, change, &pending.cel))?;
                 Ok((pending.layer.clone(), pending.cel.clone(), marks))
             })
             .collect::<Result<Vec<_>>>()?;
@@ -336,6 +352,7 @@ impl Bundle {
                 }
                 Ok(())
             })?;
+        written.iter().for_each(|(_, cel, marks)| doc.note_marks(cel, marks));
         let touched: Vec<PathBuf> = written
             .iter()
             .map(|(layer, cel, _)| self.strokes_path(layer, cel))
@@ -350,15 +367,16 @@ impl Bundle {
         weights
             .iter()
             .try_for_each(|(layer, w)| write_atomic(&self.weights_path(layer), &w.encode()?))?;
-        self.save()?;
         applied.dropped_cels.iter().for_each(|(layer, cel)| {
             let _ = fs::remove_file(self.strokes_path(layer, cel));
         });
+        self.save()?;
         Ok(applied)
     }
 
     pub fn apply_change(
         &self,
+        doc: &Document,
         plan: &[PendingMarks],
         marks: &mut Vec<Mark>,
         change: &mut MarkChange,
@@ -366,7 +384,7 @@ impl Bundle {
     ) -> Result<()> {
         match change {
             MarkChange::Copy { layer, cel, upto } => {
-                *marks = self.marks_after(plan, layer, cel, *upto)?;
+                *marks = self.marks_after(doc, plan, layer, cel, *upto)?;
                 Ok(())
             }
             MarkChange::Paste {
@@ -378,7 +396,7 @@ impl Bundle {
                 let copies = sources
                     .iter()
                     .map(|source| {
-                        let from = self.marks_after(plan, &source.layer, &source.cel, source.upto)?;
+                        let from = self.marks_after(doc, plan, &source.layer, &source.cel, source.upto)?;
                         source
                             .ids
                             .iter()
@@ -396,21 +414,28 @@ impl Bundle {
                     .into_iter()
                     .flatten()
                     .collect();
-                *made = markedit::paste(marks, copies, transform.as_ref(), cut.as_deref())?;
+                *made = markedit::paste(marks, copies, transform.as_ref(), cut.as_deref(), doc.mark_ids(cel))?;
                 Ok(())
             }
-            _ => markedit::apply(marks, change, cel),
+            _ => markedit::apply(marks, change, cel, doc.mark_ids(cel)),
         }
     }
 
-    fn marks_after(&self, plan: &[PendingMarks], layer: &str, cel: &str, upto: usize) -> Result<Vec<Mark>> {
+    fn marks_after(
+        &self,
+        doc: &Document,
+        plan: &[PendingMarks],
+        layer: &str,
+        cel: &str,
+        upto: usize,
+    ) -> Result<Vec<Mark>> {
         let mut marks = self.read_marks(layer, cel)?;
         if let Some(pending) = plan.iter().find(|p| p.layer == layer && p.cel == cel) {
             pending
                 .changes
                 .iter()
                 .take(upto)
-                .try_for_each(|c| self.apply_change(plan, &mut marks, &mut c.clone(), cel))?;
+                .try_for_each(|c| self.apply_change(doc, plan, &mut marks, &mut c.clone(), cel))?;
         }
         Ok(marks)
     }
@@ -418,6 +443,7 @@ impl Bundle {
     pub fn replace_marks(&mut self, layer: &str, cel: &str, marks: &[Mark], author: &str, summary: &str) -> Result<()> {
         checkpoint(self, &self.doc, author, summary, &[self.strokes_path(layer, cel)])?;
         self.write_marks(layer, cel, marks)?;
+        self.doc.note_marks(cel, marks);
         self.save()
     }
 
@@ -426,18 +452,18 @@ impl Bundle {
     }
 
     pub fn reload(&mut self) -> Result<()> {
-        self.doc = Self::open(&self.root)?.doc;
+        let rev = self.doc.rev;
+        let opened = Self::open(&self.root)?;
+        self.doc = opened.doc;
+        self.doc.rev = self.doc.rev.max(rev + 1);
+        self.seen = opened.seen;
         Ok(())
     }
 
     pub fn ensure_unchanged(&self) -> Result<()> {
-        match disk_rev(&self.root) {
-            Some(disk) if disk != self.doc.rev => Err(Changed {
-                disk,
-                here: self.doc.rev,
-            }
-            .into()),
-            _ => Ok(()),
+        match self.changed_on_disk() {
+            true => Err(Changed.into()),
+            false => Ok(()),
         }
     }
 
@@ -623,25 +649,163 @@ mod tests {
         doc.layers.push(Layer::paint("l1", "ink", "c1"));
         doc.next_id = 10;
         let mut first = Bundle::create(&dir, doc).unwrap();
-        assert_eq!(disk_rev(&dir), Some(first.doc.rev));
         let mut second = Bundle::open(&dir).unwrap();
         assert!(first.ensure_unchanged().is_ok());
         second
             .apply(&parse_lines(r#"{"op":"stroke","layer":"l1","path":"M1 1 L60 60"}"#).unwrap())
             .unwrap();
-        assert_eq!(disk_rev(&dir), Some(second.doc.rev));
         let refused = first.ensure_unchanged().unwrap_err();
-        assert_eq!(
-            refused.downcast_ref::<Changed>(),
-            Some(&Changed {
-                disk: second.doc.rev,
-                here: first.doc.rev
-            })
-        );
+        assert_eq!(refused.downcast_ref::<Changed>(), Some(&Changed));
+        let rev = first.doc.rev;
         first.reload().unwrap();
         assert!(first.ensure_unchanged().is_ok());
-        fs::write(dir.join("doc.json"), "{\n  \"rev\":\n 99, \"format\": \"x\"}").unwrap();
-        assert_eq!(disk_rev(&dir), Some(99));
+        assert!(first.doc.rev > rev, "a reload is a new revision for the caches");
+        let checked_out = fs::read(first.strokes_path("l1", "c1")).unwrap();
+        write_atomic(&first.strokes_path("l1", "c1"), &checked_out).unwrap();
+        assert!(
+            first.ensure_unchanged().is_err(),
+            "a stroke file replaced from outside, as git checkout does, with doc.json untouched"
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn edits_leave_the_lines_of_doc_json_they_did_not_change() {
+        use crate::ops::parse_lines;
+        let dir = scratch("lines");
+        let mut bundle = Bundle::blank(
+            &dir,
+            &Blank {
+                layers: 2,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let read = || fs::read_to_string(dir.join("doc.json")).unwrap();
+        assert!(!read().contains("\"rev\"") && !read().contains("nextId"), "{}", read());
+        let before = read();
+        bundle
+            .apply(&parse_lines(r#"{"op":"stroke","layer":"l1","path":"M1 1 L60 60"}"#).unwrap())
+            .unwrap();
+        assert_eq!(read(), before, "a stroke changes its stroke file only");
+        bundle
+            .apply(&parse_lines(r#"{"op":"set","id":"l3","opacity":0.5}"#).unwrap())
+            .unwrap();
+        let after = read();
+        let new: Vec<&str> = after.lines().filter(|l| !before.lines().any(|b| b == *l)).collect();
+        assert_eq!(new, vec!["      \"opacity\": 0.5,"], "only the opacity line: {after}");
+        assert!(after.lines().count() - before.lines().count() <= 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn copies_of_a_drawing_never_make_the_same_id() {
+        use crate::ops::parse_lines;
+        let made = scratch("copy-ids");
+        let mut doc = Document::new(64, 64);
+        doc.layers.push(Layer::paint("l1", "ink", "c1"));
+        doc.next_id = 1;
+        Bundle::create(&made, doc).unwrap();
+        let edit = r#"{"op":"add","layer":{"kind":"paint","name":"more"}}
+{"op":"stroke","layer":"l1","path":"M1 1 L60 60"}
+{"op":"stroke","layer":"l1","path":"M2 1 L50 60"}"#;
+        let copy = |n: usize| {
+            let to = scratch(&format!("copy-ids-{n}"));
+            fs::create_dir_all(to.join("strokes")).unwrap();
+            fs::copy(made.join("doc.json"), to.join("doc.json")).unwrap();
+            to
+        };
+        let ids = |dir: &Path| {
+            let mut bundle = Bundle::open(dir).unwrap();
+            bundle.apply(&parse_lines(edit).unwrap()).unwrap();
+            let marks: Vec<u32> = bundle.read_marks("l1", "c1").unwrap().iter().map(Mark::id).collect();
+            (bundle.doc.ids(), marks, bundle.doc.here.tag.clone())
+        };
+        let (mine, my_marks, my_tag) = ids(&made);
+        assert_eq!(my_tag, "", "the copy it was made in keeps plain ids");
+        assert!(mine.contains("l2") && my_marks == vec![1, 2], "{mine:?} {my_marks:?}");
+        (0..40).for_each(|n| {
+            let dir = copy(n);
+            let (theirs, their_marks, tag) = ids(&dir);
+            let fresh: Vec<&String> = theirs.difference(&mine).collect();
+            assert_eq!(fresh.len(), 2, "{theirs:?}");
+            assert!(
+                fresh.iter().all(|id| id.ends_with(&tag) && !mine.contains(*id)),
+                "{fresh:?} against {mine:?}"
+            );
+            assert!(their_marks.iter().all(|id| !my_marks.contains(id)), "{their_marks:?}");
+            assert_eq!(
+                their_marks
+                    .iter()
+                    .map(|id| markedit::address("c1", *id))
+                    .collect::<Vec<_>>(),
+                vec![format!("c1:s1{tag}"), format!("c1:s2{tag}")]
+            );
+            let again = ids(&dir);
+            assert_eq!(again.2, tag, "a copy keeps its tag");
+            fs::remove_dir_all(&dir).unwrap();
+        });
+        fs::remove_dir_all(&made).unwrap();
+    }
+
+    #[test]
+    fn a_copy_keeps_counting_after_a_branch_switch() {
+        use crate::ops::parse_lines;
+        let dir = scratch("branch");
+        let mut doc = Document::new(64, 64);
+        doc.layers.push(Layer::paint("l1", "ink", "c1"));
+        doc.next_id = 1;
+        let mut bundle = Bundle::create(&dir, doc).unwrap();
+        let main_doc = fs::read(dir.join("doc.json")).unwrap();
+        bundle
+            .apply(
+                &parse_lines(
+                    r#"{"op":"add","layer":{"kind":"paint","name":"branch"}}
+{"op":"stroke","layer":"l1","path":"M1 1 L60 60"}"#,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        fs::write(dir.join("doc.json"), &main_doc).unwrap();
+        fs::remove_file(bundle.strokes_path("l1", "c1")).unwrap();
+        let mut back = Bundle::open(&dir).unwrap();
+        back.apply(
+            &parse_lines(
+                r#"{"op":"add","layer":{"kind":"paint","name":"main"}}
+{"op":"stroke","layer":"l1","path":"M1 1 L60 60"}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            !back.doc.ids().contains("l2"),
+            "l2 went to the other branch: {:?}",
+            back.doc.ids()
+        );
+        assert_eq!(back.read_marks("l1", "c1").unwrap()[0].id(), 2);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn drawings_from_before_keep_their_ids_and_count_on() {
+        let dir = scratch("before");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("doc.json"),
+            r#"{"format": "klad/4", "rev": 31, "canvas": {"width": 64, "height": 64},
+"layers": [{"id": "l6", "kind": "paint", "name": "ink", "cels": [{"id": "c12", "frame": 0}]}], "nextId": 12}"#,
+        )
+        .unwrap();
+        let mut bundle = Bundle::open(&dir).unwrap();
+        assert_eq!((bundle.doc.rev, bundle.doc.next_id), (31, 12));
+        let id = bundle.doc.alloc_id('l');
+        assert!(id.starts_with("l13") && id.len() == 5, "{id}");
+        assert!(bundle.doc.locate("l6").is_some() && bundle.doc.locate("c12").is_some());
+        bundle.save().unwrap();
+        let text = fs::read_to_string(dir.join("doc.json")).unwrap();
+        assert!(text.contains(crate::doc::FORMAT) && !text.contains("nextId"), "{text}");
+        assert_eq!(Bundle::open(&dir).unwrap().doc.rev, 32);
         fs::remove_dir_all(&dir).unwrap();
     }
 

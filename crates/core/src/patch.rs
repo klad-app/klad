@@ -102,6 +102,7 @@ fn doc_shell(doc: &Document) -> Document {
         export: doc.export.clone(),
         atmosphere: doc.atmosphere.clone(),
         next_id: doc.next_id,
+        here: doc.here.clone(),
     }
 }
 
@@ -333,8 +334,12 @@ fn merge_layer(layer: &mut Layer, old: &Value, new: &Value) -> Result<()> {
 
 fn merge_doc(doc: &mut Document, old: &Value, new: &Value) -> Result<()> {
     let layers = std::mem::take(&mut doc.layers);
+    let here = std::mem::take(&mut doc.here);
     *doc = Document {
         layers,
+        rev: doc.rev,
+        next_id: doc.next_id,
+        here,
         ..merge(&*doc, old, new)?
     };
     Ok(())

@@ -1,4 +1,4 @@
-_Last updated: 2026-11-07 16:20_
+_Last updated: 2026-11-09 09:02_
 
 # klad: design
 
@@ -101,12 +101,11 @@ art.klad/
 
 Committed: everything except `.cache/`. A fresh clone rebuilds the cache by replaying strokes and fills.
 
-### doc.json (format `klad/4`)
+### doc.json (format `klad/5`)
 
 ```json
 {
-  "format": "klad/4",
-  "rev": 42,
+  "format": "klad/5",
   "canvas": { "width": 2048, "height": 2048, "background": "#f4efe6" },
   "timeline": { "fps": 12, "frames": 24, "origin": [1024, 1800],
     "clips": [{ "name": "run", "from": 0, "to": 11, "loop": true, "fps": 24 }, { "name": "jump", "from": 12, "to": 23 }] },
@@ -134,8 +133,7 @@ Committed: everything except `.cache/`. A fresh clone rebuilds the cache by repl
           { "id": "n7", "type": "path", "d": "M380 560 L560 560 L530 600 L410 600 Z", "fill": "#2b1d14",
             "stroke": { "paint": "#000000", "width": 3 } } ] }
       ] }] }
-  ],
-  "nextId": 7
+  ]
 }
 ```
 
@@ -154,7 +152,7 @@ Committed: everything except `.cache/`. A fresh clone rebuilds the cache by repl
 - **Masks.** `mask` is a paint layer kept under the layer it masks, with its own id, cels and stroke files (`strokes/<mask id>/<cel>.strokes`). Its alpha hides the layer: strokes and fills on the mask hide, the eraser shows the layer again, and an empty mask (or a frame without a mask cel) hides nothing. `visible: false` turns the mask off. A mask keeps opacity 1 and blend normal and has no mask or clip of its own. Paint, vector and group layers can have one. Internally a mask's layer path ends in `MASK`, so `locate`, `layer_at` and the history treat it as a layer.
 - **Clipping.** `clip: true` shows a layer only where its base, the nearest layer below it in the same list without `clip`, has alpha. The base and the clipped layers above it draw as one group: each clipped layer blends onto the base with its own blend and opacity (masked by the base's alpha), then the group composites onto what is below with the base's blend and opacity, as in Photoshop with "blend clipped layers as group". A hidden base hides its clipped layers; the lowest layer of a list draws unclipped.
 - **Lock alpha.** `lockAlpha: true` on a paint layer makes new strokes and fills land only where the layer already has alpha: they composite source-atop and leave alpha unchanged. The flag is recorded on each stroke and fill (stroke format 5), so turning it off later never changes what was drawn. An eraser stroke on a lock-alpha layer changes nothing (the editor refuses it).
-- `rev` increments on every write. `klad/1` (2026-11-06) is the first `.klad` format and starts clean: drawings from before it (`.draw` folders, `draw-anything/0` to `/9`, stroke files marked `DAST`) are refused on open with the reason and not converted (`migrate.rs` keeps the place where later migrations go). From here on a format change bumps the number and migrates older `.klad` drawings on open; history snapshots go through the same migration when undone. `klad/2` (2026-11-07) added IK (`ik` on skeletons and in poses); a `klad/1` drawing opens as it is, renamed. `klad/3` (2026-11-08) added `bone` on paint layers, attaching a layer to one bone; older drawings open as they are. `klad/4` (2026-11-08) moved skeletons to bones layers that any paint layer joins through `rig` (follow a bone, or bend); drawings from before open with their rigs dropped (Kevin's call: rigs were new and untested), their drawings kept. History patches never carry the change, because they are diffs of documents already migrated in memory. From 1.0 the format promise holds: every change migrates and nothing is dropped; `tests/formats/<version>/` keeps small copies of the samples saved by each release (`just formats <version>`, `packaging/formats.sh`) with each frame's hash, and `crates/cli/tests/formats.rs` opens every one with today's build and compares the renders. `tests/formats/pre-1.0/` holds the samples as built before 1.0 (five drawings in `klad/1` and `klad/4`).
+- Nothing in `doc.json` changes on a write that does not change the drawing (`klad/5`, 2026-11-09): the revision and the id counter live in `.cache/copy.json`, so a stroke edit changes its stroke file only and git diffs and merges what was edited. Each copy of a drawing (a clone or a worktree: a folder without `.cache/copy.json`) picks a two-letter tag when klad first opens it; new layer, cel and node ids end in it (`l48qa`) and new mark ids carry it in their top 10 bits (`c12:s349qa`), and its counters only go up, so copies edited apart never make the same id, even across a branch switch in one copy. The copy a drawing is made in, and samples copied out, have no tag. `klad info` names the tag. `klad/1` (2026-11-06) is the first `.klad` format and starts clean: drawings from before it (`.draw` folders, `draw-anything/0` to `/9`, stroke files marked `DAST`) are refused on open with the reason and not converted (`migrate.rs` keeps the place where later migrations go). From here on a format change bumps the number and migrates older `.klad` drawings on open; history snapshots go through the same migration when undone. `klad/2` (2026-11-07) added IK (`ik` on skeletons and in poses); a `klad/1` drawing opens as it is, renamed. `klad/3` (2026-11-08) added `bone` on paint layers, attaching a layer to one bone; older drawings open as they are. `klad/4` (2026-11-08) moved skeletons to bones layers that any paint layer joins through `rig` (follow a bone, or bend); drawings from before open with their rigs dropped (Kevin's call: rigs were new and untested), their drawings kept. History patches never carry the change, because they are diffs of documents already migrated in memory. From 1.0 the format promise holds: every change migrates and nothing is dropped; `tests/formats/<version>/` keeps small copies of the samples saved by each release (`just formats <version>`, `packaging/formats.sh`) with each frame's hash, and `crates/cli/tests/formats.rs` opens every one with today's build and compares the renders. `tests/formats/pre-1.0/` holds the samples as built before 1.0 (five drawings in `klad/1` and `klad/4`).
 
 ### Edits
 
@@ -492,9 +490,9 @@ Every change, from the CLI or the editor, first stores a history entry in `.cach
 The agent may run in a Linux container while the editor runs on the macOS host, sharing the folder through a bind mount.
 
 - Every change is an op appended to the op log in `.cache/`, with the author and `rev`.
-- Writers write files atomically (temp file plus rename) and bump `rev`.
-- Before a CLI edit writes, it checks that `doc.json` on disk still has the `rev` it loaded (`Bundle::ensure_unchanged`, reading only the head of the file); when another writer got there first it writes nothing, says "the document changed while this edit was being made", and exits with code 75. Edits computed before the transaction (in-betweens, fills like another drawing) are the ones with a real window; the editor's job list runs them again. `DRAW_TEST_WRITE_DELAY_MS` makes the CLI wait that long before its check, for the test that edits in the middle.
-- The editor watches the bundle. When `rev` moves past its own, it applies the new ops from the log to its in-memory document.
+- Writers write files atomically (temp file plus rename) and bump `rev` in `.cache/copy.json`.
+- Before a CLI edit writes, it checks that the drawing's files are the ones it read (`Bundle::ensure_unchanged`: the size, modified time, inode and change time of `doc.json`, the stroke files and the weights, taken before reading; a few milliseconds for 400 files, no file is read); when another writer or a `git checkout` got there first it writes nothing, says "the document changed while this edit was being made", and exits with code 75. Edits computed before the transaction (in-betweens, fills like another drawing) are the ones with a real window; the editor's job list runs them again. `DRAW_TEST_WRITE_DELAY_MS` makes the CLI wait that long before its check, for the test that edits in the middle.
+- The editor watches the bundle. When its files differ from the ones it last read or wrote, it reloads, whoever changed them: the CLI, an agent or a `git checkout`. Disk caches are keyed by those files (render names) or by the bytes of each stroke file (tiles), never by a counter, so nothing stale is drawn after a checkout.
 - Undo and redo work on the shared log, so the human can undo an agent edit and the other way round.
 - M0 verifies file events and atomic renames across the OrbStack mount in both directions.
 

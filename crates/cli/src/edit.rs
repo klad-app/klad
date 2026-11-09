@@ -2,7 +2,7 @@ use anyhow::{Context, Result, bail};
 use klad_core::bundle::{Blank, Bundle, now_ms};
 use klad_core::color::parse_hex;
 use klad_core::doc::{Cel, Kind};
-use klad_core::stroke::{Mark, marks, next_id};
+use klad_core::stroke::{Mark, marks};
 use klad_core::synth::Synth;
 use notify::{Config, PollWatcher, RecursiveMode, Watcher};
 use std::path::Path;
@@ -103,7 +103,7 @@ pub fn scribble(path: &Path, opts: Scribble) -> Result<()> {
         .id
         .clone();
     let mut strokes = bundle.read_marks(&layer, &cel)?;
-    let next = next_id(&strokes);
+    let next = bundle.doc.mark_ids(&cel).next(&strokes);
     let (w, h) = (bundle.doc.canvas.width as f32, bundle.doc.canvas.height as f32);
     let mut synth = Synth::canvas(w, h);
     synth.brushes = vec!["ink".into()];

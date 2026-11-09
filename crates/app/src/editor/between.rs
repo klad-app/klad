@@ -387,8 +387,9 @@ impl Editor {
         self.say(
             Tone::Done,
             format!(
-                "{}:s{} pairs with {cel}:s{id}; making the in-betweens again",
-                pick.cel, pick.id
+                "{} pairs with {}; making the in-betweens again",
+                klad_core::markedit::address(&pick.cel, pick.id),
+                klad_core::markedit::address(&cel, id)
             ),
         );
         self.make_inbetweens(request);

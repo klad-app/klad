@@ -6,14 +6,15 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const FORMAT: &str = "klad/4";
+pub const FORMAT: &str = "klad/5";
 pub const MAX_SIZE: u32 = 16384;
 pub const MASK: usize = usize::MAX;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Document {
     pub format: String,
+    #[serde(skip)]
     pub rev: u64,
     pub canvas: Canvas,
     #[serde(default)]
@@ -25,8 +26,28 @@ pub struct Document {
     pub export: Exports,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub atmosphere: Option<Atmosphere>,
-    #[serde(default)]
+    #[serde(skip)]
     pub next_id: u64,
+    #[serde(skip)]
+    pub here: Here,
+}
+
+impl PartialEq for Document {
+    fn eq(&self, other: &Self) -> bool {
+        self.format == other.format
+            && self.canvas == other.canvas
+            && self.timeline == other.timeline
+            && self.palette == other.palette
+            && self.layers == other.layers
+            && self.export == other.export
+            && self.atmosphere == other.atmosphere
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Here {
+    pub tag: String,
+    pub marks: BTreeMap<String, u32>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -793,6 +814,66 @@ fn find_in(layers: &[Layer], id: &str, path: &mut Vec<usize>) -> Option<Loc> {
     })
 }
 
+pub const TAG_SHIFT: u32 = 22;
+pub const MARK_NUMBER: u32 = (1 << TAG_SHIFT) - 1;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MarkIds {
+    pub tag: u32,
+    pub floor: u32,
+}
+
+impl MarkIds {
+    pub fn next(&self, marks: &[crate::stroke::Mark]) -> u32 {
+        let top = marks
+            .iter()
+            .map(crate::stroke::Mark::id)
+            .filter(|id| id >> TAG_SHIFT == self.tag)
+            .map(|id| id & MARK_NUMBER)
+            .max()
+            .unwrap_or(0);
+        (self.tag << TAG_SHIFT) | (top.max(self.floor) + 1)
+    }
+}
+
+pub fn tag_index(tag: &str) -> u32 {
+    match tag.as_bytes() {
+        [a, b] if a.is_ascii_lowercase() && b.is_ascii_lowercase() => 1 + (a - b'a') as u32 * 26 + (b - b'a') as u32,
+        _ => 0,
+    }
+}
+
+pub fn tag_letters(index: u32) -> Option<String> {
+    (1..=26 * 26).contains(&index).then(|| {
+        let i = index - 1;
+        [b'a' + (i / 26) as u8, b'a' + (i % 26) as u8]
+            .iter()
+            .map(|&c| c as char)
+            .collect()
+    })
+}
+
+pub fn mark_name(id: u32) -> String {
+    match tag_letters(id >> TAG_SHIFT) {
+        Some(tag) => format!("s{}{tag}", id & MARK_NUMBER),
+        None => format!("s{id}"),
+    }
+}
+
+pub fn parse_mark(text: &str) -> Option<u32> {
+    let rest = text.strip_prefix('s')?;
+    let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+    let (number, tag) = rest.split_at(digits);
+    let number: u32 = number.parse().ok()?;
+    match tag {
+        "" => Some(number),
+        tag => {
+            let index = tag_index(tag);
+            (index > 0 && number <= MARK_NUMBER).then_some((index << TAG_SHIFT) | number)
+        }
+    }
+}
+
 pub fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
@@ -943,6 +1024,7 @@ impl Document {
             export: Exports::default(),
             atmosphere: None,
             next_id: 0,
+            here: Here::default(),
         }
     }
 
@@ -974,10 +1056,31 @@ impl Document {
     pub fn alloc_id_in(&mut self, prefix: char, taken: &mut BTreeSet<String>) -> String {
         loop {
             self.next_id += 1;
-            let id = format!("{prefix}{}", self.next_id);
+            let id = format!("{prefix}{}{}", self.next_id, self.here.tag);
             if taken.insert(id.clone()) {
                 return id;
             }
+        }
+    }
+
+    pub fn mark_ids(&self, cel: &str) -> MarkIds {
+        MarkIds {
+            tag: tag_index(&self.here.tag),
+            floor: self.here.marks.get(cel).copied().unwrap_or(0),
+        }
+    }
+
+    pub fn note_marks(&mut self, cel: &str, marks: &[crate::stroke::Mark]) {
+        let ids = self.mark_ids(cel);
+        let top = marks
+            .iter()
+            .map(crate::stroke::Mark::id)
+            .filter(|id| id >> TAG_SHIFT == ids.tag)
+            .map(|id| id & MARK_NUMBER)
+            .max()
+            .unwrap_or(0);
+        if top > ids.floor {
+            self.here.marks.insert(cel.to_string(), top);
         }
     }
 
