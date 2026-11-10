@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-pub const NATIVE: bool = cfg!(target_os = "macos") || !cfg!(test);
+pub const NATIVE: bool = !cfg!(test);
 
 #[cfg(target_os = "macos")]
 pub fn choose_folder(start: Option<&Path>, prompt: &str) -> Option<PathBuf> {
