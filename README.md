@@ -39,7 +39,7 @@ klad ink courier.klad lines --from shell-4,head-4,near-leg-4 --weight 5 --frame 
 Early, and open for testing. What works today:
 
 - The `klad` CLI on macOS, Linux and Windows: layers, brush strokes, vector shapes, fills, inking, painting from shapes, light, effects, depth and fog, text in about fifty open fonts that come with it (and any other Google Fonts family on request), frames and clips, in-betweens, exports.
-- The editor on macOS, and in a first version on Windows and Linux: a pen with pressure and tilt (pressure only on Windows; on Linux the mouse for now), brushes, layers, masks, a text tool, the timeline, onion skins, notes for the agent, and a start window for new and recent drawings.
+- The editor on macOS, and in a first version on Windows and Linux (it starts on Linux; on Windows nobody has run it on a real machine yet, so tell us what you see): a pen with pressure and tilt (pressure only on Windows; on Linux the mouse for now), brushes, layers, masks, a text tool, the timeline, onion skins, notes for the agent, and a start window for new and recent drawings.
 
 ![The start window](docs/images/start-window.png)
 
@@ -47,8 +47,8 @@ The guides in `docs/guide/` show how to paint, select, fill, animate, rig and ex
 
 ## Try it
 
-- macOS and Windows: signed installers will be sold on itch.io and Steam, under the same licence as the source (see [Licence](#licence)). Until then, build klad from source as below.
-- Linux: build it from source, free.
+- Build it from source, free, on macOS, Linux or Windows: see below.
+- Rather install it with a double click? Signed builds for macOS, Windows and Linux are planned, under the same licence as the source (see [Licence](#licence)). [Leave your email on klad.studio](https://klad.studio/pricing) to hear when they are ready.
 
 Every build holds the `klad` command line tool, the editor, the fonts, the licences, the agent skill (`klad skill` prints it) and six sample drawings to look at and draw on (the start window shows them; `klad samples` lists them and copies one out). The first start offers first steps: draw a shape, fill it and hand the drawing to an agent. In the editor, the document menu's "install the klad command" puts `klad` on your terminal's path for you and for agents (`klad install` does the same). The editor checks klad's releases once a day for a new version and says so; it installs nothing by itself (turn it off in the settings window).
 
