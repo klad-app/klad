@@ -13,6 +13,9 @@ publish = false
 incremental = false
 debug = "line-tables-only"
 
+[profile.dev.package.klad-cli]
+opt-level = 1
+
 [profile.release]
 debug = 1
 

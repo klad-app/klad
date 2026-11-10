@@ -389,6 +389,12 @@ pub fn relative(from: &Path, to: &Path) -> PathBuf {
     }
 }
 
+pub fn kept_folder(from: &Path, to: &Path) -> String {
+    relative(from, to)
+        .to_string_lossy()
+        .replace(std::path::MAIN_SEPARATOR, "/")
+}
+
 pub(crate) fn read(path: &Path) -> Option<String> {
     fs::read_to_string(path).ok()
 }
@@ -408,7 +414,7 @@ pub fn godot(path: &Path, dir: Option<PathBuf>, store: bool, look: &Look, packin
     };
     fs::create_dir_all(&target).with_context(|| format!("making {}", target.display()))?;
     let target = target.canonicalize()?;
-    let rel = relative(&home.canonicalize()?, &target).to_string_lossy().to_string();
+    let rel = kept_folder(&home.canonicalize()?, &target);
     let keep = match (&dir, &stored) {
         (Some(_), None) => true,
         (Some(_), Some(s)) => store && *s != rel,
@@ -789,7 +795,7 @@ func _init():
 
     #[test]
     fn relative_folders_walk_up_and_down() {
-        let rel = |a: &str, b: &str| relative(Path::new(a), Path::new(b)).to_string_lossy().to_string();
+        let rel = |a: &str, b: &str| kept_folder(Path::new(a), Path::new(b));
         assert_eq!(rel("/work/art", "/work/game/sprites"), "../game/sprites");
         assert_eq!(rel("/work/art", "/work/art/godot"), "godot");
         assert_eq!(rel("/work/art", "/work/art"), ".");
