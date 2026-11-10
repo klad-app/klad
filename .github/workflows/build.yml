@@ -101,6 +101,14 @@ jobs:
               echo "::warning title=${{ matrix.name }} tests::$line"
             done
           fi
+      - name: The main stack klad was linked with
+        if: always() && runner.os == 'Windows'
+        run: |
+          for exe in "${{ matrix.target }}/release/klad.exe" "${{ matrix.target }}/debug/klad.exe"; do
+            [ -f "$exe" ] || continue
+            reserve="$(python -c "import struct, sys; b = open(sys.argv[1], 'rb').read(4096); o = struct.unpack_from('<I', b, 0x3c)[0]; print(struct.unpack_from('<Q', b, o + 96)[0])" "$exe")"
+            echo "::notice title=Windows main stack::$exe is linked with $reserve bytes"
+          done
       - name: Tests must pass where klad is tested
         if: steps.tests.outcome == 'failure' && runner.os != 'Windows'
         run: exit 1
