@@ -91,7 +91,8 @@ fn shown(layers: &[&Layer], frame: u32) -> Vec<Option<String>> {
 pub fn plan(doc: &Document, from: u32, to: u32, drawings: bool) -> Plan {
     let layers: Vec<&Layer> = sheet_layers(doc).into_iter().filter(|l| !l.cels().is_empty()).collect();
     let grid: Vec<Vec<Cell>> = layers.iter().map(|l| cells(l, to + 1)).collect();
-    let holds = |f: u32| f > 0 && shown(&layers, f) == shown(&layers, f - 1);
+    let holds =
+        |f: u32| f > 0 && shown(&layers, f) == shown(&layers, f - 1) && doc.keyed_state(f) == doc.keyed_state(f - 1);
     let tokens = |f: u32| grid.iter().map(|c| token(&c[f as usize])).collect::<Vec<_>>();
     let spots = match drawings {
         false => (from..=to)
