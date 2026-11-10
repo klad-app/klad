@@ -60,6 +60,14 @@ pub mod icon {
     pub const LASSO: &str = "\u{EDC6}";
     pub const PALETTE: &str = "\u{E6C8}";
     pub const FLIP_H: &str = "\u{ED6A}";
+    pub const ALIGN_LEFT: &str = "\u{E50E}";
+    pub const ALIGN_CENTRE_ACROSS: &str = "\u{E50A}";
+    pub const ALIGN_RIGHT: &str = "\u{E510}";
+    pub const ALIGN_TOP: &str = "\u{E512}";
+    pub const ALIGN_CENTRE_DOWN: &str = "\u{E50C}";
+    pub const ALIGN_BOTTOM: &str = "\u{E506}";
+    pub const DISTRIBUTE_ACROSS: &str = "\u{E534}";
+    pub const DISTRIBUTE_DOWN: &str = "\u{E536}";
     pub const FLIP_V: &str = "\u{ED6C}";
     pub const LAYERS: &str = "\u{E466}";
     pub const EYE: &str = "\u{E220}";

@@ -17,6 +17,7 @@ use klad_core::ops::{ClipEdit, Op, PaletteEdit};
 use klad_core::pathedit::PathEdit;
 use klad_core::retime::Retime;
 use klad_core::timing::OPEN;
+use klad_render::align::{Across, Axis, Down};
 use serde_json::{Map, json};
 use std::collections::BTreeSet;
 
@@ -136,6 +137,21 @@ impl Editor {
                     _ => Some("select strokes (S) or a shape (V) first".to_string()),
                 }
             }
+            Cmd::AlignLeft
+            | Cmd::AlignCentre
+            | Cmd::AlignRight
+            | Cmd::AlignTop
+            | Cmd::AlignMiddle
+            | Cmd::AlignBottom => match self.selected() {
+                Some(Selected::Shape(_)) => editing,
+                _ => Some("select a shape with V first; shift click adds more".to_string()),
+            },
+            Cmd::DistributeAcross | Cmd::DistributeDown => match self.selected() {
+                Some(Selected::Shape(_)) if self.shapes().len() >= 3 => editing,
+                _ => {
+                    Some("select three shapes or more with V: shift click adds one, a lasso takes several".to_string())
+                }
+            },
             Cmd::NudgeLeft | Cmd::NudgeRight | Cmd::NudgeUp | Cmd::NudgeDown => match self.selected() {
                 Some(_) => editing.or(self
                     .path_commit
@@ -554,8 +570,11 @@ impl Editor {
                     self.commit_path(PathEdit::Remove { points })?;
                 }
                 _ => {
-                    if let Some(id) = self.selection.take() {
-                        self.apply(vec![Op::Remove { ids: vec![id] }])?;
+                    let ids = self.shapes();
+                    self.selection = None;
+                    self.group.clear();
+                    if !ids.is_empty() {
+                        self.apply(vec![Op::Remove { ids }])?;
                     }
                 }
             },
@@ -566,6 +585,7 @@ impl Editor {
                     Tool::Direct => self.direct = None,
                     Tool::Select => {
                         self.selection = None;
+                        self.group.clear();
                         self.picked = None;
                     }
                     _ => self.selection = None,
@@ -603,6 +623,14 @@ impl Editor {
             Cmd::TurnLeft90 => self.turn(-90.0)?,
             Cmd::TurnRight90 => self.turn(90.0)?,
             Cmd::DuplicateInPlace => self.duplicate_in_place()?,
+            Cmd::AlignLeft => self.align(Some(Across::Left), None, None)?,
+            Cmd::AlignCentre => self.align(Some(Across::Centre), None, None)?,
+            Cmd::AlignRight => self.align(Some(Across::Right), None, None)?,
+            Cmd::AlignTop => self.align(None, Some(Down::Top), None)?,
+            Cmd::AlignMiddle => self.align(None, Some(Down::Middle), None)?,
+            Cmd::AlignBottom => self.align(None, Some(Down::Bottom), None)?,
+            Cmd::DistributeAcross => self.align(None, None, Some(Axis::X))?,
+            Cmd::DistributeDown => self.align(None, None, Some(Axis::Y))?,
             Cmd::NudgeLeft => self.nudge(-1.0, 0.0)?,
             Cmd::NudgeRight => self.nudge(1.0, 0.0)?,
             Cmd::NudgeUp => self.nudge(0.0, -1.0)?,

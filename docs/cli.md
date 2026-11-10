@@ -29,6 +29,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad set`](#klad-set): Change properties: klad set art.klad n4 fill=#ff0000 transform.rotate=15 (null removes)
 - [`klad recolour`](#klad-recolour): Recolour strokes and fills together: the group moves to the colour and each keeps its own lighter or darker shade
 - [`klad detach`](#klad-detach): Detach eraser, smudge and blender strokes from the marks they are attached to
+- [`klad align`](#klad-align): Align shapes to each other, the canvas or one shape, or spread them evenly
 - [`klad rm`](#klad-rm): Remove layers, cels or nodes
 - [`klad transform`](#klad-transform): Move, rotate or scale strokes and fills (<cel>:s<id>), or a whole layer or group (--layer)
 - [`klad lasso`](#klad-lasso): Lasso strokes and fills on a paint layer; --cut also takes the parts crossing the edge
@@ -986,6 +987,64 @@ Arguments:
 
 
 Options:
+      --render
+          Render a preview after the edit and print its path
+
+      --scale <SCALE>
+          Preview scale (default: longest side 1024 px)
+
+      --json
+          Print the result as JSON
+
+      --overlay <OVERLAY>
+          Draw on the preview: ids, bbox, grid or all (comma separated)
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## klad align
+
+```text
+Align shapes (the nodes of a vector layer) by their bounds on the canvas, or spread them evenly. --x lines up left edges, centres or right edges; --y lines up tops, middles or bottoms; both together stack them on one point. Without --to they line up on the bounds of the shapes together, so the outermost one stays; --to canvas uses the canvas (one shape is enough), --to <id> uses that shape, which stays where it is. --spread x or y keeps the two outer shapes and makes the gaps between neighbours equal; with --gap the first stays and each next one follows that many px after it. Aligning one way and spreading the other go together. A shape inside a group moves by the distance seen on the canvas. One history step.
+
+  klad align art.klad n3 n4 n7 --y middle
+  klad align art.klad n3 n4 n7 --y middle --spread x
+  klad align art.klad n3 n4 n7 --spread x --gap 24
+  klad align art.klad title --x centre --to canvas
+  klad align art.klad n4 n7 --x left --to n3
+
+Usage: klad align [OPTIONS] <BUNDLE> [IDS]...
+
+Arguments:
+  <BUNDLE>
+
+
+  [IDS]...
+
+
+Options:
+      --x <X>
+          Line up left edges, centres or right edges
+
+          [possible values: left, centre, center, right]
+
+      --y <Y>
+          Line up tops, middles or bottoms
+
+          [possible values: top, middle, bottom]
+
+      --spread <SPREAD>
+          Make the gaps between neighbours equal, across (x) or down (y)
+
+          [possible values: x, y]
+
+      --gap <GAP>
+          With --spread: px between neighbours, counted from the first
+
+      --to <TO>
+          What to line up on: canvas, or a shape id that stays put (default: the shapes together)
+
       --render
           Render a preview after the edit and print its path
 

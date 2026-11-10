@@ -1,3 +1,4 @@
+pub mod align;
 pub mod assets;
 pub mod effects;
 pub mod export;

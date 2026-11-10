@@ -43,6 +43,7 @@ klad set art.klad n3 transform.rotate=-8 opacity=0.8 blur=4
 - As in SVG, a node without `fill` is black; use `fill=none` for outlines only.
 - Unknown keys fail with the list of valid ones. Structure (`id`, `type`, `kind`, `children`, `cels`, `nodes`) only changes through add, rm and mv.
 - Ids are case sensitive; overlays print them exactly.
+- Lining shapes up: `klad align art.klad n3 n4 n7 --y middle` puts them on one line by their bounds on the canvas (`--x left|centre|right`, `--y top|middle|bottom`), `--spread x` (or `y`) makes the gaps between them equal with the outer two staying, and `--gap 24` sets the gap instead. `--to canvas` lines up on the canvas (`klad align art.klad title --x centre --to canvas`), `--to n3` on a shape that stays put. One history step. The user does the same with V, shift click and the bar under the shapes.
 
 ## Painting
 

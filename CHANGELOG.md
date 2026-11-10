@@ -5,6 +5,7 @@
 The first builds, and klad's licences.
 
 - A new icon, painted in klad: a K in two brush strokes.
+- Align and distribute shapes. With **V**, shift click adds a shape to the selection and a loop dragged on a vector layer takes the shapes inside; several shapes move, scale, turn, flip, duplicate and delete together. The bar under them lines up their left, right, top or bottom edges or their centres and spaces three or more evenly; one shape lines up on the canvas (**Edit > Align**). From the command line: `klad align art.klad n3 n4 n7 --y middle --spread x`, with `--to canvas` or `--to <shape>` and `--gap`.
 - Fixed exports of a clip moved by keys (a layer, group or shape keyed between frames, with no drawing per frame): `klad export --sheet`, `--frames` and `--godot` wrote the first pose for every frame, and `klad render --sheet` showed them as held. Each pose is now its own picture.
 - A second agent skill, `klad skill drawing`: the craft of drawing and painting (planning a picture, light on form, values, edges, colour, materials, line, a painting method and a critique checklist), under the MIT licence like the first.
 - Drawings are `.klad` folders in a fresh format, `klad/6` (drawings from the first builds open as they are, except their bones, which are dropped). Drawings from before (`.draw` folders) do not open and are not converted.

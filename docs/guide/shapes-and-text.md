@@ -1,4 +1,4 @@
-_Last updated: 2026-11-10 10:30_
+_Last updated: 2026-11-10 21:45_
 
 # Shapes, paths and text
 
@@ -17,6 +17,14 @@ Press **P**, click to place corners and drag to pull out curves. Click the first
 Press **A**, click the shape and drag its points and handles. Alt click on the outline adds a point.
 
 To move several points together, drag a box around them, then drag one of them. Hold **shift** while you drag the box to take the points of every shape on the layer, not only the one you clicked.
+
+## Line up several shapes
+
+1. Press **V** and click the first shape.
+2. Shift click the others, or drag a loop around them.
+3. In the bar under them, click an align button: left, centre or right edges, or top, middle or bottom.
+
+The two buttons with arrows space three or more shapes evenly. With one shape selected, **Edit > Align** lines it up on the canvas.
 
 ## Fill a shape with a gradient
 
