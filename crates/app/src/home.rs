@@ -769,7 +769,7 @@ mod tests {
                 h.run_steps(4);
                 recent_scrolls_sideways(&mut h, size.x);
             });
-        std::fs::remove_dir_all(&dir).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
