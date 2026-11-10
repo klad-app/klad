@@ -687,6 +687,7 @@ pub(crate) struct Editor {
     direct: Option<Direct>,
     shaped: Option<Shaped>,
     point_drag: Option<PointDrag>,
+    pick_later: bool,
     path_commit: Option<PathCommit>,
     simplify_px: f32,
     under: Vec<String>,
@@ -865,6 +866,7 @@ impl Editor {
             direct: None,
             shaped: None,
             point_drag: None,
+            pick_later: false,
             path_commit: None,
             simplify_px: 1.5,
             under: Vec::new(),
@@ -2080,6 +2082,7 @@ impl Editor {
 
     fn direct_down(&mut self, view: View, rect: Rect, pos: Pos2, c: Vec2) -> Result<()> {
         let (alt, shift) = (self.modifiers.alt, self.modifiers.shift);
+        self.pick_later = false;
         enum Action {
             Handle(usize, Side),
             Anchor(usize, bool),
@@ -2152,57 +2155,85 @@ impl Editor {
             }
             Action::Insert(segment, t) => return self.commit_path(PathEdit::Insert { segment, t }),
             Action::Elsewhere => {
-                self.under = overlay::leaf_hits(&self.scene.bundle.doc, self.scene.frame, (c.x, c.y))?;
-                let zoom = self.view.map_or(1.0, |v| v.zoom);
-                let mut on_stroke = false;
-                if self.under.is_empty()
-                    && let Some((path, mark)) = self.mark_at(c, 5.0 / zoom)
-                {
-                    if path != self.scene.active {
-                        self.activate(path)?;
+                let on_shape = match self.direct.is_some() && !self.on_picked_shape(c)? {
+                    true => {
+                        self.pick_later = true;
+                        Some(false)
                     }
-                    let picked = self
-                        .scene
-                        .active_marks()
-                        .iter()
-                        .find(|m| m.id() == mark)
-                        .map(|m| m.as_stroke().is_some());
-                    match (picked, self.scene.active_cel()) {
-                        (Some(true), Some(cel)) => {
-                            let address = markedit::address(&cel, mark);
-                            if self.direct.as_ref().map(|d| &d.node) != Some(&address) {
-                                self.pick_shape(address);
-                                return Ok(());
-                            }
-                            on_stroke = true;
-                        }
-                        (Some(false), _) => {
-                            self.say(Tone::Info, "that is a fill: A reshapes strokes and vector shapes")
-                        }
-                        _ => {}
-                    }
-                }
-                let current = self.direct.as_ref().map(|d| d.node.clone());
-                let hit = match &current {
-                    Some(id) if self.under.contains(id) => Some(id.clone()),
-                    _ => self.under.first().cloned(),
+                    false => self.pick_elsewhere(c)?,
                 };
-                match hit {
-                    Some(id) if Some(&id) != current.as_ref() => self.pick_shape(id),
-                    hit => {
-                        self.point_drag = Some(PointDrag {
-                            grab: PointGrab::Marquee {
-                                on_shape: hit.is_some() || on_stroke,
-                            },
-                            start: c,
-                            now: c,
-                            free: false,
-                        });
-                    }
+                if let Some(on_shape) = on_shape {
+                    self.point_drag = Some(PointDrag {
+                        grab: PointGrab::Marquee { on_shape },
+                        start: c,
+                        now: c,
+                        free: false,
+                    });
                 }
             }
         }
         Ok(())
+    }
+
+    fn on_picked_shape(&self, c: Vec2) -> Result<bool> {
+        let Some(current) = self.direct.as_ref().map(|d| &d.node) else {
+            return Ok(false);
+        };
+        let under = overlay::leaf_hits(&self.scene.bundle.doc, self.scene.frame, (c.x, c.y))?;
+        if !under.is_empty() {
+            return Ok(under.contains(current));
+        }
+        let zoom = self.view.map_or(1.0, |v| v.zoom);
+        Ok(self.mark_at(c, 5.0 / zoom).is_some_and(|(path, mark)| {
+            path == self.scene.active
+                && self
+                    .scene
+                    .active_cel()
+                    .is_some_and(|cel| markedit::address(&cel, mark) == *current)
+        }))
+    }
+
+    fn pick_elsewhere(&mut self, c: Vec2) -> Result<Option<bool>> {
+        self.under = overlay::leaf_hits(&self.scene.bundle.doc, self.scene.frame, (c.x, c.y))?;
+        let zoom = self.view.map_or(1.0, |v| v.zoom);
+        let mut on_stroke = false;
+        if self.under.is_empty()
+            && let Some((path, mark)) = self.mark_at(c, 5.0 / zoom)
+        {
+            if path != self.scene.active {
+                self.activate(path)?;
+            }
+            let picked = self
+                .scene
+                .active_marks()
+                .iter()
+                .find(|m| m.id() == mark)
+                .map(|m| m.as_stroke().is_some());
+            match (picked, self.scene.active_cel()) {
+                (Some(true), Some(cel)) => {
+                    let address = markedit::address(&cel, mark);
+                    if self.direct.as_ref().map(|d| &d.node) != Some(&address) {
+                        self.pick_shape(address);
+                        return Ok(None);
+                    }
+                    on_stroke = true;
+                }
+                (Some(false), _) => self.say(Tone::Info, "that is a fill: A reshapes strokes and vector shapes"),
+                _ => {}
+            }
+        }
+        let current = self.direct.as_ref().map(|d| d.node.clone());
+        let hit = match &current {
+            Some(id) if self.under.contains(id) => Some(id.clone()),
+            _ => self.under.first().cloned(),
+        };
+        match hit {
+            Some(id) if Some(&id) != current.as_ref() => {
+                self.pick_shape(id);
+                Ok(None)
+            }
+            hit => Ok(Some(hit.is_some() || on_stroke)),
+        }
     }
 
     fn pen_down(&mut self, view: View, rect: Rect, pos: Pos2, c: Vec2) -> Result<()> {
@@ -2389,6 +2420,13 @@ impl Editor {
         let moved = (drag.now - drag.start).length() * zoom > 2.0;
         match drag.grab {
             PointGrab::Marquee { on_shape } => {
+                let later = std::mem::take(&mut self.pick_later);
+                if !moved && later {
+                    if self.pick_elsewhere(drag.start)? == Some(false) {
+                        self.direct = None;
+                    }
+                    return Ok(());
+                }
                 if !moved {
                     let current = self.direct.as_ref().map(|d| d.node.clone());
                     let below = current
@@ -3796,7 +3834,7 @@ impl Editor {
             }
         }
         ui.small(
-            "drag points or handles; shift click adds a point to the selection, drag on empty canvas selects in a box\n\
+            "drag points or handles; drag a box around points to select them, shift adds to the selection; drag one to move them all\n\
              alt click the outline: new point; alt click a point: corner or smooth; alt drag a handle: break it",
         );
         if self.path_commit.is_some() {

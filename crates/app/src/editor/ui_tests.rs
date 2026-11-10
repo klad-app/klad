@@ -2540,6 +2540,75 @@ fn the_brush_window_edits_a_brush_shows_it_and_saves_it_in_the_drawing() {
 }
 
 #[test]
+fn a_box_dragged_from_another_shape_picks_points_and_shift_adds_to_them() {
+    let path = sample("point-box");
+    let mut bundle = Bundle::open(&path).unwrap();
+    let shapes = bundle.doc.find_layer("shapes").unwrap().id.clone();
+    bundle
+        .apply(
+            &parse_lines(&format!(
+                r##"{{"op":"add","node":{{"type":"rect","x":0,"y":0,"w":512,"h":384,"fill":"#203040"}},"in":"{shapes}","frame":0}}
+{{"op":"add","node":{{"type":"rect","x":200,"y":150,"w":80,"h":60,"fill":"#d0b040"}},"in":"{shapes}","frame":0}}"##
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+    let (back, small) = {
+        let nodes = &bundle.doc.find_layer("shapes").unwrap().cels()[0].nodes;
+        (nodes[nodes.len() - 2].id.clone(), nodes[nodes.len() - 1].id.clone())
+    };
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    activate(&mut h, "shapes");
+    h.key_press(Key::A);
+    h.run_steps(2);
+    let view = h.state().view.unwrap();
+    let rect = h.state().canvas_rect;
+    let at = |x: f32, y: f32| rect.min + view.to_screen(egui::Vec2::new(x, y), rect.size());
+    let picked = |h: &Harness<'static, Editor>| {
+        let ed = h.state();
+        let direct = ed.direct.clone().unwrap();
+        let anchors = klad_core::pathedit::anchors(&ed.shaped.as_ref().unwrap().subs);
+        let ys: Vec<f32> = direct.points.iter().map(|&i| anchors[i].1.at[1]).collect();
+        (direct.node, ys)
+    };
+    click_with(&mut h, at(240.0, 180.0), Modifiers::NONE);
+    assert_eq!(picked(&h), (small.clone(), vec![]));
+    drag(&mut h, at(190.0, 140.0), at(290.0, 170.0));
+    h.run_steps(2);
+    assert_eq!(
+        picked(&h),
+        (small.clone(), vec![150.0, 150.0]),
+        "a box from the shape behind"
+    );
+    h.event(egui::Event::ModifiersChanged(Modifiers::SHIFT));
+    drag(&mut h, at(190.0, 195.0), at(290.0, 225.0));
+    h.event(egui::Event::ModifiersChanged(Modifiers::NONE));
+    h.run_steps(2);
+    let (node, mut ys) = picked(&h);
+    ys.sort_by(f32::total_cmp);
+    assert_eq!(
+        (node, ys),
+        (small.clone(), vec![150.0, 150.0, 210.0, 210.0]),
+        "shift adds the box"
+    );
+    let corner = at(200.0, 150.0);
+    drag(&mut h, corner, corner + vec2(0.0, -30.0));
+    settle(&mut h, |ed| ed.point_drag.is_none() && ed.path_commit.is_none());
+    h.run_steps(2);
+    let moved = klad_core::pathedit::anchors(&h.state().shaped.as_ref().unwrap().subs)
+        .iter()
+        .map(|(_, a)| a.at[1])
+        .fold(f32::MAX, f32::min);
+    assert!(
+        (moved - (150.0 - 30.0 / view.zoom)).abs() < 1.0,
+        "all four moved together, top at {moved}"
+    );
+    click_with(&mut h, at(60.0, 300.0), Modifiers::NONE);
+    assert_eq!(picked(&h), (back, vec![]), "a click on the shape behind still picks it");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn a_bends_a_brush_stroke_and_the_stroke_keeps_its_pressure() {
     let path = sample("reshape");
     Bundle::open(&path)
