@@ -1,0 +1,7 @@
+* text=auto eol=lf
+*.strokes binary
+*.weights binary
+fonts/** -text
+licenses/** -text
+tests/formats/** -text
+THIRD-PARTY-NOTICES.md -text
