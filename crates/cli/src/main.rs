@@ -1827,8 +1827,14 @@ enum Command {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
-    #[command(about = "Print the agent skill: how an agent draws with klad (the same text as docs/skill/SKILL.md)")]
-    Skill,
+    #[command(
+        about = "Print an agent skill: how an agent draws with klad, or the craft of drawing itself",
+        long_about = "Print an agent skill, to hand to an agent as its instructions.\n\n  klad skill            how an agent draws with klad: the commands, layers, brushes and traps (docs/skill/SKILL.md)\n  klad skill drawing    the craft: planning a picture, light on form, values, edges, colour, materials, line, a painting method and a critique checklist (docs/skill/drawing/SKILL.md)\n\nBoth are under the MIT licence."
+    )]
+    Skill {
+        #[arg(help = "Which skill: klad (the default) or drawing")]
+        which: Option<String>,
+    },
     #[command(
         about = "List the sample drawings that come with klad, or copy one to draw on",
         long_about = "List the sample drawings that come with klad (the editor's start window shows the same ones), or copy one into a folder to open, render and draw on; the copy is yours, the samples stay as they are. Without --into it goes in the current folder, as <name>.klad (or <name> 2.klad when that is taken). KLAD_SAMPLES points at another samples folder (one holding shipped.json).\n\n  klad samples\n  klad samples --copy lantern\n  klad samples --copy rig --into ~/Drawings"
@@ -3589,7 +3595,13 @@ fn run() -> Result<()> {
         Command::Watch { bundle, poll, seconds } => edit::watch(&bundle, poll, seconds)?,
         Command::Licences => print!("{}\n{}", klad_core::notices::LICENSE, klad_core::notices::NOTICES),
         Command::Install { dir } => install::install(dir.as_deref())?,
-        Command::Skill => print!("{}", include_str!("../../../docs/skill/SKILL.md")),
+        Command::Skill { which } => match which.as_deref() {
+            None | Some("klad") => print!("{}", include_str!("../../../docs/skill/SKILL.md")),
+            Some("drawing") => print!("{}", include_str!("../../../docs/skill/drawing/SKILL.md")),
+            Some(other) => bail!(
+                "there is no skill named {other}: klad skill prints the klad skill, klad skill drawing the craft of drawing"
+            ),
+        },
         Command::Samples { copy, into, json } => samples(copy.as_deref(), into, json)?,
         Command::Reference => print!("{}", reference()),
         #[cfg(feature = "editor")]

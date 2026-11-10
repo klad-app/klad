@@ -1,4 +1,4 @@
-_Last updated: 2026-11-10 12:10_
+_Last updated: 2026-11-10 14:30_
 
 # klad: design
 
@@ -433,7 +433,7 @@ An error is one line on stderr (`error: reading a.klad/doc.json: No such file or
 | `klad export <bundle> --godot-scene [dir]`, `--godot-rig [dir]` | a Godot parallax scene; a Godot rig with its animations |
 | `klad paintover <bundle> <layer> [--from] [--in] [--sizes 32,16,8] [--threshold 6] [--length 1,8] [--curve 0.5] [--brush oil] [--focus] [--vary] [--like <cel> [--frames a-b]] [--part] [--seed]` | brushwork from what is below the layer (see Paint over) |
 | `klad compare <drawing\|png> <reference> [--frame] [--region name=x,y,w,h]... [--heat out.png] [--json]` | values, saturation, texture, edges and colour against a reference, in numbers and words |
-| `klad install [--dir]`, `klad skill` | put `klad` on the terminal's path; print the agent skill |
+| `klad install [--dir]`, `klad skill [drawing]` | put `klad` on the terminal's path; print the agent skill, or with `drawing` the skill that teaches the craft of drawing (`docs/skill/drawing/SKILL.md`, MIT like the first, written for any agent and any tool) |
 | `klad samples [--json]`, `klad samples --copy <name> [--into <folder>]` | the sample drawings a build carries; copy one to draw on |
 | `klad report [--drawing <bundle>]` | a problem report to paste into an issue, the drawing zipped to attach |
 

@@ -7,7 +7,7 @@ of klad (see LICENSE), they are licensed under the MIT License below:
 
 - docs/format.md: the file format of a klad drawing
 - docs/cli.md: the command reference
-- docs/skill/: the agent skill (SKILL.md and drawkit.py)
+- docs/skill/: the agent skills (SKILL.md, drawkit.py and drawing/SKILL.md)
 - crates/client/: the klad-client crate
 
 ---

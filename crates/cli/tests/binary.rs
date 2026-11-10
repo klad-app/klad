@@ -11,6 +11,26 @@ fn the_binary_runs() {
 }
 
 #[test]
+fn skill_prints_the_klad_skill_and_the_drawing_skill() {
+    let skill = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_klad"))
+            .arg("skill")
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let said = |args: &[&str]| String::from_utf8_lossy(&skill(args).stdout).to_string();
+    assert!(said(&[]).starts_with("---\nname: klad\n"));
+    assert_eq!(said(&["klad"]), said(&[]));
+    let drawing = said(&["drawing"]);
+    assert!(drawing.starts_with("---\nname: klad-drawing\n"));
+    assert!(drawing.contains("## The order of work"));
+    let unknown = skill(&["painting"]);
+    assert!(!unknown.status.success());
+    assert!(String::from_utf8_lossy(&unknown.stderr).contains("no skill named painting"));
+}
+
+#[test]
 fn a_drawing_moves_and_a_layer_duplicates_from_the_command_line() {
     let dir = std::env::temp_dir().join(format!("draw-binary-move-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

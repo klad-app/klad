@@ -80,7 +80,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad watch`](#klad-watch): Print editor saves as they arrive, with how long they took to show up here
 - [`klad licences`](#klad-licences): Print the licence and the third-party notices (every open source part klad is built on)
 - [`klad install`](#klad-install): Put klad on the terminal's path, for you and for agents
-- [`klad skill`](#klad-skill): Print the agent skill: how an agent draws with klad (the same text as docs/skill/SKILL.md)
+- [`klad skill`](#klad-skill): Print an agent skill: how an agent draws with klad, or the craft of drawing itself
 - [`klad samples`](#klad-samples): List the sample drawings that come with klad, or copy one to draw on
 - [`klad report`](#klad-report): Print a problem report to paste into an issue: version, system and the last lines of klad's log
 - [`klad updates`](#klad-updates): Check now whether a newer klad is out (the editor also checks once a day by itself)
@@ -3564,13 +3564,22 @@ Options:
 ## klad skill
 
 ```text
-Print the agent skill: how an agent draws with klad (the same text as docs/skill/SKILL.md)
+Print an agent skill, to hand to an agent as its instructions.
 
-Usage: klad skill
+  klad skill            how an agent draws with klad: the commands, layers, brushes and traps (docs/skill/SKILL.md)
+  klad skill drawing    the craft: planning a picture, light on form, values, edges, colour, materials, line, a painting method and a critique checklist (docs/skill/drawing/SKILL.md)
+
+Both are under the MIT licence.
+
+Usage: klad skill [WHICH]
+
+Arguments:
+  [WHICH]
+          Which skill: klad (the default) or drawing
 
 Options:
   -h, --help
-          Print help
+          Print help (see a summary with '-h')
 ```
 
 ## klad samples
