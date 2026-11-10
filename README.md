@@ -10,6 +10,10 @@
 
 *Asked for "a little sprout creature for my game", the agent paints 4,333 strokes. Then you change them: recolour the leaves, bend the mouth, move a smudge, blend the blush.*
 
+![The same creature made to walk, with the agent's terminal beside it: its body, sprout, feet and shadow are pulled apart into five groups, the groups get keys, and the creature waddles in a loop of thirty frames](docs/images/creature-walk-build.gif)
+
+*Then the agent makes it walk: the creature's parts go into five groups, 205 keys move them, and no frame is painted again.*
+
 | | |
 |---|---|
 | ![A night scene: a hooded traveller holds a lantern on a pole out to a ruined stone arch, a small sprout creature following](docs/images/scene.png) | ![Twelve game props: a chest, a crate, a barrel, a torch, a potion, a key, a shield, a signpost, rope, a bedroll, mushrooms and a waystone](docs/images/kit.png) |
