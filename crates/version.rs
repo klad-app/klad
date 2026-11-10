@@ -1,6 +1,8 @@
 use std::path::Path;
 use std::process::Command;
 
+const MAIN_STACK: u32 = 8 * 1024 * 1024;
+
 fn main() {
     let git = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.git");
     ["HEAD", "refs", "packed-refs"]
@@ -19,4 +21,16 @@ fn main() {
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
     });
     println!("cargo:rustc-env=KLAD_BUILD={}", described.unwrap_or_default());
+    main_stack();
+}
+
+fn main_stack() {
+    let windows = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
+    if !windows || env!("CARGO_PKG_NAME") != "klad-cli" {
+        return;
+    }
+    match std::env::var("CARGO_CFG_TARGET_ENV").as_deref() {
+        Ok("msvc") => println!("cargo:rustc-link-arg-bins=/STACK:{MAIN_STACK}"),
+        _ => println!("cargo:rustc-link-arg-bins=-Wl,--stack,{MAIN_STACK}"),
+    }
 }
