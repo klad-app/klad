@@ -1,5 +1,7 @@
 # klad
 
+[![build on macOS, Linux and Windows](https://github.com/klad-app/klad/actions/workflows/build.yml/badge.svg)](https://github.com/klad-app/klad/actions/workflows/build.yml)
+
 ![The klad editor with a round green sprout creature open, painted by an agent in visible oil strokes, with the brush, colour and layer panes beside it](docs/images/editor-creature.png)
 
 **Give your agent real brushes.** klad is a 2D painting and animation app you share with a coding agent. You paint in the editor with a pen. The agent paints through the `klad` command line, with the same brushes, on the same drawing, and each of you sees the other's strokes instantly.
@@ -18,7 +20,7 @@
 
 - **Site and guides:** [klad.studio](https://klad.studio), with these drawings replayed stroke by stroke.
 - **Licence:** source-available, not open source. Free to build and use for yourself, and inside a company with less than 500,000 euros a year in revenue. See [Licence](#licence).
-- **Runs on:** macOS (pen pressure and tilt). The editor also starts on Linux, with the mouse for now. Windows is untested.
+- **Runs on:** macOS (pen pressure and tilt). It also builds and passes its tests on Linux and Windows, checked on every change; the editor starts on Linux with the mouse for now, and nobody has drawn with it on Windows yet.
 - **Status:** early. This is the first public version, and you build it yourself: see [From source](#from-source).
 
 ## Why not just generate the picture?
@@ -104,7 +106,7 @@ Building takes about ten minutes the first time.
 ## What's rough
 
 - **You build it yourself.** There are no installers yet. Signed builds for macOS, Windows and Linux are planned, under the same licence as the source; [leave your email on klad.studio](https://klad.studio/pricing) to hear when they are ready.
-- **The editor is made on a Mac.** On Linux it starts and you draw with the mouse: tablets give no pressure there yet. On Windows nobody has run it on a real machine, so tell us what you see.
+- **The editor is made on a Mac.** On Linux it starts and you draw with the mouse: tablets give no pressure there yet. On Windows it builds and its tests pass, but nobody has drawn with it there, so tell us what you see.
 - **Some illustration basics are missing:** selecting several shapes at once, align and distribute, snapping, a grid, and SVG import and export.
 - **Bones are a preview:** their commands may still change.
 - Drawings keep opening as klad changes: a new format version comes with a migration.

@@ -109,6 +109,6 @@ jobs:
             reserve="$(python -c "import struct, sys; b = open(sys.argv[1], 'rb').read(4096); o = struct.unpack_from('<I', b, 0x3c)[0]; print(struct.unpack_from('<Q', b, o + 96)[0])" "$exe")"
             echo "::notice title=Windows main stack::$exe is linked with $reserve bytes"
           done
-      - name: Tests must pass where klad is tested
-        if: steps.tests.outcome == 'failure' && runner.os != 'Windows'
+      - name: The tests must pass
+        if: steps.tests.outcome == 'failure'
         run: exit 1
