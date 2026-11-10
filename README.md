@@ -1,7 +1,5 @@
 # klad
 
-[![build on macOS, Linux and Windows](https://github.com/klad-app/klad/actions/workflows/build.yml/badge.svg)](https://github.com/klad-app/klad/actions/workflows/build.yml)
-
 ![The klad editor with a round green sprout creature open, painted by an agent in visible oil strokes, with the brush, colour and layer panes beside it](docs/images/editor-creature.png)
 
 **Give your agent real brushes.** klad is a 2D painting and animation app you share with a coding agent. You paint in the editor with a pen. The agent paints through the `klad` command line, with the same brushes, on the same drawing, and each of you sees the other's strokes instantly.
