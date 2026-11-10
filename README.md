@@ -6,6 +6,10 @@
 
 **There is no image model in klad.** Your agent (Claude Code, Codex, anything that can run commands) decides what to paint; klad gives it brushes, layers and a timeline. Whatever either of you puts down stays what it was: a stroke with its path, pressure, brush and colour, a shape with its points, a fill with its region. So there's no rerolling and hoping for the best: if one leaf looks off, you fix that leaf.
 
+![The hero of klad.studio, recorded: an agent paints the sprout creature stroke by stroke through the klad command line, then you recolour its leaves, bend its mouth into a smile, move a smudge and blend its blush](docs/images/creature-painting.gif)
+
+*Asked for "a little sprout creature for my game", the agent paints 4,333 strokes. Then you change them: recolour the leaves, bend the mouth, move a smudge, blend the blush.*
+
 | | |
 |---|---|
 | ![A night scene: a hooded traveller holds a lantern on a pole out to a ruined stone arch, a small sprout creature following](docs/images/scene.png) | ![Twelve game props: a chest, a crate, a barrel, a torch, a potion, a key, a shield, a signpost, rope, a bedroll, mushrooms and a waystone](docs/images/kit.png) |
