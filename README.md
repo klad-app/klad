@@ -6,13 +6,9 @@
 
 **There is no image model in klad.** Your agent (Claude Code, Codex, anything that can run commands) decides what to paint; klad gives it brushes, layers and a timeline. Whatever either of you puts down stays what it was: a stroke with its path, pressure, brush and colour, a shape with its points, a fill with its region. So there's no rerolling and hoping for the best: if one leaf looks off, you fix that leaf.
 
-![The hero of klad.studio, recorded: an agent paints the sprout creature stroke by stroke through the klad command line, then you recolour its leaves, bend its mouth into a smile, move a smudge and blend its blush](docs/images/creature-painting.gif)
+![The hero of klad.studio: a terminal beside the klad editor. An agent paints a sprout creature stroke by stroke through the klad command line; in the editor its leaves are recoloured, its mouth bent into a smile, a smudge moved and its blush blended; then the agent puts its parts in groups, keys them, and the creature walks while the editor's timeline plays](docs/images/creature-hero.gif)
 
-*Asked for "a little sprout creature for my game", the agent paints 4,333 strokes. Then you change them: recolour the leaves, bend the mouth, move a smudge, blend the blush.*
-
-![The same creature made to walk, with the agent's terminal beside it: its body, sprout, feet and shadow are pulled apart into five groups, the groups get keys, and the creature waddles in a loop of thirty frames](docs/images/creature-walk-build.gif)
-
-*Then the agent makes it walk: the creature's parts go into five groups, 205 keys move them, and no frame is painted again.*
+*Asked for "a little sprout creature for my game", the agent paints 4,344 strokes and fills. You change them: recolour the leaves, bend the mouth, move a smudge, blend the blush. Then the agent animates it: the creature's parts go into five groups, 205 keys move them, and no frame is painted again.*
 
 | | |
 |---|---|

@@ -4807,7 +4807,11 @@ fn guide_pictures() {
 }
 
 fn editor_picture(source: &Path, layer: &str, moment: Moment, out: &Path) {
-    let name = out.file_stem().unwrap().to_string_lossy().to_string();
+    editor_pictures(source, layer, moment, &[(None, out.to_path_buf())]);
+}
+
+fn editor_pictures(source: &Path, layer: &str, moment: Moment, shots: &[(Option<u32>, PathBuf)]) {
+    let name = shots[0].1.file_stem().unwrap().to_string_lossy().to_string();
     let dir = std::env::temp_dir().join(format!("draw-guide-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -4852,7 +4856,13 @@ fn editor_picture(source: &Path, layer: &str, moment: Moment, out: &Path) {
     }
     moment(ed).unwrap();
     settle(&mut h);
-    h.render().unwrap().save(out).unwrap();
+    shots.iter().for_each(|(frame, out)| {
+        if let Some(frame) = frame {
+            h.state_mut().editor.as_mut().unwrap().go_to(*frame).unwrap();
+            settle(&mut h);
+        }
+        h.render().unwrap().save(out).unwrap();
+    });
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -4870,9 +4880,34 @@ fn a_picture_of_the_editor() {
         if let Ok(brush) = std::env::var("KLAD_PICTURE_BRUSH") {
             ed.pick(&brush);
         }
+        let numbers = |name: &str| -> Option<Vec<f32>> {
+            let text = std::env::var(name).ok()?;
+            text.split(',').map(|n| n.trim().parse().ok()).collect()
+        };
+        if let Some(view) = ed.view.as_mut() {
+            if let Some(&[zoom]) = numbers("KLAD_PICTURE_ZOOM").as_deref() {
+                view.zoom *= zoom;
+            }
+            if let Some(&[x, y]) = numbers("KLAD_PICTURE_CENTRE").as_deref() {
+                view.center = vec2(x, y);
+            }
+        }
         Ok(())
     };
-    editor_picture(&std::fs::canonicalize(bundle).unwrap(), &layer, moment, Path::new(&out));
+    let frames = std::env::var("KLAD_PICTURE_FRAMES").ok().map(|spec| {
+        let (from, to) = spec.split_once('-').expect("KLAD_PICTURE_FRAMES is a range like 0-40");
+        from.parse::<u32>().unwrap()..=to.parse::<u32>().unwrap()
+    });
+    let shots: Vec<(Option<u32>, PathBuf)> = match frames {
+        None => vec![(None, PathBuf::from(&out))],
+        Some(range) => {
+            std::fs::create_dir_all(&out).unwrap();
+            range
+                .map(|frame| (Some(frame), Path::new(&out).join(format!("{frame:02}.png"))))
+                .collect()
+        }
+    };
+    editor_pictures(&std::fs::canonicalize(bundle).unwrap(), &layer, moment, &shots);
 }
 
 #[test]
