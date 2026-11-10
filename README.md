@@ -37,17 +37,9 @@ An image generator hands you pixels, and the only edit left is another roll of t
 3. **Point.** Pin a note on the canvas or select the part you mean ("more moss on this side"). The agent reads both.
 4. **Take over.** Repaint whatever you like by hand, the agent's strokes as much as your own. Its strokes are marked as its own and every change is one step in a shared history, so you can undo any of it.
 
-Once klad is built, paste this to your agent:
+The prompt to start with is under [Try it](#try-it). `klad skill` prints the agent skill in `docs/skill/SKILL.md`: how to look at a drawing, change it and check the result. A second one, `klad skill drawing` (`docs/skill/drawing/SKILL.md`), teaches the craft: planning a picture, light on form, values, edges, colour, materials and how to judge the result. Both are MIT, so use them with any agent and any tool. Open the drawing to watch and draw along:
 
-> Run `klad skill` and read what it prints. Then make scene.klad and paint a night scene: a hooded traveller holding a lantern out to a ruined arch, a small creature following, flat shaded and lit by the lantern.
-
-`klad skill` prints the agent skill in `docs/skill/SKILL.md`: how to look at a drawing, change it and check the result. A second one, `klad skill drawing` (`docs/skill/drawing/SKILL.md`), teaches the craft: planning a picture, light on form, values, edges, colour, materials and how to judge the result. Both are MIT, so use them with any agent and any tool. Open the drawing to watch and draw along:
-
-```sh
-klad open scene.klad
-```
-
-What an agent paints depends on the agent and on how much you steer it. The skill teaches it the tool and some craft; the pen in your hand does the rest.
+What an agent paints depends on the agent and on how much you steer it. The skills teach it the tool and some craft; the pen in your hand does the rest.
 
 ## For developers: the drawing is data
 
@@ -85,6 +77,16 @@ git clone https://github.com/klad-app/klad && cd klad
 just compile                  # about ten minutes the first time
 target/release/klad open      # on Linux: target/linux/release/klad open
 ```
+
+### Then let your agent paint
+
+1. Put `klad` on your path, for you and for your agent: `target/release/klad install` (on Linux `target/linux/release/klad install`; on a Mac it may ask for your password).
+2. Start your coding agent (Claude Code, Codex, or anything else that can run commands) in the folder where the drawing should go, and paste:
+
+   > Run `klad skill` and `klad skill drawing` and read what they print. Then make scene.klad and paint a night scene: a hooded traveller holding a lantern out to a ruined arch, a small creature following, flat shaded and lit by the lantern.
+
+3. Once it has made `scene.klad`, open it in another terminal to watch the strokes land, and draw along: `klad open scene.klad`.
+4. Then steer it. Press **N** to pin a note on the canvas ("more moss on this side") and tell the agent to read your notes, or pick any stroke with **S** and change it yourself.
 
 Every build holds the `klad` command line tool, the editor, the fonts, the licences, the agent skill and six sample drawings to look at and draw on (the start window shows them; `klad samples` lists them and copies one out). The first start offers first steps: draw a shape, fill it and hand the drawing to an agent. The guides in `docs/guide/` show how to paint, select, fill, animate, rig and export in the editor, one recipe at a time, starting with [Getting started](docs/guide/getting-started.md).
 
