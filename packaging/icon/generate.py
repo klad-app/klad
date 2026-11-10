@@ -6,8 +6,8 @@ INK = "#1d2230"
 INK_DRY = "#39425c"
 EMBER = "#d4612c"
 EMBER_DRY = "#f09a48"
-POINT = "#1aa7f2"
 SCALE = 0.84
+HEAVY = 1.34
 SHIFT = -28
 
 
@@ -74,7 +74,7 @@ def stroke(path, size, colour, second, pressure, brush="icon-wet", **extra):
             "second": second, "path": path, "pressure": pressure, "taper": [0, 0], **extra}
 
 
-def streaks(points, width, tones, seed, count, heavy):
+def streaks(points, width, tones, seed, count):
     rng = random.Random(seed)
     line = along(points)
 
@@ -82,7 +82,7 @@ def streaks(points, width, tones, seed, count, heavy):
         start = rng.uniform(0, 0.55)
         end = min(start + rng.uniform(0.3, 0.7), 0.97)
         first = int(start * len(line))
-        moved = offset(line[first:max(int(end * len(line)), first + 4)], width * heavy * SCALE * rng.uniform(-0.38, 0.38))
+        moved = offset(line[first:max(int(end * len(line)), first + 4)], width * HEAVY * SCALE * rng.uniform(-0.38, 0.38))
         tone = tones[rng.random() < 0.55]
         return stroke("M" + " L".join(f"{x} {y}" for x, y in moved), width * rng.uniform(0.08, 0.22), tone, tone,
                       [0.2, 0.8, 1, 0.8, 0.5, 0.15], brush="icon-dry", opacity=round(rng.uniform(0.16, 0.34), 2),
@@ -90,46 +90,29 @@ def streaks(points, width, tones, seed, count, heavy):
     return [one(i) for i in range(count)]
 
 
-def paint(heavy):
+def paint():
     ember = ["#e77a33", "#b94412"]
     ink = ["#343c55", "#11141d"]
     lock = {"op": "set", "id": "paint", "lockAlpha": True}
     free = {"op": "set", "id": "paint", "lockAlpha": False}
     return [
-        stroke(d(ARM + LEG[1:]), 156 * heavy, EMBER, EMBER_DRY, [0.16, 0.36, 0.5, 0.56, 0.58, 0.7, 0.9, 1, 0.98, 0.8, 0.5, 0.2]),
-        stroke(d(LEG[3:]), 148 * heavy, EMBER, EMBER_DRY, [0.96, 0.9, 0.66, 0.34, 0.1], brush="icon-dry"),
+        stroke(d(ARM + LEG[1:]), 156 * HEAVY, EMBER, EMBER_DRY, [0.16, 0.36, 0.5, 0.56, 0.58, 0.7, 0.9, 1, 0.98, 0.8, 0.5, 0.2]),
+        stroke(d(LEG[3:]), 148 * HEAVY, EMBER, EMBER_DRY, [0.96, 0.9, 0.66, 0.34, 0.1], brush="icon-dry"),
         lock,
-        *streaks(LEG, 130, ember, 4, 9, heavy),
-        *streaks(ARM, 74, ember, 5, 5, heavy),
+        *streaks(LEG, 130, ember, 4, 9),
+        *streaks(ARM, 74, ember, 5, 5),
         free,
-        stroke(d(STEM), 140 * heavy, INK, INK_DRY, [0.86, 1, 0.98, 0.96, 0.92, 0.84, 0.7]),
-        stroke("M" + " L".join(f"{x} {y}" for x, y in along(STEM)[20:]), 132 * heavy, INK, INK_DRY,
+        stroke(d(STEM), 140 * HEAVY, INK, INK_DRY, [0.86, 1, 0.98, 0.96, 0.92, 0.84, 0.7]),
+        stroke("M" + " L".join(f"{x} {y}" for x, y in along(STEM)[20:]), 132 * HEAVY, INK, INK_DRY,
                [0.94, 0.9, 0.78, 0.5, 0.22], brush="icon-dry"),
         lock,
-        *streaks(STEM, 120, ink, 6, 8, heavy),
+        *streaks(STEM, 120, ink, 6, 8),
         free,
         {"op": "set", "id": "paint", "effects": [{"relief": {"light": [-0.6, -0.8], "strength": 3.6, "softness": 4}}]},
     ]
 
 
-def points():
-    line = {"paint": POINT, "width": 5, "cap": "round", "join": "round"}
-    handles = (LEG[2], LEG[4])
-    anchors = [(ARM[0], False), (ARM[3], False), (LEG[6], False), (LEG[3], True)]
-    return [
-        layer("points", "vector"),
-        node("points", type="path", d=d(ARM + LEG[1:]), fill="none", stroke=line),
-        node("points", type="path", d=f"M{handles[0][0]} {handles[0][1]} L{handles[1][0]} {handles[1][1]}", fill="none",
-             stroke=line),
-        *[node("points", type="ellipse", cx=x, cy=y, rx=12.5, ry=12.5, fill="#ffffff", stroke={"paint": POINT, "width": 5})
-          for x, y in handles],
-        *[node("points", type="rect", x=x - 16, y=y - 16, w=32, h=32, fill=POINT if chosen else "#ffffff",
-               stroke={"paint": "#ffffff" if chosen else POINT, "width": 5}) for (x, y), chosen in anchors],
-        {"op": "set", "id": "points", "effects": [{"shadow": {"x": 0, "y": 3, "radius": 5, "color": "#00000050"}}]},
-    ]
-
-
-def ops(small):
+def ops():
     paper = {"linear": {"from": [0, 100], "to": [0, 924], "stops": [[0, "#f9f2e5"], [1, "#e8d9c0"]]}}
     rim = {"linear": {"from": [0, 100], "to": [0, 924],
                       "stops": [[0, "#ffffffd0"], [0.35, "#ffffff00"], [0.7, "#00000000"], [1, "#0000001c"]]}}
@@ -139,8 +122,7 @@ def ops(small):
         node("plate", type="rect", x=102, y=102, w=820, h=820, radius=184, fill="none", stroke={"paint": rim, "width": 4}),
         {"op": "set", "id": "plate", "effects": [{"shadow": {"x": 0, "y": 14, "radius": 22, "color": "#00000044"}}]},
         layer("paint", "paint", clip=True),
-        *paint(1.34 if small else 1),
-        *([] if small else points()),
+        *paint(),
     ]
 
 
@@ -148,4 +130,4 @@ if __name__ == "__main__":
     if sys.argv[1:2] == ["--brush"]:
         print(json.dumps(BRUSHES[sys.argv[2]]))
     else:
-        print("\n".join(json.dumps(op) for op in ops("--small" in sys.argv)))
+        print("\n".join(json.dumps(op) for op in ops()))
