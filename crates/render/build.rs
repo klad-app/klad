@@ -26,5 +26,15 @@ fn link_runtime_only(system: &Path, out: &Path, name: &str, major: &str) -> bool
     }
     let link = out.join(format!("lib{name}.so"));
     let _ = std::fs::remove_file(&link);
-    std::os::unix::fs::symlink(&runtime, &link).is_ok()
+    symlink(&runtime, &link)
+}
+
+#[cfg(unix)]
+fn symlink(from: &Path, to: &Path) -> bool {
+    std::os::unix::fs::symlink(from, to).is_ok()
+}
+
+#[cfg(not(unix))]
+fn symlink(_from: &Path, _to: &Path) -> bool {
+    false
 }

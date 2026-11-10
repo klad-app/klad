@@ -78,13 +78,29 @@ struct Stamp {
 }
 
 fn stamp(path: &Path) -> Option<Stamp> {
-    use std::os::unix::fs::MetadataExt;
     let meta = fs::metadata(path).ok()?;
     Some(Stamp {
         len: meta.len(),
         modified: meta.modified().ok(),
-        inode: meta.ino(),
+        inode: inode(&meta),
     })
+}
+
+#[cfg(unix)]
+fn inode(meta: &fs::Metadata) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    meta.ino()
+}
+
+#[cfg(windows)]
+fn inode(meta: &fs::Metadata) -> u64 {
+    use std::os::windows::fs::MetadataExt;
+    meta.creation_time()
+}
+
+#[cfg(not(any(unix, windows)))]
+fn inode(_meta: &fs::Metadata) -> u64 {
+    0
 }
 
 pub struct CelData {
