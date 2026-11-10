@@ -1,4 +1,4 @@
-_Last updated: 2026-11-10 09:30_
+_Last updated: 2026-11-10 10:30_
 
 # Shapes, paths and text
 
@@ -16,7 +16,7 @@ Press **P**, click to place corners and drag to pull out curves. Click the first
 
 Press **A**, click the shape and drag its points and handles. Alt click on the outline adds a point.
 
-To move several points together, drag a box around them, then drag one of them. **Shift** adds a box or a click to the points you have.
+To move several points together, drag a box around them, then drag one of them. Hold **shift** while you drag the box to take the points of every shape on the layer, not only the one you clicked.
 
 ## Fill a shape with a gradient
 
