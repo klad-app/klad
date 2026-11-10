@@ -1,0 +1,96 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+            target: target
+          - name: Linux
+            os: ubuntu-24.04
+            target: target/linux
+          - name: Windows
+            os: windows-latest
+            target: target/windows
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: never
+      CARGO_TARGET_DIR: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: The Linux packages the README lists
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libfreetype-dev libfontconfig1-dev libxkbcommon-dev libwayland-dev
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> ${{ matrix.target }}"
+      - name: just compile, as the README says
+        run: |
+          set -o pipefail
+          just compile 2>&1 | tee compile.log
+      - name: Paint and render a stroke with the build
+        run: |
+          set -o pipefail
+          klad="${{ matrix.target }}/release/klad"
+          {
+            "$klad" new smoke.klad --width 400 --height 300
+            "$klad" stroke smoke.klad l1 --brush oil --size 20 --color '#d4612c' --path 'M40 150 C 140 40 260 260 360 150'
+            "$klad" render smoke.klad --out smoke.png
+            "$klad" skill drawing > skill.txt
+            head -n 2 skill.txt
+          } 2>&1 | tee smoke.log
+      - name: The tests
+        id: tests
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          cargo test --workspace 2>&1 | tee tests.log
+      - name: Say what happened
+        if: always()
+        run: |
+          said() {
+            [ -f "$1.log" ] || return 0
+            echo "#### $1"
+            echo '```'
+            grep -n -E "^error|^warning: unused|panicked at|FAILED|test result|cannot find|not found|No such file|could not" "$1.log" | tail -n 40 || true
+            echo "... the last lines:"
+            tail -n 30 "$1.log"
+            echo '```'
+          }
+          {
+            echo "### ${{ matrix.name }}: tests ${{ steps.tests.outcome }}"
+            echo "$(rustc --version 2>&1), $(just --version 2>&1)"
+            said compile
+            said smoke
+            said tests
+          } >> "$GITHUB_STEP_SUMMARY"
+          for log in compile smoke tests; do
+            [ -f "$log.log" ] || continue
+            { grep -m 6 -E "^error|panicked at|FAILED" "$log.log" || true; } | while read -r line; do
+              echo "::warning title=${{ matrix.name }} $log::$line"
+            done
+          done
+      - name: Tests must pass where klad is tested
+        if: steps.tests.outcome == 'failure' && runner.os != 'Windows'
+        run: exit 1
