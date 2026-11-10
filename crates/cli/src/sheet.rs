@@ -24,9 +24,15 @@ pub struct Sheet {
 pub(crate) type Cels = BTreeSet<(String, String, Kind)>;
 
 pub(crate) fn shown(doc: &Document, frame: u32) -> Vec<String> {
+    let keyed = doc.keyed_state(frame).into_iter().flat_map(|(id, values)| {
+        values
+            .into_iter()
+            .map(move |(prop, bits)| format!("{id} {prop} {bits:08x}"))
+    });
     doc.all_layers()
         .iter()
         .map(|l| l.content_at(frame).map_or(String::new(), |c| c.id.clone()))
+        .chain(keyed)
         .collect()
 }
 

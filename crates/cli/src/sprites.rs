@@ -776,6 +776,42 @@ func _init():
         fs::remove_dir_all(&dir).unwrap();
     }
 
+    #[test]
+    fn a_clip_moved_by_keys_exports_a_picture_per_pose() {
+        let dir = std::env::temp_dir().join(format!("draw-sprites-keys-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = hop(&dir);
+        let mut bundle = Bundle::open(&path).unwrap();
+        let key = |frame: u32, value: f32| klad_core::keys::Key {
+            frame,
+            value,
+            ease: klad_core::keys::Ease::Linear,
+        };
+        [key(0, 0.0), key(2, 12.0), key(3, 12.0)]
+            .into_iter()
+            .for_each(|k| klad_core::keys::set(&mut bundle.doc.layers[0].keys, "x", k).unwrap());
+        bundle.save().unwrap();
+        frames(&path, "idle", &look(1.0), None).unwrap();
+        let read = |n: usize| fs::read(dir.join("hop-idle").join(format!("idle-{n:04}.png"))).unwrap();
+        assert_ne!(read(0), read(1), "one drawing held, moved by a key");
+        assert_ne!(read(1), read(2));
+        sheet(&path, "idle", &look(1.0), &PACKING, None).unwrap();
+        let json: Value = serde_json::from_str(&fs::read_to_string(dir.join("hop-idle.json")).unwrap()).unwrap();
+        let rects: BTreeSet<String> = json["frames"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["frame"].to_string() + &f["spriteSourceSize"].to_string())
+            .collect();
+        assert_eq!(
+            rects.len(),
+            4,
+            "four poses: three of the held drawing and the next drawing"
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
     fn frames_out(path: &Path, dir: &Path) {
         frames(path, "hop", &look(1.0), None).unwrap();
         let out = dir.join("hop-hop");

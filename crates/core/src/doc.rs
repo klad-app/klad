@@ -1034,6 +1034,19 @@ impl Document {
         out
     }
 
+    pub fn keyed_state(&self, frame: u32) -> Vec<(String, Vec<(String, u32)>)> {
+        self.all_layers()
+            .into_iter()
+            .flat_map(|layer| {
+                let mut nodes = Vec::new();
+                walk_nodes(layer.content_at(frame).map_or(&[][..], |c| &c.nodes), &mut nodes);
+                std::iter::once((&layer.id, &layer.keys)).chain(nodes.into_iter().map(|n| (&n.id, &n.keys)))
+            })
+            .filter(|(_, keys)| !keys.is_empty())
+            .map(|(id, keys)| (id.clone(), crate::keys::state(keys, frame)))
+            .collect()
+    }
+
     pub fn ids(&self) -> BTreeSet<String> {
         self.all_layers()
             .iter()

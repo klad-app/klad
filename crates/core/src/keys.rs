@@ -114,6 +114,12 @@ pub fn remove(keys: &mut Keys, prop: Option<&str>, frame: u32) {
     keys.retain(|_, list| !list.is_empty());
 }
 
+pub fn state(keys: &Keys, frame: u32) -> Vec<(String, u32)> {
+    keys.keys()
+        .filter_map(|p| value(keys, p, frame).map(|v| (p.clone(), v.to_bits())))
+        .collect()
+}
+
 pub fn frames(keys: &Keys) -> Vec<u32> {
     let mut all: Vec<u32> = keys.values().flatten().map(|k| k.frame).collect();
     all.sort_unstable();
