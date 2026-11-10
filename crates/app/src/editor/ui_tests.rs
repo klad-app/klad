@@ -531,6 +531,7 @@ fn every_control_is_pen_sized_and_has_a_hover_hint() {
     h.state_mut().direct = Some(Direct {
         node: rect,
         points: BTreeSet::from([0, 1]),
+        also: Default::default(),
     });
     h.run_steps(2);
     checked += audit(&h, "points selected");
@@ -2536,6 +2537,210 @@ fn the_brush_window_edits_a_brush_shows_it_and_saves_it_in_the_drawing() {
     assert!(path.join("brushes/images/checks.png").exists());
     assert!(h.state().brushes.pictures().contains_key("checks"));
     assert!(h.state_mut().add_brush_picture("checks", &[1, 2, 3]).is_err());
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn a_box_dragged_from_another_shape_picks_points_and_shift_adds_to_them() {
+    let path = sample("point-box");
+    let mut bundle = Bundle::open(&path).unwrap();
+    let shapes = bundle.doc.find_layer("shapes").unwrap().id.clone();
+    bundle
+        .apply(
+            &parse_lines(&format!(
+                r##"{{"op":"add","node":{{"type":"rect","x":0,"y":0,"w":512,"h":384,"fill":"#203040"}},"in":"{shapes}","frame":0}}
+{{"op":"add","node":{{"type":"rect","x":200,"y":150,"w":80,"h":60,"fill":"#d0b040"}},"in":"{shapes}","frame":0}}"##
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+    let (back, small) = {
+        let nodes = &bundle.doc.find_layer("shapes").unwrap().cels()[0].nodes;
+        (nodes[nodes.len() - 2].id.clone(), nodes[nodes.len() - 1].id.clone())
+    };
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    activate(&mut h, "shapes");
+    h.key_press(Key::A);
+    h.run_steps(2);
+    let view = h.state().view.unwrap();
+    let rect = h.state().canvas_rect;
+    let at = |x: f32, y: f32| rect.min + view.to_screen(egui::Vec2::new(x, y), rect.size());
+    let picked = |h: &Harness<'static, Editor>| {
+        let ed = h.state();
+        let direct = ed.direct.clone().unwrap();
+        let anchors = klad_core::pathedit::anchors(&ed.shaped.as_ref().unwrap().subs);
+        let ys: Vec<f32> = direct.points.iter().map(|&i| anchors[i].1.at[1]).collect();
+        (direct.node, ys)
+    };
+    click_with(&mut h, at(240.0, 180.0), Modifiers::NONE);
+    assert_eq!(picked(&h), (small.clone(), vec![]));
+    drag(&mut h, at(190.0, 140.0), at(290.0, 170.0));
+    h.run_steps(2);
+    assert_eq!(
+        picked(&h),
+        (small.clone(), vec![150.0, 150.0]),
+        "a box from the shape behind"
+    );
+    h.event(egui::Event::ModifiersChanged(Modifiers::SHIFT));
+    drag(&mut h, at(190.0, 195.0), at(290.0, 225.0));
+    h.event(egui::Event::ModifiersChanged(Modifiers::NONE));
+    h.run_steps(2);
+    let (node, mut ys) = picked(&h);
+    ys.sort_by(f32::total_cmp);
+    assert_eq!(
+        (node, ys),
+        (small.clone(), vec![150.0, 150.0, 210.0, 210.0]),
+        "shift adds the box"
+    );
+    let corner = at(200.0, 150.0);
+    drag(&mut h, corner, corner + vec2(0.0, -30.0));
+    settle(&mut h, |ed| ed.point_drag.is_none() && ed.path_commit.is_none());
+    h.run_steps(2);
+    let moved = klad_core::pathedit::anchors(&h.state().shaped.as_ref().unwrap().subs)
+        .iter()
+        .map(|(_, a)| a.at[1])
+        .fold(f32::MAX, f32::min);
+    assert!(
+        (moved - (150.0 - 30.0 / view.zoom)).abs() < 1.0,
+        "all four moved together, top at {moved}"
+    );
+    click_with(&mut h, at(60.0, 300.0), Modifiers::NONE);
+    assert_eq!(picked(&h), (back, vec![]), "a click on the shape behind still picks it");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn a_shift_box_picks_the_points_of_every_shape_on_the_layer_and_they_move_together() {
+    let path = sample("layer-box");
+    let mut bundle = Bundle::open(&path).unwrap();
+    let shapes = bundle.doc.find_layer("shapes").unwrap().id.clone();
+    bundle
+        .apply(
+            &parse_lines(&format!(
+                r##"{{"op":"add","node":{{"type":"rect","x":0,"y":0,"w":512,"h":384,"fill":"#203040"}},"in":"{shapes}","frame":0}}
+{{"op":"add","node":{{"type":"rect","x":200,"y":150,"w":80,"h":60,"fill":"#d0b040"}},"in":"{shapes}","frame":0}}
+{{"op":"add","node":{{"type":"rect","x":320,"y":150,"w":80,"h":60,"fill":"#40b0d0"}},"in":"{shapes}","frame":0}}"##
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+    let (left, right) = {
+        let nodes = &bundle.doc.find_layer("shapes").unwrap().cels()[0].nodes;
+        (nodes[nodes.len() - 2].id.clone(), nodes[nodes.len() - 1].id.clone())
+    };
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    activate(&mut h, "shapes");
+    h.key_press(Key::A);
+    h.run_steps(2);
+    let view = h.state().view.unwrap();
+    let rect = h.state().canvas_rect;
+    let at = |x: f32, y: f32| rect.min + view.to_screen(egui::Vec2::new(x, y), rect.size());
+    let chosen = |h: &Harness<'static, Editor>| -> Vec<(String, usize)> {
+        let direct = h.state().direct.clone().unwrap();
+        let mut all: Vec<(String, usize)> = std::iter::once((direct.node, direct.points.len()))
+            .chain(direct.also.into_iter().map(|(id, points)| (id, points.len())))
+            .collect();
+        all.sort();
+        all
+    };
+    let top = |h: &Harness<'static, Editor>, id: &str| match h.state().scene.bundle.doc.item(id) {
+        Some(klad_core::doc::Item::Node(_, _, node)) => klad_core::pathedit::from_shape(&node.shape)
+            .unwrap()
+            .iter()
+            .flat_map(|sub| sub.anchors.iter().map(|a| a.at[1]))
+            .fold(f32::MAX, f32::min),
+        _ => f32::NAN,
+    };
+    assert!(h.state().direct.is_none());
+    h.event(egui::Event::ModifiersChanged(Modifiers::SHIFT));
+    h.hover_at(at(190.0, 140.0));
+    h.run_steps(1);
+    h.drag_at(at(190.0, 140.0));
+    h.run_steps(1);
+    h.hover_at(at(300.0, 160.0));
+    h.run_steps(2);
+    let shown = h.state().point_box().expect("the box shows with nothing picked");
+    assert!((shown.1.x - shown.0.x - 110.0).abs() < 2.0, "{shown:?}");
+    h.hover_at(at(410.0, 170.0));
+    h.run_steps(1);
+    h.drop_at(at(410.0, 170.0));
+    h.run_steps(1);
+    assert!(h.state().point_box().is_none());
+    h.event(egui::Event::ModifiersChanged(Modifiers::NONE));
+    h.run_steps(2);
+    let mut both = vec![(left.clone(), 2), (right.clone(), 2)];
+    both.sort();
+    assert_eq!(chosen(&h), both, "the top corners of both, and none of the background");
+    let corner = at(320.0, 150.0);
+    drag(&mut h, corner, corner + vec2(0.0, -30.0));
+    settle(&mut h, |ed| ed.point_drag.is_none() && ed.path_commit.is_none());
+    h.run_steps(2);
+    let lifted = 150.0 - 30.0 / view.zoom;
+    assert!((top(&h, &left) - lifted).abs() < 1.0, "left top at {}", top(&h, &left));
+    assert!(
+        (top(&h, &right) - lifted).abs() < 1.0,
+        "right top at {}",
+        top(&h, &right)
+    );
+    assert_eq!(chosen(&h), both, "the points stay selected after the move");
+    h.state_mut().invoke(Cmd::Undo).unwrap();
+    settle(&mut h, |ed| ed.path_commit.is_none());
+    h.run_steps(2);
+    assert_eq!(
+        (top(&h, &left), top(&h, &right)),
+        (150.0, 150.0),
+        "one undo takes both back"
+    );
+    let picked = h.state().direct.as_ref().unwrap().node.clone();
+    let x = if picked == left { 190.0 } else { 310.0 };
+    drag(&mut h, at(x, 195.0), at(x + 100.0, 225.0));
+    h.run_steps(2);
+    assert_eq!(chosen(&h), vec![(picked, 2)], "a plain box picks on the one shape only");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn a_shift_box_on_a_paint_layer_bends_several_strokes_at_once() {
+    let path = sample("stroke-box");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    activate(&mut h, "lines");
+    h.key_press(Key::A);
+    h.run_steps(2);
+    let view = h.state().view.unwrap();
+    let rect = h.state().canvas_rect;
+    let at = |x: f32, y: f32| rect.min + view.to_screen(egui::Vec2::new(x, y), rect.size());
+    let starts = |h: &Harness<'static, Editor>| -> Vec<(f32, f32)> {
+        h.state()
+            .scene
+            .bundle
+            .read_marks("l6", "c6")
+            .unwrap()
+            .iter()
+            .filter_map(|m| m.as_stroke())
+            .map(|stroke| stroke.samples[0].pos())
+            .collect()
+    };
+    let before = starts(&h);
+    h.event(egui::Event::ModifiersChanged(Modifiers::SHIFT));
+    drag(&mut h, at(25.0, 25.0), at(75.0, 315.0));
+    h.event(egui::Event::ModifiersChanged(Modifiers::NONE));
+    h.run_steps(2);
+    let direct = h.state().direct.clone().unwrap();
+    assert_eq!(
+        (direct.points.len(), direct.also.len()),
+        (1, 1),
+        "the start of each stroke"
+    );
+    let first = h.state().shaped.as_ref().unwrap().subs[0].anchors[0].at;
+    let start = at(first[0], first[1]);
+    drag(&mut h, start, start + vec2(40.0, 0.0));
+    settle(&mut h, |ed| ed.point_drag.is_none());
+    h.run_steps(2);
+    let moved: Vec<f32> = starts(&h).iter().zip(&before).map(|(a, b)| a.0 - b.0).collect();
+    assert!(
+        moved.iter().all(|by| (by - 40.0 / view.zoom).abs() < 3.0),
+        "both starts moved: {moved:?}"
+    );
     let _ = std::fs::remove_dir_all(&path);
 }
 

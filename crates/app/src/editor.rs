@@ -201,6 +201,7 @@ fn union_box(a: Option<[f32; 4]>, b: Option<[f32; 4]>) -> Option<[f32; 4]> {
 struct Direct {
     node: String,
     points: BTreeSet<usize>,
+    also: BTreeMap<String, BTreeSet<usize>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -223,9 +224,11 @@ struct PathCommit {
     ops: Vec<Op>,
     cel: String,
     preview: Vec<Subpath>,
+    also: Vec<Shaped>,
     node: String,
 }
 
+#[derive(Clone)]
 struct Shaped {
     node: String,
     rev: u64,
@@ -687,6 +690,8 @@ pub(crate) struct Editor {
     direct: Option<Direct>,
     shaped: Option<Shaped>,
     point_drag: Option<PointDrag>,
+    pick_later: bool,
+    also_shaped: Vec<Shaped>,
     path_commit: Option<PathCommit>,
     simplify_px: f32,
     under: Vec<String>,
@@ -865,6 +870,8 @@ impl Editor {
             direct: None,
             shaped: None,
             point_drag: None,
+            pick_later: false,
+            also_shaped: Vec::new(),
             path_commit: None,
             simplify_px: 1.5,
             under: Vec::new(),
@@ -2015,37 +2022,56 @@ impl Editor {
         Ok(())
     }
 
-    fn refresh_shape(&mut self) {
+    fn shape_of(&self, id: &str) -> Option<Shaped> {
         let rev = self.scene.bundle.doc.rev;
-        let Some(id) = self.direct.as_ref().map(|d| d.node.clone()) else {
-            self.shaped = None;
-            return;
-        };
-        if self.shaped.as_ref().is_some_and(|s| s.node == id && s.rev == rev) {
-            return;
-        }
-        if let Some(subs) = self.stroke_path(&id) {
-            self.shaped = Some(Shaped {
-                node: id,
+        if let Some(subs) = self.stroke_path(id) {
+            return Some(Shaped {
+                node: id.to_string(),
                 rev,
                 subs,
                 matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
             });
-            return;
         }
         let doc = &self.scene.bundle.doc;
-        self.shaped = match doc.item(&id) {
+        match doc.item(id) {
             Some(Item::Node(_, _, node)) => pathedit::from_shape(&node.shape)
                 .ok()
-                .zip(overlay::local_to_canvas(doc, &id).ok().flatten())
+                .zip(overlay::local_to_canvas(doc, id).ok().flatten())
                 .map(|(subs, matrix)| Shaped {
-                    node: id,
+                    node: id.to_string(),
                     rev,
                     subs,
                     matrix,
                 }),
             _ => None,
+        }
+    }
+
+    fn refresh_shape(&mut self) {
+        let rev = self.scene.bundle.doc.rev;
+        let Some(direct) = self.direct.as_ref() else {
+            self.shaped = None;
+            self.also_shaped.clear();
+            return;
         };
+        let (id, also): (String, Vec<String>) = (direct.node.clone(), direct.also.keys().cloned().collect());
+        if !self.shaped.as_ref().is_some_and(|s| s.node == id && s.rev == rev) {
+            self.shaped = self.shape_of(&id);
+        }
+        let kept = std::mem::take(&mut self.also_shaped);
+        self.also_shaped = also
+            .iter()
+            .filter_map(|id| {
+                kept.iter()
+                    .find(|s| s.node == *id && s.rev == rev)
+                    .cloned()
+                    .or_else(|| self.shape_of(id))
+            })
+            .collect();
+        let alive: Vec<&String> = self.also_shaped.iter().map(|s| &s.node).collect();
+        if let Some(d) = self.direct.as_mut() {
+            d.also.retain(|id, points| alive.contains(&id) && !points.is_empty());
+        }
     }
 
     fn point_edit(&self, drag: &PointDrag) -> Option<PathEdit> {
@@ -2067,6 +2093,31 @@ impl Editor {
         }
     }
 
+    fn spread(&self, edit: &PathEdit) -> Vec<(Shaped, PathEdit)> {
+        let (Some(direct), Some(first)) = (self.direct.as_ref(), self.shaped.as_ref()) else {
+            return Vec::new();
+        };
+        let all = |points: &[usize]| points.iter().copied().collect::<BTreeSet<usize>>() == direct.points;
+        self.also_shaped
+            .iter()
+            .filter_map(|shaped| {
+                let points: Vec<usize> = direct.also.get(&shaped.node)?.iter().copied().collect();
+                let theirs = match edit {
+                    PathEdit::Move { points: of, by } if all(of) => {
+                        let moved = to_canvas(first.matrix, *by) - to_canvas(first.matrix, [0.0, 0.0]);
+                        let by = to_local(shaped.matrix, to_canvas(shaped.matrix, [0.0, 0.0]) + moved);
+                        PathEdit::Move { points, by }
+                    }
+                    PathEdit::Remove { points: of } if all(of) => PathEdit::Remove { points },
+                    PathEdit::Corner { points: of } if all(of) => PathEdit::Corner { points },
+                    PathEdit::Smooth { points: of } if all(of) => PathEdit::Smooth { points },
+                    _ => return None,
+                };
+                Some((shaped.clone(), theirs))
+            })
+            .collect()
+    }
+
     fn shown_subs(&self) -> Option<Vec<Subpath>> {
         if let Some(commit) = self.path_commit.as_ref() {
             return Some(commit.preview.clone());
@@ -2078,8 +2129,58 @@ impl Editor {
         Some(subs)
     }
 
+    fn shown_also(&self) -> Vec<Shaped> {
+        if let Some(commit) = self.path_commit.as_ref() {
+            return commit.also.clone();
+        }
+        let moved = self
+            .point_drag
+            .as_ref()
+            .and_then(|d| self.point_edit(d))
+            .map_or(Vec::new(), |edit| self.spread(&edit));
+        self.also_shaped
+            .iter()
+            .map(|shaped| {
+                let mut shown = shaped.clone();
+                if let Some((_, edit)) = moved.iter().find(|(s, _)| s.node == shaped.node) {
+                    let _ = edit.apply(&mut shown.subs);
+                }
+                shown
+            })
+            .collect()
+    }
+
+    fn promote(&mut self, view: View, rect: Rect, pos: Pos2) {
+        let Some(direct) = self.direct.as_ref() else {
+            return;
+        };
+        let found = self.also_shaped.iter().find_map(|shaped| {
+            let chosen = direct.also.get(&shaped.node)?;
+            pathedit::anchors(&shaped.subs)
+                .iter()
+                .enumerate()
+                .any(|(i, (_, a))| {
+                    chosen.contains(&i)
+                        && self.screen(view, rect, to_canvas(shaped.matrix, a.at)).distance(pos) <= HANDLE
+                })
+                .then(|| shaped.node.clone())
+        });
+        let (Some(id), Some(d)) = (found, self.direct.as_mut()) else {
+            return;
+        };
+        let points = d.also.remove(&id).unwrap_or_default();
+        let before = (
+            std::mem::replace(&mut d.node, id),
+            std::mem::replace(&mut d.points, points),
+        );
+        d.also.insert(before.0, before.1);
+        self.refresh_shape();
+    }
+
     fn direct_down(&mut self, view: View, rect: Rect, pos: Pos2, c: Vec2) -> Result<()> {
         let (alt, shift) = (self.modifiers.alt, self.modifiers.shift);
+        self.pick_later = false;
+        self.promote(view, rect, pos);
         enum Action {
             Handle(usize, Side),
             Anchor(usize, bool),
@@ -2139,6 +2240,7 @@ impl Editor {
                         }
                     } else if !d.points.contains(&i) {
                         d.points = BTreeSet::from([i]);
+                        d.also.clear();
                     }
                     if d.points.contains(&i) {
                         self.point_drag = Some(PointDrag {
@@ -2152,57 +2254,85 @@ impl Editor {
             }
             Action::Insert(segment, t) => return self.commit_path(PathEdit::Insert { segment, t }),
             Action::Elsewhere => {
-                self.under = overlay::leaf_hits(&self.scene.bundle.doc, self.scene.frame, (c.x, c.y))?;
-                let zoom = self.view.map_or(1.0, |v| v.zoom);
-                let mut on_stroke = false;
-                if self.under.is_empty()
-                    && let Some((path, mark)) = self.mark_at(c, 5.0 / zoom)
-                {
-                    if path != self.scene.active {
-                        self.activate(path)?;
+                let on_shape = match shift || (self.direct.is_some() && !self.on_picked_shape(c)?) {
+                    true => {
+                        self.pick_later = true;
+                        Some(false)
                     }
-                    let picked = self
-                        .scene
-                        .active_marks()
-                        .iter()
-                        .find(|m| m.id() == mark)
-                        .map(|m| m.as_stroke().is_some());
-                    match (picked, self.scene.active_cel()) {
-                        (Some(true), Some(cel)) => {
-                            let address = markedit::address(&cel, mark);
-                            if self.direct.as_ref().map(|d| &d.node) != Some(&address) {
-                                self.pick_shape(address);
-                                return Ok(());
-                            }
-                            on_stroke = true;
-                        }
-                        (Some(false), _) => {
-                            self.say(Tone::Info, "that is a fill: A reshapes strokes and vector shapes")
-                        }
-                        _ => {}
-                    }
-                }
-                let current = self.direct.as_ref().map(|d| d.node.clone());
-                let hit = match &current {
-                    Some(id) if self.under.contains(id) => Some(id.clone()),
-                    _ => self.under.first().cloned(),
+                    false => self.pick_elsewhere(c)?,
                 };
-                match hit {
-                    Some(id) if Some(&id) != current.as_ref() => self.pick_shape(id),
-                    hit => {
-                        self.point_drag = Some(PointDrag {
-                            grab: PointGrab::Marquee {
-                                on_shape: hit.is_some() || on_stroke,
-                            },
-                            start: c,
-                            now: c,
-                            free: false,
-                        });
-                    }
+                if let Some(on_shape) = on_shape {
+                    self.point_drag = Some(PointDrag {
+                        grab: PointGrab::Marquee { on_shape },
+                        start: c,
+                        now: c,
+                        free: false,
+                    });
                 }
             }
         }
         Ok(())
+    }
+
+    fn on_picked_shape(&self, c: Vec2) -> Result<bool> {
+        let Some(current) = self.direct.as_ref().map(|d| &d.node) else {
+            return Ok(false);
+        };
+        let under = overlay::leaf_hits(&self.scene.bundle.doc, self.scene.frame, (c.x, c.y))?;
+        if !under.is_empty() {
+            return Ok(under.contains(current));
+        }
+        let zoom = self.view.map_or(1.0, |v| v.zoom);
+        Ok(self.mark_at(c, 5.0 / zoom).is_some_and(|(path, mark)| {
+            path == self.scene.active
+                && self
+                    .scene
+                    .active_cel()
+                    .is_some_and(|cel| markedit::address(&cel, mark) == *current)
+        }))
+    }
+
+    fn pick_elsewhere(&mut self, c: Vec2) -> Result<Option<bool>> {
+        self.under = overlay::leaf_hits(&self.scene.bundle.doc, self.scene.frame, (c.x, c.y))?;
+        let zoom = self.view.map_or(1.0, |v| v.zoom);
+        let mut on_stroke = false;
+        if self.under.is_empty()
+            && let Some((path, mark)) = self.mark_at(c, 5.0 / zoom)
+        {
+            if path != self.scene.active {
+                self.activate(path)?;
+            }
+            let picked = self
+                .scene
+                .active_marks()
+                .iter()
+                .find(|m| m.id() == mark)
+                .map(|m| m.as_stroke().is_some());
+            match (picked, self.scene.active_cel()) {
+                (Some(true), Some(cel)) => {
+                    let address = markedit::address(&cel, mark);
+                    if self.direct.as_ref().map(|d| &d.node) != Some(&address) {
+                        self.pick_shape(address);
+                        return Ok(None);
+                    }
+                    on_stroke = true;
+                }
+                (Some(false), _) => self.say(Tone::Info, "that is a fill: A reshapes strokes and vector shapes"),
+                _ => {}
+            }
+        }
+        let current = self.direct.as_ref().map(|d| d.node.clone());
+        let hit = match &current {
+            Some(id) if self.under.contains(id) => Some(id.clone()),
+            _ => self.under.first().cloned(),
+        };
+        match hit {
+            Some(id) if Some(&id) != current.as_ref() => {
+                self.pick_shape(id);
+                Ok(None)
+            }
+            hit => Ok(Some(hit.is_some() || on_stroke)),
+        }
     }
 
     fn pen_down(&mut self, view: View, rect: Rect, pos: Pos2, c: Vec2) -> Result<()> {
@@ -2377,6 +2507,7 @@ impl Editor {
         self.direct = Some(Direct {
             node: id,
             points: BTreeSet::new(),
+            also: BTreeMap::new(),
         });
         self.refresh_shape();
     }
@@ -2389,6 +2520,13 @@ impl Editor {
         let moved = (drag.now - drag.start).length() * zoom > 2.0;
         match drag.grab {
             PointGrab::Marquee { on_shape } => {
+                let later = std::mem::take(&mut self.pick_later);
+                if !moved && later {
+                    if self.pick_elsewhere(drag.start)? == Some(false) {
+                        self.direct = None;
+                    }
+                    return Ok(());
+                }
                 if !moved {
                     let current = self.direct.as_ref().map(|d| d.node.clone());
                     let below = current
@@ -2400,31 +2538,52 @@ impl Editor {
                         (true, None) => {
                             if let Some(d) = self.direct.as_mut() {
                                 d.points.clear();
+                                d.also.clear();
                             }
                         }
                         (false, _) => self.direct = None,
                     }
                     return Ok(());
                 }
-                let Some(shaped) = self.shaped.as_ref() else {
-                    return Ok(());
-                };
                 let (lo, hi) = (drag.start.min(drag.now), drag.start.max(drag.now));
-                let inside: Vec<usize> = pathedit::anchors(&shaped.subs)
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, (_, a))| {
-                        let p = to_canvas(shaped.matrix, a.at);
-                        p.x >= lo.x && p.x <= hi.x && p.y >= lo.y && p.y <= hi.y
-                    })
-                    .map(|(i, _)| i)
-                    .collect();
-                let adding = self.modifiers.shift;
-                if let Some(d) = self.direct.as_mut() {
-                    if !adding {
-                        d.points.clear();
+                let boxed = |shaped: &Shaped| -> BTreeSet<usize> {
+                    pathedit::anchors(&shaped.subs)
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, (_, a))| {
+                            let p = to_canvas(shaped.matrix, a.at);
+                            p.x >= lo.x && p.x <= hi.x && p.y >= lo.y && p.y <= hi.y
+                        })
+                        .map(|(i, _)| i)
+                        .collect()
+                };
+                if self.modifiers.shift {
+                    let found: Vec<(String, BTreeSet<usize>)> = self
+                        .layer_shapes([lo.x, lo.y, hi.x, hi.y])
+                        .iter()
+                        .filter_map(|id| self.shape_of(id))
+                        .map(|shaped| (boxed(&shaped), shaped.node))
+                        .filter(|(points, _)| !points.is_empty())
+                        .map(|(points, id)| (id, points))
+                        .collect();
+                    if self.direct.is_none()
+                        && let Some((id, _)) = found.first()
+                    {
+                        self.pick_shape(id.clone());
                     }
-                    d.points.extend(inside);
+                    if let Some(d) = self.direct.as_mut() {
+                        found.into_iter().for_each(|(id, points)| match id == d.node {
+                            true => d.points.extend(points),
+                            false => d.also.entry(id).or_default().extend(points),
+                        });
+                    }
+                    self.refresh_shape();
+                    return Ok(());
+                }
+                let inside = self.shaped.as_ref().map(boxed);
+                if let (Some(d), Some(inside)) = (self.direct.as_mut(), inside) {
+                    d.points = inside;
+                    d.also.clear();
                 }
                 Ok(())
             }
@@ -2461,7 +2620,7 @@ impl Editor {
         )])
     }
 
-    fn reshape_stroke(&mut self, id: String, edit: PathEdit) -> Result<()> {
+    fn reshape_stroke(&mut self, id: String, edit: PathEdit, also: Vec<(Shaped, PathEdit)>) -> Result<()> {
         let Some(shaped) = self.shaped.as_ref().filter(|s| s.node == id) else {
             return Ok(());
         };
@@ -2476,16 +2635,38 @@ impl Editor {
         {
             d.points.clear();
         }
-        let props: Map<String, Value> = [("path".to_string(), json!(pathedit::to_d(&subs)))]
+        let removing = matches!(edit, PathEdit::Remove { .. });
+        let bent: Vec<Shaped> = also
             .into_iter()
+            .filter_map(|(mut shaped, edit)| edit.apply(&mut shaped.subs).is_ok().then_some(shaped))
             .collect();
-        self.apply(vec![Op::Set { id: id.clone(), props }])?;
+        let set = |id: &str, subs: &[Subpath]| Op::Set {
+            id: id.to_string(),
+            props: [("path".to_string(), json!(pathedit::to_d(subs)))]
+                .into_iter()
+                .collect(),
+        };
+        let ops = std::iter::once(set(&id, &subs))
+            .chain(bent.iter().map(|shaped| set(&shaped.node, &shaped.subs)))
+            .collect();
+        self.apply(ops)?;
+        let rev = self.scene.bundle.doc.rev;
         self.shaped = Some(Shaped {
             node: id,
-            rev: self.scene.bundle.doc.rev,
+            rev,
             subs,
             matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
         });
+        self.also_shaped = std::mem::take(&mut self.also_shaped)
+            .into_iter()
+            .map(|shaped| {
+                let now = bent.iter().find(|b| b.node == shaped.node).cloned().unwrap_or(shaped);
+                Shaped { rev, ..now }
+            })
+            .collect();
+        if removing && let Some(d) = self.direct.as_mut() {
+            d.also.clear();
+        }
         Ok(())
     }
 
@@ -2496,8 +2677,10 @@ impl Editor {
         if self.path_commit.is_some() {
             return Ok(());
         }
+        let also = self.spread(&edit);
+        let removing = matches!(edit, PathEdit::Remove { .. });
         if markedit::parse_address(&id).is_some() {
-            return self.reshape_stroke(id, edit);
+            return self.reshape_stroke(id, edit, also);
         }
         let doc = &self.scene.bundle.doc;
         let Some(Loc::Node(path, c, _)) = doc.locate(&id) else {
@@ -2515,7 +2698,13 @@ impl Editor {
             return Ok(());
         }
         let cel = layer.cels()[c].id.clone();
-        let ops = vector::pinned(doc, &[Op::Path { id: id.clone(), edit }])?;
+        let edits: Vec<Op> = std::iter::once(Op::Path { id: id.clone(), edit })
+            .chain(also.iter().map(|(shaped, edit)| Op::Path {
+                id: shaped.node.clone(),
+                edit: edit.clone(),
+            }))
+            .collect();
+        let ops = vector::pinned(doc, &edits)?;
         let (next, _) = apply_all(doc, &ops)?;
         let nodes = match next.locate(&cel) {
             Some(Loc::Cel(p, c)) => next.layer_at(&p).cels()[c].nodes.clone(),
@@ -2531,12 +2720,27 @@ impl Editor {
         {
             d.points.clear();
         }
+        let also = self
+            .also_shaped
+            .iter()
+            .map(|shaped| Shaped {
+                subs: match next.item(&shaped.node) {
+                    Some(Item::Node(_, _, n)) => pathedit::from_shape(&n.shape).unwrap_or_default(),
+                    _ => Vec::new(),
+                },
+                ..shaped.clone()
+            })
+            .collect();
+        if removing && let Some(d) = self.direct.as_mut() {
+            d.also.clear();
+        }
         let job = lift::render(nodes, self.scene.size(), self.ctx.clone());
         self.path_commit = Some(PathCommit {
             job,
             ops,
             cel,
             preview,
+            also,
             node: id,
         });
         Ok(())
@@ -3247,7 +3451,8 @@ impl Editor {
             }
         }
         if self.tool == Tool::Direct {
-            self.decorate_points(&painter, view, rect, accent, dark);
+            self.decorate_points(&painter, view, rect, accent);
+            self.decorate_point_box(&painter, view, rect, accent, dark);
         }
         self.decorate_shape(&painter, &|x, y| self.screen(view, rect, vec2(x, y)), accent);
         self.decorate_typing(&painter, view, rect, accent);
@@ -3351,7 +3556,7 @@ impl Editor {
         }
     }
 
-    fn decorate_points(&self, painter: &egui::Painter, view: View, rect: Rect, accent: Color32, dark: egui::Stroke) {
+    fn decorate_points(&self, painter: &egui::Painter, view: View, rect: Rect, accent: Color32) {
         let (Some(shaped), Some(direct)) = (self.shaped.as_ref(), self.direct.as_ref()) else {
             return;
         };
@@ -3360,21 +3565,15 @@ impl Editor {
         };
         let m = shaped.matrix;
         let screen = |p: [f32; 2]| self.screen(view, rect, to_canvas(m, p));
-        let step = (2.0 / (view.zoom * (m[0] * m[3] - m[1] * m[2]).abs().sqrt()).max(1e-3)).clamp(0.05, 8.0);
-        pathedit::flatten(&subs, step)
-            .iter()
-            .zip(&subs)
-            .for_each(|(line, sub)| {
-                let points: Vec<Pos2> = line.iter().map(|p| screen(*p)).collect();
-                let shape = if sub.closed {
-                    egui::Shape::closed_line(points, egui::Stroke::new(1.5, accent))
-                } else {
-                    egui::Shape::line(points, egui::Stroke::new(1.5, accent))
-                };
-                painter.add(shape);
-            });
-        let anchors = pathedit::anchors(&subs);
         let thin = egui::Stroke::new(1.0, accent);
+        let none = BTreeSet::new();
+        self.shown_also().iter().for_each(|shown| {
+            self.outline_points(painter, view, rect, accent, &shown.subs, shown.matrix);
+            let chosen = direct.also.get(&shown.node).unwrap_or(&none);
+            self.square_points(painter, view, rect, accent, &shown.subs, shown.matrix, chosen);
+        });
+        self.outline_points(painter, view, rect, accent, &subs, m);
+        let anchors = pathedit::anchors(&subs);
         direct.points.iter().filter_map(|&i| anchors.get(i)).for_each(|(_, a)| {
             let at = screen(a.at);
             [(a.inn, a.has_in()), (a.out, a.has_out())]
@@ -3387,22 +3586,111 @@ impl Editor {
                     painter.circle_stroke(h, HANDLE / 2.0 - 0.5, thin);
                 });
         });
-        let size = HANDLE - 2.0;
-        anchors.iter().enumerate().for_each(|(i, (_, a))| {
-            let square = Rect::from_center_size(screen(a.at), vec2(size, size));
-            let fill = if direct.points.contains(&i) {
-                accent
+        self.square_points(painter, view, rect, accent, &subs, m, &direct.points);
+    }
+
+    fn point_box(&self) -> Option<(Vec2, Vec2)> {
+        self.point_drag
+            .filter(|d| matches!(d.grab, PointGrab::Marquee { .. }))
+            .map(|d| (d.start, d.now))
+    }
+
+    fn decorate_point_box(&self, painter: &egui::Painter, view: View, rect: Rect, accent: Color32, dark: egui::Stroke) {
+        let Some((start, now)) = self.point_box() else {
+            return;
+        };
+        let area = Rect::from_two_pos(self.screen(view, rect, start), self.screen(view, rect, now));
+        painter.rect_filled(area, 0.0, accent.gamma_multiply(0.12));
+        painter.rect_stroke(area, 0.0, dark, egui::StrokeKind::Outside);
+        painter.rect_stroke(area, 0.0, egui::Stroke::new(1.5, accent), egui::StrokeKind::Middle);
+    }
+
+    fn outline_points(
+        &self,
+        painter: &egui::Painter,
+        view: View,
+        rect: Rect,
+        accent: Color32,
+        subs: &[Subpath],
+        m: [f32; 6],
+    ) {
+        let screen = |p: [f32; 2]| self.screen(view, rect, to_canvas(m, p));
+        let step = (2.0 / (view.zoom * (m[0] * m[3] - m[1] * m[2]).abs().sqrt()).max(1e-3)).clamp(0.05, 8.0);
+        pathedit::flatten(subs, step).iter().zip(subs).for_each(|(line, sub)| {
+            let points: Vec<Pos2> = line.iter().map(|p| screen(*p)).collect();
+            let shape = if sub.closed {
+                egui::Shape::closed_line(points, egui::Stroke::new(1.5, accent))
             } else {
-                Color32::WHITE
+                egui::Shape::line(points, egui::Stroke::new(1.5, accent))
             };
+            painter.add(shape);
+        });
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn square_points(
+        &self,
+        painter: &egui::Painter,
+        view: View,
+        rect: Rect,
+        accent: Color32,
+        subs: &[Subpath],
+        m: [f32; 6],
+        chosen: &BTreeSet<usize>,
+    ) {
+        let size = HANDLE - 2.0;
+        let thin = egui::Stroke::new(1.0, accent);
+        pathedit::anchors(subs).iter().enumerate().for_each(|(i, (_, a))| {
+            let at = self.screen(view, rect, to_canvas(m, a.at));
+            let square = Rect::from_center_size(at, vec2(size, size));
+            let fill = if chosen.contains(&i) { accent } else { Color32::WHITE };
             painter.rect_filled(square, 0.0, fill);
             painter.rect_stroke(square, 0.0, thin, egui::StrokeKind::Middle);
         });
-        if let Some(drag) = self.point_drag.filter(|d| matches!(d.grab, PointGrab::Marquee { .. })) {
-            let (a, b) = (self.screen(view, rect, drag.start), self.screen(view, rect, drag.now));
-            let area = Rect::from_two_pos(a, b);
-            painter.rect_stroke(area, 0.0, dark, egui::StrokeKind::Middle);
-            painter.rect_stroke(area, 0.0, thin, egui::StrokeKind::Middle);
+    }
+
+    fn layer_shapes(&self, bounds: [f32; 4]) -> Vec<String> {
+        fn leaves(node: &Node, out: &mut Vec<String>) {
+            match &node.shape {
+                Shape::Group { children } => children.iter().for_each(|child| leaves(child, out)),
+                Shape::Rect { .. } | Shape::Ellipse { .. } | Shape::Path { .. } => out.push(node.id.clone()),
+                _ => {}
+            }
+        }
+        let doc = &self.scene.bundle.doc;
+        let of_cel = |nodes: &[Node]| {
+            let mut out = Vec::new();
+            nodes.iter().for_each(|node| leaves(node, &mut out));
+            out
+        };
+        if let Some(Loc::Node(path, c, _)) = self.direct.as_ref().and_then(|d| doc.locate(&d.node)) {
+            let layer = doc.layer_at(&path);
+            return match layer.locked {
+                true => Vec::new(),
+                false => of_cel(&layer.cels()[c].nodes),
+            };
+        }
+        let Some(layer) = self.scene.active_layer().filter(|l| !l.locked) else {
+            return Vec::new();
+        };
+        match (layer.kind(), self.scene.active_cel()) {
+            (Kind::Vector, _) => layer
+                .content_at(self.scene.frame)
+                .map_or(Vec::new(), |cel| of_cel(&cel.nodes)),
+            (_, Some(cel)) => self
+                .scene
+                .active_marks()
+                .iter()
+                .filter_map(|m| m.as_stroke())
+                .filter(|stroke| {
+                    stroke.samples.iter().any(|sample| {
+                        let (x, y) = sample.pos();
+                        x >= bounds[0] && y >= bounds[1] && x <= bounds[2] && y <= bounds[3]
+                    })
+                })
+                .map(|stroke| markedit::address(&cel, stroke.id))
+                .collect(),
+            _ => Vec::new(),
         }
     }
 
@@ -3766,6 +4054,13 @@ impl Editor {
             },
             direct.points.len()
         ));
+        if !direct.also.is_empty() {
+            ui.label(format!(
+                "and {} points on {} more on this layer: drag one to move them all",
+                direct.also.values().map(BTreeSet::len).sum::<usize>(),
+                direct.also.len()
+            ));
+        }
         if !is_path {
             ui.label(format!("any point edit turns this {kind} into a path"));
         }
@@ -3796,7 +4091,7 @@ impl Editor {
             }
         }
         ui.small(
-            "drag points or handles; shift click adds a point to the selection, drag on empty canvas selects in a box\n\
+            "drag points or handles; drag a box to select points of this shape, shift and drag a box for the points of every shape on the layer; drag one to move them all\n\
              alt click the outline: new point; alt click a point: corner or smooth; alt drag a handle: break it",
         );
         if self.path_commit.is_some() {

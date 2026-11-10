@@ -205,8 +205,7 @@ impl Start {
         ui.add_space(6.0);
         let mut chosen = None;
         let shown = self.samples.clone();
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = vec2(12.0, 12.0);
+        row(ui, "samples", |ui| {
             shown.iter().for_each(|sample| {
                 ui.vertical(|ui| {
                     ui.set_width(THUMB + 8.0);
@@ -417,8 +416,7 @@ impl Start {
         }
         let mut chosen = None;
         let documents = settings.documents.clone();
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = vec2(12.0, 12.0);
+        row(ui, "recent", |ui| {
             documents.iter().for_each(|doc| {
                 ui.vertical(|ui| {
                     ui.set_width(THUMB + 8.0);
@@ -530,6 +528,19 @@ impl Start {
             _ => None,
         }
     }
+}
+
+fn row(ui: &mut egui::Ui, salt: &str, cards: impl FnOnce(&mut egui::Ui)) {
+    egui::ScrollArea::horizontal()
+        .id_salt(salt)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing = vec2(12.0, 12.0);
+                cards(ui);
+            });
+            ui.add_space(14.0);
+        });
 }
 
 fn preset_name(i: usize) -> String {

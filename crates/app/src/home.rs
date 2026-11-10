@@ -710,6 +710,86 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    fn many(dir: &Path) -> Vec<PathBuf> {
+        (0..14)
+            .map(|i| {
+                let path = dir.join(format!("drawing {i}.klad"));
+                Bundle::blank(&path, &small(), "cli").unwrap();
+                path
+            })
+            .collect()
+    }
+
+    fn sideways(h: &mut Harness<'static, Home>, at: egui::Pos2) {
+        h.event(egui::Event::PointerMoved(at));
+        h.run_steps(2);
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: vec2(-400.0, 0.0),
+            modifiers: Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Wheel,
+        });
+        h.run_steps(8);
+    }
+
+    fn recent_scrolls_sideways(h: &mut Harness<'static, Home>, width: f32) {
+        let heading = h.get_by_label(&format!("{} Recent", theme::icon::HISTORY)).rect();
+        let first = h.get_by_label("drawing 0").rect();
+        assert!(first.max.x < width);
+        assert!(
+            h.query_by_label("drawing 13")
+                .is_none_or(|card| card.rect().min.x > first.max.x)
+        );
+        sideways(h, egui::pos2(first.center().x, first.min.y + 20.0));
+        let after = h.get_by_label("drawing 0").rect();
+        assert!(
+            after.min.x < first.min.x - 200.0,
+            "the first card stayed at {}",
+            first.min.x
+        );
+        assert_eq!(after.min.y, first.min.y);
+        assert_eq!(
+            h.get_by_label(&format!("{} Recent", theme::icon::HISTORY)).rect(),
+            heading
+        );
+    }
+
+    #[test]
+    fn recent_drawings_are_one_row_that_scrolls_sideways() {
+        let dir = folder("scroll");
+        let made = many(&dir);
+        let shown: Vec<&Path> = made.iter().map(PathBuf::as_path).collect();
+        [vec2(1600.0, 1000.0), vec2(1000.0, 640.0)]
+            .into_iter()
+            .for_each(|size| {
+                let mut h = Harness::builder()
+                    .with_size(size)
+                    .build_ui_state(|ui, home: &mut Home| home.frame(ui), home(&dir, &shown));
+                h.run_steps(4);
+                recent_scrolls_sideways(&mut h, size.x);
+            });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn recent_drawings_scroll_sideways_in_the_window_over_a_drawing() {
+        let dir = folder("scroll-over");
+        let made = many(&dir);
+        let shown: Vec<&Path> = made.iter().map(PathBuf::as_path).collect();
+        let mut first = home(&dir, &shown);
+        first.open(&egui::Context::default(), &made[0]).unwrap();
+        let mut h = Harness::builder()
+            .with_size(vec2(1600.0, 1000.0))
+            .build_ui_state(|ui, home: &mut Home| home.frame(ui), first);
+        h.run_steps(4);
+        h.key_press_modifiers(Modifiers::COMMAND, Key::N);
+        h.run_steps(6);
+        recent_scrolls_sideways(&mut h, 1600.0);
+        drop(h);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     #[ignore]
     fn start_pictures() {
