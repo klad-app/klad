@@ -786,7 +786,8 @@ mod tests {
         h.key_press_modifiers(Modifiers::COMMAND, Key::N);
         h.run_steps(6);
         recent_scrolls_sideways(&mut h, 1600.0);
-        std::fs::remove_dir_all(&dir).unwrap();
+        drop(h);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

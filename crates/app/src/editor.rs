@@ -3451,7 +3451,8 @@ impl Editor {
             }
         }
         if self.tool == Tool::Direct {
-            self.decorate_points(&painter, view, rect, accent, dark);
+            self.decorate_points(&painter, view, rect, accent);
+            self.decorate_point_box(&painter, view, rect, accent, dark);
         }
         self.decorate_shape(&painter, &|x, y| self.screen(view, rect, vec2(x, y)), accent);
         self.decorate_typing(&painter, view, rect, accent);
@@ -3555,7 +3556,7 @@ impl Editor {
         }
     }
 
-    fn decorate_points(&self, painter: &egui::Painter, view: View, rect: Rect, accent: Color32, dark: egui::Stroke) {
+    fn decorate_points(&self, painter: &egui::Painter, view: View, rect: Rect, accent: Color32) {
         let (Some(shaped), Some(direct)) = (self.shaped.as_ref(), self.direct.as_ref()) else {
             return;
         };
@@ -3586,12 +3587,22 @@ impl Editor {
                 });
         });
         self.square_points(painter, view, rect, accent, &subs, m, &direct.points);
-        if let Some(drag) = self.point_drag.filter(|d| matches!(d.grab, PointGrab::Marquee { .. })) {
-            let (a, b) = (self.screen(view, rect, drag.start), self.screen(view, rect, drag.now));
-            let area = Rect::from_two_pos(a, b);
-            painter.rect_stroke(area, 0.0, dark, egui::StrokeKind::Middle);
-            painter.rect_stroke(area, 0.0, thin, egui::StrokeKind::Middle);
-        }
+    }
+
+    fn point_box(&self) -> Option<(Vec2, Vec2)> {
+        self.point_drag
+            .filter(|d| matches!(d.grab, PointGrab::Marquee { .. }))
+            .map(|d| (d.start, d.now))
+    }
+
+    fn decorate_point_box(&self, painter: &egui::Painter, view: View, rect: Rect, accent: Color32, dark: egui::Stroke) {
+        let Some((start, now)) = self.point_box() else {
+            return;
+        };
+        let area = Rect::from_two_pos(self.screen(view, rect, start), self.screen(view, rect, now));
+        painter.rect_filled(area, 0.0, accent.gamma_multiply(0.12));
+        painter.rect_stroke(area, 0.0, dark, egui::StrokeKind::Outside);
+        painter.rect_stroke(area, 0.0, egui::Stroke::new(1.5, accent), egui::StrokeKind::Middle);
     }
 
     fn outline_points(
