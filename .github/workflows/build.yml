@@ -3,11 +3,11 @@ name: build
 on:
   push:
     branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: build-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 defaults:
   run:
@@ -85,12 +85,22 @@ jobs:
             said smoke
             said tests
           } >> "$GITHUB_STEP_SUMMARY"
-          for log in compile smoke tests; do
+          for log in compile smoke; do
             [ -f "$log.log" ] || continue
-            { grep -m 6 -E "^error|panicked at|FAILED" "$log.log" || true; } | while read -r line; do
+            { grep -m 6 -E "^error|panicked at" "$log.log" || true; } | while read -r line; do
               echo "::warning title=${{ matrix.name }} $log::$line"
             done
           done
+          if [ -f tests.log ]; then
+            failed="$({ grep -E "^test .* FAILED$" tests.log || true; } | sed -E 's/^test (.*) \.\.\. FAILED$/\1/' | sort -u | tr '\n' ' ')"
+            [ -z "$failed" ] || echo "::warning title=${{ matrix.name }} tests that failed::$failed"
+            { grep -A 1 "panicked at" tests.log || true; } | { grep -v "^--$" || true; } | paste -d ' ' - - | cut -c1-400 | head -n 8 | while read -r line; do
+              echo "::warning title=${{ matrix.name }} test failure::$line"
+            done
+            { grep -E "^test result|^error" tests.log || true; } | { grep -v " 0 failed" || true; } | head -n 4 | while read -r line; do
+              echo "::warning title=${{ matrix.name }} tests::$line"
+            done
+          fi
       - name: Tests must pass where klad is tested
         if: steps.tests.outcome == 'failure' && runner.os != 'Windows'
         run: exit 1

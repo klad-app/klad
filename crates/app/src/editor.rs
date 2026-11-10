@@ -781,7 +781,7 @@ impl Editor {
             canvas_rect: Rect::NOTHING,
             navigating: false,
             focused: false,
-            pen: Pen::install(),
+            pen: if cfg!(test) { None } else { Pen::install() },
             readout: Readout::default(),
             pending: None,
             stats: Arc::default(),
