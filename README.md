@@ -1,6 +1,6 @@
 # klad
 
-![A night scene painted in klad by an agent: a hooded traveller holds a lantern on a pole out to a ruined stone arch, a small sprout creature following](docs/images/scene.png)
+![The klad editor with a round green sprout creature open, painted by an agent in visible oil strokes, with the brush, colour and layer panes beside it](docs/images/editor-creature.png)
 
 **Give your agent real brushes.** klad is a 2D painting and animation app you share with a coding agent. You paint in the editor with a pen. The agent paints through the `klad` command line, with the same brushes, on the same drawing, and each of you sees the other's strokes about a second later.
 
@@ -8,9 +8,9 @@
 
 | | |
 |---|---|
-| ![A round green sprout creature painted in thousands of visible oil strokes](docs/images/creature.png) | ![Twelve game props: a chest, a crate, a barrel, a torch, a potion, a key, a shield, a signpost, rope, a bedroll, mushrooms and a waystone](docs/images/kit.png) |
+| ![A night scene: a hooded traveller holds a lantern on a pole out to a ruined stone arch, a small sprout creature following](docs/images/scene.png) | ![Twelve game props: a chest, a crate, a barrel, a torch, a potion, a key, a shield, a signpost, rope, a bedroll, mushrooms and a waystone](docs/images/kit.png) |
 
-*Drawings made with Claude Fable 5.2: the scene, the creature and the prop kit were painted stroke by stroke through the `klad` command line.*
+*Drawings made with Claude Fable 5.2: the creature, the scene and the prop kit were painted stroke by stroke through the `klad` command line.*
 
 - **Site and guides:** [klad.studio](https://klad.studio), with these drawings replayed stroke by stroke.
 - **Licence:** source-available, not open source. Free to build and use for yourself, and inside a company with less than 100,000 euros a year in revenue. See [Licence](#licence).
@@ -25,8 +25,6 @@ An image generator hands you pixels, and the only edit left is another roll of t
 - **It can also do just vectors.** Shapes with editable points, gradients, glows and real text in about fifty open fonts that come with it, for posters, covers and cards.
 - **It's a full painting and animation app.** Two dozen brushes and a brush editor, layers, masks, clipping, effects, a timeline with onion skins and clips, in-betweens made from your key drawings, bones with IK, and exports as PNGs, sprite sheets or straight into Godot.
 - **Your drawings stay yours.** A drawing is a folder of plain files on your computer, and klad needs no account. It only looks for a new version once a day, and you can turn that off. An edit changes only the files of what it edits, so drawings live well in git.
-
-![The klad editor with a painted lantern prop open](docs/images/editor.png)
 
 ## Working with your agent
 
