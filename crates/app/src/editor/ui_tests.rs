@@ -806,7 +806,11 @@ fn ui_time_per_frame() {
     let stress = std::env::temp_dir().join(format!("draw-ui-stress-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&stress);
     let exe = std::env::current_exe().unwrap();
-    let draw = exe.parent().and_then(Path::parent).unwrap().join("klad");
+    let draw = exe
+        .parent()
+        .and_then(Path::parent)
+        .unwrap()
+        .join(format!("klad{}", std::env::consts::EXE_SUFFIX));
     if draw.exists() {
         let made = std::process::Command::new(&draw)
             .args(["stress", stress.to_str().unwrap(), "--frames", "48"])
@@ -2246,7 +2250,11 @@ fn a_heavy_animation_keeps_the_ui_responsive_while_frames_load() {
     let stress = std::env::temp_dir().join(format!("draw-ui-heavy-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&stress);
     let exe = std::env::current_exe().unwrap();
-    let draw = exe.parent().and_then(Path::parent).unwrap().join("klad");
+    let draw = exe
+        .parent()
+        .and_then(Path::parent)
+        .unwrap()
+        .join(format!("klad{}", std::env::consts::EXE_SUFFIX));
     let size = std::env::var("KLAD_HEAVY_SIZE").unwrap_or_else(|_| "2048".into());
     let made = std::process::Command::new(&draw)
         .args(["stress", stress.to_str().unwrap(), "--frames", "12", "--size", &size])
@@ -2915,7 +2923,11 @@ fn heavy_edits_and_revisits_keep_the_ui_free() {
     let stress = std::env::temp_dir().join(format!("draw-ui-heavy-edit-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&stress);
     let exe = std::env::current_exe().unwrap();
-    let draw = exe.parent().and_then(Path::parent).unwrap().join("klad");
+    let draw = exe
+        .parent()
+        .and_then(Path::parent)
+        .unwrap()
+        .join(format!("klad{}", std::env::consts::EXE_SUFFIX));
     let size = std::env::var("KLAD_HEAVY_SIZE").unwrap_or_else(|_| "2048".into());
     let made = std::process::Command::new(&draw)
         .args(["stress", stress.to_str().unwrap(), "--frames", "12", "--size", &size])
