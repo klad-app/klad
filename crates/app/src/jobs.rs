@@ -273,7 +273,11 @@ mod tests {
 
     fn draw_binary() -> PathBuf {
         let exe = std::env::current_exe().unwrap();
-        let bin = exe.parent().and_then(Path::parent).unwrap().join("klad");
+        let bin = exe
+            .parent()
+            .and_then(Path::parent)
+            .unwrap()
+            .join(format!("klad{}", std::env::consts::EXE_SUFFIX));
         assert!(
             bin.exists(),
             "{} is missing: cargo test --workspace builds it (the klad-cli binary test needs it)",

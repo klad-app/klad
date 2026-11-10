@@ -251,7 +251,10 @@ mod tests {
         };
         assert_eq!(
             args(bundle, home, 3, &image).join(" "),
-            "export /w/art.klad --frame 3 --scale 2 --background -o /w/out/hero.png"
+            format!(
+                "export /w/art.klad --frame 3 --scale 2 --background -o {}",
+                home.join("out/hero.png").display()
+            )
         );
         let sheet = Form {
             what: What::Sheet,

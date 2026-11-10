@@ -3,6 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+const SAME_PIXELS: bool = cfg!(target_arch = "aarch64");
+
 fn copy(from: &Path, to: &Path) {
     fs::create_dir_all(to).unwrap();
     fs::read_dir(from).unwrap().map(Result::unwrap).for_each(|entry| {
@@ -92,7 +94,11 @@ fn drawings_saved_by_every_release_open_and_render_as_they_did() {
             frames.iter().for_each(|(frame, digest)| {
                 let key = (format!("{name}/{bundle}"), frame.clone());
                 let expected = accepted.get(&key).unwrap_or(digest);
-                if now.get(frame) != Some(expected) {
+                let differs = match now.get(frame) {
+                    None => true,
+                    Some(found) => SAME_PIXELS && found != expected,
+                };
+                if differs {
                     wrong.push(format!(
                         "{name}/{bundle} frame {frame}: was {expected}, now {}",
                         now.get(frame).map_or("missing", String::as_str)
@@ -104,7 +110,8 @@ fn drawings_saved_by_every_release_open_and_render_as_they_did() {
     let _ = fs::remove_dir_all(&scratch);
     assert!(
         wrong.is_empty(),
-        "drawings from a release render differently (fix it, or list the change in tests/formats/accepted.txt and the release notes):\n{}",
+        "drawings from a release no longer open or render as they did (fix it, or list the change in tests/formats/accepted.txt and the release notes; pixels are compared on {}, where the hashes were made, and elsewhere each frame only has to render):\n{}",
+        "aarch64",
         wrong.join("\n")
     );
     assert!(

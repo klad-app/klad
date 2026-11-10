@@ -65,7 +65,7 @@ jobs:
         continue-on-error: true
         run: |
           set -o pipefail
-          cargo test --workspace 2>&1 | tee tests.log
+          cargo test --workspace --no-fail-fast 2>&1 | tee tests.log
       - name: Say what happened
         if: always()
         run: |
@@ -94,7 +94,7 @@ jobs:
           if [ -f tests.log ]; then
             failed="$({ grep -E "^test .* FAILED$" tests.log || true; } | sed -E 's/^test (.*) \.\.\. FAILED$/\1/' | sort -u | tr '\n' ' ')"
             [ -z "$failed" ] || echo "::warning title=${{ matrix.name }} tests that failed::$failed"
-            { grep -A 1 "panicked at" tests.log || true; } | { grep -v "^--$" || true; } | paste -d ' ' - - | cut -c1-400 | head -n 8 | while read -r line; do
+            { grep -A 3 "panicked at" tests.log || true; } | { grep -v "^--$" || true; } | paste -d ' ' - - - - | cut -c1-600 | head -n 8 | while read -r line; do
               echo "::warning title=${{ matrix.name }} test failure::$line"
             done
             { grep -E "^test result|^error" tests.log || true; } | { grep -v " 0 failed" || true; } | head -n 4 | while read -r line; do
