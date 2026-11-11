@@ -620,11 +620,20 @@ enum Command {
     Lasso {
         bundle: PathBuf,
         layer: String,
-        #[arg(long, help = "x,y pairs separated by spaces")]
-        polygon: String,
+        #[arg(long, required_unless_present = "area", help = "x,y pairs separated by spaces")]
+        polygon: Option<String>,
+        #[arg(
+            long = "box",
+            value_name = "X,Y,W,H",
+            value_parser = parse_box,
+            allow_hyphen_values = true,
+            conflicts_with = "polygon",
+            help = "A box in place of a polygon: its top left pixel and its size in pixels"
+        )]
+        area: Option<[i64; 4]>,
         #[arg(
             long,
-            help = "Split strokes and fills crossing the edge and take the inside parts too"
+            help = "Split strokes and fills crossing the edge and take the inside parts too (pixel marks split between whole pixels)"
         )]
         cut: bool,
         #[arg(long = "move", value_parser = parse_pair, allow_hyphen_values = true, help = "dx,dy in px")]
@@ -1951,6 +1960,12 @@ enum Command {
         frame: u32,
         #[arg(long, default_value_t = 0, help = "Only strokes with an id above this")]
         after: u32,
+        #[arg(
+            long,
+            value_name = "COLOUR",
+            help = "On a pixel layer: only the marks of one palette colour (a name, a colour, an index or an id), to edit them together"
+        )]
+        entry: Option<String>,
         #[arg(long, help = "Print strokes as JSON with their points (x, y, pressure)")]
         json: bool,
     },
@@ -2777,6 +2792,7 @@ fn run() -> Result<()> {
             bundle,
             layer,
             polygon,
+            area,
             cut,
             offset,
             rotate,
@@ -2789,7 +2805,14 @@ fn run() -> Result<()> {
             frame,
             flags,
         } => {
-            let polygon = polygon.split_whitespace().map(parse_pair).collect::<Result<Vec<_>>>()?;
+            let polygon = match (area, polygon) {
+                (Some([x, y, w, h]), _) => {
+                    let (x0, y0, x1, y1) = (x as f32, y as f32, (x + w) as f32, (y + h) as f32);
+                    vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+                }
+                (None, Some(text)) => text.split_whitespace().map(parse_pair).collect::<Result<Vec<_>>>()?,
+                (None, None) => Vec::new(),
+            };
             if polygon.len() < 3 {
                 return Err(anyhow!("--polygon needs at least 3 x,y points"));
             }
@@ -2800,6 +2823,7 @@ fn run() -> Result<()> {
                 (false, Some(t)) => LassoAction::Transform(t),
                 (false, None) => return marks::lassoed(&bundle, &layer, frame, &polygon, flags.json),
             };
+            let layer = Bundle::open(&bundle)?.doc.find_layer(&layer)?.id.clone();
             let op = Op::Lasso(LassoSpec {
                 layer,
                 frame,
@@ -3951,8 +3975,9 @@ fn run() -> Result<()> {
             layer,
             frame,
             after,
+            entry,
             json,
-        } => strokes(&bundle, &layer, frame, after, json)?,
+        } => strokes(&bundle, &layer, frame, after, entry.as_deref(), json)?,
         Command::Hash {
             bundle,
             frame,
@@ -4202,7 +4227,7 @@ fn recolour_ops(path: &Path, ids: &[String], to: &str) -> Result<Vec<Op>> {
             .map(|l| l.id.clone())
             .ok_or_else(|| anyhow!("no drawing {cel}"))
     };
-    let colours = ids
+    let found = ids
         .iter()
         .map(|id| {
             let (cel, mark) = klad_core::markedit::parse_address(id)
@@ -4211,16 +4236,24 @@ fn recolour_ops(path: &Path, ids: &[String], to: &str) -> Result<Vec<Op>> {
             marks
                 .iter()
                 .find(|m| m.id() == mark)
-                .map(klad_core::stroke::Mark::color)
+                .map(|m| (m.color(), m.as_fill().is_some_and(|f| f.on_grid())))
                 .ok_or_else(|| anyhow!("{id} does not exist"))
         })
         .collect::<Result<Vec<_>>>()?;
+    let colours: Vec<klad_core::color::Rgba> = found.iter().map(|(c, _)| *c).collect();
     Ok(klad_core::color::recolour(&colours, target)
         .into_iter()
         .zip(ids)
-        .map(|(c, id)| Op::Set {
+        .zip(&found)
+        .map(|((shade, id), (_, on_grid))| Op::Set {
             id: id.clone(),
-            props: serde_json::Map::from_iter([("color".to_string(), serde_json::json!(klad_core::color::to_hex(c)))]),
+            props: serde_json::Map::from_iter([(
+                "color".to_string(),
+                match on_grid {
+                    true => serde_json::json!(to),
+                    false => serde_json::json!(klad_core::color::to_hex(shade)),
+                },
+            )]),
         })
         .collect())
 }
@@ -4284,14 +4317,34 @@ fn info(path: &Path) -> Result<()> {
         })
 }
 
-fn strokes(path: &Path, layer: &str, frame: u32, after: u32, as_json: bool) -> Result<()> {
+fn strokes(path: &Path, layer: &str, frame: u32, after: u32, entry: Option<&str>, as_json: bool) -> Result<()> {
     let bundle = Bundle::open(path)?;
-    let owner = bundle.doc.layer(layer).ok_or_else(|| anyhow!("no layer {layer}"))?;
+    let owner = bundle.doc.find_layer(layer)?;
+    let layer = owner.id.as_str();
     let cel = owner
         .content_at(frame)
         .ok_or_else(|| anyhow!("layer {layer} has no cel at frame {frame}"))?;
     let all = bundle.read_marks(layer, &cel.id)?;
-    let marks: Vec<_> = all.iter().filter(|m| m.id() > after).cloned().collect();
+    let wanted = entry
+        .map(|key| {
+            bundle
+                .doc
+                .swatch(key)
+                .map(|at| bundle.doc.palette[at].id.clone())
+                .ok_or_else(|| anyhow!("the palette has no {key:?} (give a name, a colour, an index or an id)"))
+        })
+        .transpose()?;
+    let marks: Vec<_> = all
+        .iter()
+        .filter(|m| m.id() > after)
+        .filter(|m| match &wanted {
+            Some(id) => m
+                .as_fill()
+                .is_some_and(|f| !id.is_empty() && f.entry() == Some(id.as_str())),
+            None => true,
+        })
+        .cloned()
+        .collect();
     let strokes: Vec<_> = strokes_of(&marks).collect();
     let fills: Vec<_> = fills_of(&marks).collect();
     if as_json {

@@ -344,6 +344,19 @@ impl Editor {
             at.y.max(rect.top() + 8.0),
         );
         let commands: Vec<Cmd> = match selected {
+            Selected::Strokes if self.scene.on_grid() => vec![
+                Cmd::FlipH,
+                Cmd::FlipV,
+                Cmd::TurnLeft90,
+                Cmd::TurnRight90,
+                Cmd::Recolour,
+                Cmd::SelectSameColour,
+                Cmd::Copy,
+                Cmd::Paste,
+                Cmd::DuplicateInPlace,
+                Cmd::Delete,
+                Cmd::Deselect,
+            ],
             Selected::Strokes => vec![
                 Cmd::FlipH,
                 Cmd::FlipV,

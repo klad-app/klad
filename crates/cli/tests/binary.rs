@@ -840,6 +840,98 @@ fn lines_rectangles_ellipses_and_fills_go_on_the_grid_from_the_command_line() {
 }
 
 #[test]
+fn pixel_marks_are_listed_by_colour_cut_by_a_box_and_recoloured_exactly() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-pixel-edit-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("sprite.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let rows = |layer: &str| -> Vec<String> {
+        draw(&["pixels", path, layer, "--plain"])
+            .lines()
+            .skip_while(|line| !line.is_empty())
+            .skip(1)
+            .map(String::from)
+            .collect()
+    };
+    draw(&["new", path, "--pixel", "12x6"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&["palette", path, "--add", "#f2c14e", "--name", "body"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--rect", "0,0,6,4"]);
+    draw(&["pixel", path, "l1", "--color", "body", "--rect", "1,1,4,2", "--filled"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--cells", "0,5"]);
+    let ink: serde_json::Value =
+        serde_json::from_str(&draw(&["strokes", path, "l1", "--entry", "ink", "--json"])).unwrap();
+    assert_eq!(
+        ink["fills"].as_array().unwrap().len(),
+        2,
+        "the two ink marks, not the body"
+    );
+    assert!(draw(&["strokes", path, "l1", "--entry", "body"]).contains("1 pixel marks, 8 cells"));
+    let moved = draw(&["lasso", path, "pixel 1", "--box", "3,0,3,4", "--cut", "--move", "5,1"]);
+    assert!(moved.contains("moved"), "{moved}");
+    assert_eq!(
+        rows("l1"),
+        [
+            "iii.........",
+            "ibb.....iii.",
+            "ibb.....bbi.",
+            "iii.....bbi.",
+            "........iii.",
+            "i..........."
+        ],
+        "the right half of the box moved 5 across and 1 down, between whole pixels"
+    );
+    let marks: serde_json::Value = serde_json::from_str(&draw(&["strokes", path, "l1", "--json"])).unwrap();
+    let pieces = marks["fills"].as_array().unwrap();
+    assert_eq!(pieces.len(), 5, "the two marks the box crossed are four now");
+    assert!(
+        pieces.iter().all(|m| m.get("cuts").is_none()),
+        "with no cut left on them"
+    );
+    let body_moved = pieces
+        .iter()
+        .find(|m| m["color"] == "#f2c14eff" && m["bounds"][0].as_f64() == Some(8.0))
+        .map(|m| m["address"].as_str().unwrap().to_string())
+        .expect("the moved half of the body");
+    draw(&["recolour", path, &body_moved, "--to", "ink"]);
+    assert_eq!(
+        rows("l1")[2],
+        "ibb.....iii.",
+        "a recoloured pixel mark takes exactly the palette colour"
+    );
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&draw(&["palette", path, "--json"]))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        2,
+        "and no shade is added to the palette"
+    );
+    draw(&["lasso", path, "l1", "--box", "8,1,3,4", "--flip", "h"]);
+    assert_eq!(rows("l1")[2], "ibb.....iii.");
+    draw(&["lasso", path, "l1", "--box", "0,0,3,4", "--rotate", "90"]);
+    let turned = rows("l1");
+    let count = |sign: char| turned.iter().flat_map(|r| r.chars()).filter(|c| *c == sign).count();
+    assert_eq!(
+        (count('i'), count('b')),
+        (8 + 12 + 1, 4),
+        "a quarter turn keeps every pixel: {turned:?}"
+    );
+    assert_eq!(&turned[1][..4], "iiii", "and the 3 by 4 piece now lies 4 by 3");
+    let missing = run(&["strokes", path, "l1", "--entry", "teal"]);
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("the palette has no"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn recolour_moves_strokes_together_and_keeps_their_shades() {
     let dir = std::env::temp_dir().join(format!("draw-binary-recolour-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

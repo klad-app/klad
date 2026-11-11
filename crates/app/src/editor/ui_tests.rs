@@ -1909,6 +1909,126 @@ fn the_fill_and_shape_tools_draw_whole_pixels_on_a_pixel_layer() {
 }
 
 #[test]
+fn pixels_are_selected_by_box_or_colour_and_move_flip_turn_and_recolour_on_the_grid() {
+    let path = pixel_sample("pixel-edit");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    h.state_mut().tool = Tool::Strokes;
+    h.run_steps(2);
+    assert!(h.query_by_label("box").is_some() && h.query_by_label_contains("same colour").is_some());
+    let grid = |h: &Harness<'static, Editor>| -> Vec<String> {
+        let ed = h.state();
+        let doc = &ed.scene.bundle.doc;
+        let grid = klad_core::pixel::grid_of(ed.scene.active_marks(), doc.canvas.width, doc.canvas.height);
+        let legend = klad_core::pixel::legend(doc, &grid);
+        klad_core::pixel::rows(&grid, &legend)
+    };
+    assert_eq!(&grid(&h)[4][..9], "....aaa..");
+    assert_eq!(&grid(&h)[5][..9], "....aba..");
+    let (a, b) = (on_screen(&h, 3.6, 3.6), on_screen(&h, 5.4, 7.4));
+    h.hover_at(a);
+    h.run_steps(1);
+    h.drag_at(a);
+    h.run_steps(1);
+    (1..=6).for_each(|i| {
+        h.hover_at(a + (b - a) * (i as f32 / 6.0));
+        h.run_steps(1);
+    });
+    h.drop_at(b);
+    h.run_steps(3);
+    let picked = h.state().picked.clone().expect("the box holds pixels");
+    assert!(
+        picked.cut.is_some(),
+        "the box crosses the ring, so it takes pixels, not whole marks"
+    );
+    assert_eq!(
+        picked.cut.as_deref(),
+        Some(&[[3.0, 3.0], [6.0, 3.0], [6.0, 8.0], [3.0, 8.0]][..]),
+        "the box snaps out to whole pixels"
+    );
+    let (from, to) = (on_screen(&h, 4.5, 5.5), on_screen(&h, 14.2, 5.9));
+    drag(&mut h, from, to);
+    settle(&mut h, |ed| ed.drag.is_none() && ed.preview.is_none());
+    h.run_steps(3);
+    ready(&mut h);
+    let rows = grid(&h);
+    assert_eq!(
+        &rows[4][..18],
+        "......a.......aa..",
+        "the left two columns of the ring moved 10 pixels: {rows:?}"
+    );
+    assert_eq!(&rows[5][..18], "......a.......ab..");
+    assert_eq!(&rows[6][..18], "......a.......aa..");
+    assert!(
+        h.state()
+            .scene
+            .active_marks()
+            .iter()
+            .all(|m| m.cuts().is_empty() && m.as_fill().unwrap().coverage.alpha.iter().all(|a| *a == 0 || *a == 255)),
+        "every mark is still whole pixels with no soft edge"
+    );
+    h.state_mut().invoke(Cmd::FlipH).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    let rows = grid(&h);
+    assert_eq!(&rows[5][..18], "......a.......ba..", "flipped in place: {rows:?}");
+    h.state_mut().invoke(Cmd::TurnRight90).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    let turned = grid(&h);
+    let count = |rows: &[String], sign: char| rows.iter().flat_map(|r| r.chars()).filter(|c| *c == sign).count();
+    assert_eq!(
+        (count(&turned, 'a'), count(&turned, 'b')),
+        (8, 1),
+        "a quarter turn keeps every pixel: {turned:?}"
+    );
+    h.state_mut().invoke(Cmd::Deselect).unwrap();
+    h.state_mut()
+        .set_colour(klad_core::color::parse_hex("#2b2d42").unwrap());
+    h.state_mut().invoke(Cmd::SelectSameColour).unwrap();
+    h.run_steps(2);
+    let same = h.state().picked.clone().expect("the ink marks");
+    assert!(
+        same.ids.len() >= 2 && same.cut.is_none(),
+        "every mark in the ring's colour: {:?}",
+        same.ids
+    );
+    h.state_mut()
+        .set_colour(klad_core::color::parse_hex("#2a9d8f").unwrap());
+    h.state_mut().invoke(Cmd::Recolour).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    let ed = h.state();
+    let teal = ed
+        .scene
+        .bundle
+        .doc
+        .swatch("#2a9d8f")
+        .expect("the new colour is a palette colour");
+    let id = ed.scene.bundle.doc.palette[teal].id.clone();
+    let recoloured = ed
+        .scene
+        .active_marks()
+        .iter()
+        .filter(|m| m.as_fill().unwrap().entry() == Some(id.as_str()))
+        .count();
+    assert_eq!(
+        recoloured,
+        same.ids.len(),
+        "each takes exactly the colour and its palette entry"
+    );
+    assert!(
+        ed.scene.bundle.doc.palette.len() <= 3,
+        "no shades were invented: {:?}",
+        ed.scene.bundle.doc.palette
+    );
+    let plain = sample("no-same-colour");
+    let other = harness(editor(&plain), vec2(1440.0, 900.0));
+    assert!(other.state().can_run(Cmd::SelectSameColour).is_some());
+    let _ = std::fs::remove_dir_all(&path);
+    let _ = std::fs::remove_dir_all(&plain);
+}
+
+#[test]
 fn a_tap_that_wobbles_selects_and_a_drag_past_three_points_moves() {
     let path = sample("tap");
     let mut h = harness(editor(&path), vec2(1440.0, 900.0));

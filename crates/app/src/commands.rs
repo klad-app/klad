@@ -38,6 +38,7 @@ pub enum Cmd {
     Copy,
     Paste,
     SelectAll,
+    SelectSameColour,
     TransformLayer,
     CutLasso,
     Recolour,
@@ -512,7 +513,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 185] = [
+    pub const ALL: [Cmd; 186] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -547,6 +548,7 @@ impl Cmd {
         Cmd::Copy,
         Cmd::Paste,
         Cmd::SelectAll,
+        Cmd::SelectSameColour,
         Cmd::TransformLayer,
         Cmd::CutLasso,
         Cmd::Recolour,
@@ -1007,6 +1009,15 @@ impl Cmd {
                 T::Press(const { &[cmd(Key::T)] }),
                 R::No,
                 "move, turn or scale the whole active layer or group, in every drawing, with its bones and poses",
+            ),
+            Cmd::SelectSameColour => spec(
+                "select.same-colour",
+                "select the same colour",
+                icon::PALETTE,
+                G::Edit,
+                T::None,
+                R::No,
+                "on a pixel layer: every mark of this drawing in the colours of the selected marks, or in the current colour when nothing is selected",
             ),
             Cmd::SelectAll => spec(
                 "edit.select-all",
@@ -2402,6 +2413,7 @@ impl Cmd {
             Cmd::Copy => "Copy",
             Cmd::Paste => "Paste",
             Cmd::SelectAll => "Select all",
+            Cmd::SelectSameColour => "Select same colour",
             Cmd::TransformLayer => "Transform layer",
             Cmd::CutLasso => "Lasso cuts strokes",
             Cmd::Recolour => "Recolour",
@@ -2614,6 +2626,7 @@ pub const MENUS: [Menu; 9] = [
             Run(Cmd::Delete),
             Line,
             Run(Cmd::SelectAll),
+            Run(Cmd::SelectSameColour),
             Run(Cmd::Deselect),
             Run(Cmd::CutLasso),
             Run(Cmd::PickAllLayers),

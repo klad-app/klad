@@ -334,6 +334,7 @@ struct Drag {
     grab: Grab,
     node: String,
     strokes: bool,
+    whole: bool,
     fresh: bool,
     copy: bool,
     start: Vec2,
@@ -354,14 +355,30 @@ impl Drag {
         if self.grab != Grab::Scale {
             return 1.0;
         }
-        ((self.now - self.center).length() / (self.start - self.center).length().max(1.0)).clamp(0.02, 50.0)
+        let free = ((self.now - self.center).length() / (self.start - self.center).length().max(1.0)).clamp(0.02, 50.0);
+        match self.whole {
+            true => free.round().max(1.0),
+            false => free,
+        }
     }
 
     fn angle(&self) -> f32 {
         if self.grab != Grab::Rotate {
             return 0.0;
         }
-        (self.now - self.center).angle() - (self.start - self.center).angle()
+        let free = (self.now - self.center).angle() - (self.start - self.center).angle();
+        match self.whole {
+            true => (free / std::f32::consts::FRAC_PI_2).round() * std::f32::consts::FRAC_PI_2,
+            false => free,
+        }
+    }
+
+    fn slide(&self) -> Vec2 {
+        let d = self.now - self.start;
+        match self.whole {
+            true => vec2(d.x.round(), d.y.round()),
+            false => d,
+        }
     }
 
     fn stretch(&self) -> Option<(usize, Vec2, f32)> {
@@ -381,6 +398,11 @@ impl Drag {
         } else {
             k.clamp(-50.0, 50.0)
         };
+        let k = match self.whole {
+            true if k.round() == 0.0 => 1.0f32.copysign(k),
+            true => k.round(),
+            false => k,
+        };
         Some((axis, pivot, k))
     }
 
@@ -394,7 +416,7 @@ impl Drag {
         }
         match self.grab {
             Grab::Move => {
-                let d = self.now - self.start;
+                let d = self.slide();
                 [1.0, 0.0, 0.0, 1.0, d.x, d.y]
             }
             Grab::Scale => {
@@ -433,7 +455,7 @@ impl Drag {
         }
         match self.grab {
             Grab::Move => {
-                let d = self.now - self.start;
+                let d = self.slide();
                 MarkTransform {
                     x: d.x,
                     y: d.y,
@@ -726,6 +748,7 @@ pub(crate) struct Editor {
     pub(crate) pixel_filled: bool,
     pub(crate) pixel_diagonal: bool,
     pub(crate) pixel_fill_all: bool,
+    pub(crate) pixel_box: bool,
     pixel_live: Option<PixelLive>,
     pixel_last: Option<klad_core::pixel::Cell>,
     hover_cell: Option<[i32; 2]>,
@@ -923,6 +946,7 @@ impl Editor {
             pixel_filled: false,
             pixel_diagonal: false,
             pixel_fill_all: false,
+            pixel_box: true,
             pixel_live: None,
             pixel_last: None,
             hover_cell: None,
@@ -1382,10 +1406,16 @@ impl Editor {
 
     fn picked_corners(&self) -> Option<(String, [Vec2; 4])> {
         let picked = self.picked.as_ref()?;
+        let area = picked.cut.as_ref().filter(|_| self.scene.on_grid()).map(|polygon| {
+            polygon.iter().fold([f32::MAX, f32::MAX, f32::MIN, f32::MIN], |b, p| {
+                [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])]
+            })
+        });
         let [x0, y0, x1, y1] = self
             .picked_parts()
             .iter()
             .map(|(_, _, marks, ids)| markedit::bounds_of(marks, ids))
+            .chain(std::iter::once(area))
             .fold(None, union_box)?;
         Some((picked.key(), [vec2(x0, y0), vec2(x1, y0), vec2(x1, y1), vec2(x0, y1)]))
     }
@@ -1787,11 +1817,17 @@ impl Editor {
         if !strokes && self.shifting.is_none() && !matches!(self.scene.bundle.doc.item(&id), Some(Item::Node(..))) {
             return;
         }
+        let whole = strokes && self.scene.on_grid();
         let center = corners.iter().fold(Vec2::ZERO, |a, c| a + *c) / 4.0;
+        let center = match whole {
+            true => vec2(center.x.round(), center.y.round()),
+            false => center,
+        };
         self.drag = Some(Drag {
             grab,
             node: id,
             strokes,
+            whole,
             fresh,
             copy: grab == Grab::Move && self.modifiers.alt,
             start: at,
@@ -2071,6 +2107,18 @@ impl Editor {
             .collect()
     }
 
+    fn lasso_outline(&self, lasso: &Lasso) -> Vec<Vec2> {
+        let boxed = self.pixel_box && self.scene.on_grid() && matches!(self.tool, Tool::Strokes | Tool::Select);
+        match (boxed, lasso.points.first(), lasso.points.last()) {
+            (true, Some(a), Some(b)) => {
+                let (x0, y0) = (a.x.min(b.x).floor(), a.y.min(b.y).floor());
+                let (x1, y1) = (a.x.max(b.x).ceil(), a.y.max(b.y).ceil());
+                vec![vec2(x0, y0), vec2(x1, y0), vec2(x1, y1), vec2(x0, y1)]
+            }
+            _ => lasso.points.clone(),
+        }
+    }
+
     fn finish_pick(&mut self) -> Result<()> {
         let Some(lasso) = self.lasso.take() else {
             return Ok(());
@@ -2098,8 +2146,8 @@ impl Editor {
         };
         let at = lasso.points[0];
         let erased = self.erased();
-        let polygon: Option<Vec<[f32; 2]>> =
-            (lasso.far && lasso.points.len() >= 3).then(|| lasso.points.iter().map(|p| [p.x, p.y]).collect());
+        let polygon: Option<Vec<[f32; 2]>> = (lasso.far && lasso.points.len() >= 3)
+            .then(|| self.lasso_outline(&lasso).iter().map(|p| [p.x, p.y]).collect());
         let pick = |marks: &[Mark]| -> (Vec<u32>, bool) {
             match &polygon {
                 Some(polygon) => {
@@ -3892,7 +3940,11 @@ impl Editor {
         self.draw_pins(&painter, |c| self.screen(view, rect, c));
         self.draw_checks(&painter, |c| self.screen(view, rect, c));
         if let Some(lasso) = self.lasso.as_ref().filter(|l| l.far) {
-            let line: Vec<Pos2> = lasso.points.iter().map(|p| self.screen(view, rect, *p)).collect();
+            let line: Vec<Pos2> = self
+                .lasso_outline(lasso)
+                .iter()
+                .map(|p| self.screen(view, rect, *p))
+                .collect();
             let tint = if matches!(self.tool, Tool::Strokes | Tool::Select) {
                 accent
             } else {
@@ -4198,10 +4250,66 @@ impl Editor {
             klad_core::color::recolour(&colours, target)
                 .into_iter()
                 .zip(&chosen)
-                .map(|(c, (cel, m))| (cel.clone(), m.id(), "color", json!(klad_core::color::to_hex(c))))
+                .map(|(shade, (cel, m))| {
+                    let colour = match m.as_fill().is_some_and(|f| f.on_grid()) {
+                        true => target,
+                        false => shade,
+                    };
+                    (cel.clone(), m.id(), "color", json!(klad_core::color::to_hex(colour)))
+                })
                 .collect()
         });
         self.set_picked(sets)
+    }
+
+    fn select_same_colour(&mut self) {
+        let Some(cel) = self.scene.active_cel() else {
+            return;
+        };
+        let marks = self.scene.active_marks();
+        let key = |m: &Mark| {
+            m.as_fill().filter(|f| f.on_grid() && !f.erases()).map(|f| {
+                f.entry()
+                    .map_or_else(|| klad_core::color::to_hex(f.color()), String::from)
+            })
+        };
+        let held: Vec<u32> = self
+            .picked
+            .as_ref()
+            .filter(|p| p.cel == cel)
+            .map_or(Vec::new(), |p| p.ids.clone());
+        let wanted: BTreeSet<String> = match held.is_empty() {
+            false => marks
+                .iter()
+                .filter(|m| held.contains(&m.id()))
+                .filter_map(key)
+                .collect(),
+            true => {
+                let current = klad_core::color::to_hex(self.color);
+                marks
+                    .iter()
+                    .filter(|m| klad_core::color::to_hex(m.color()).eq_ignore_ascii_case(&current))
+                    .filter_map(key)
+                    .collect()
+            }
+        };
+        let ids: Vec<u32> = marks
+            .iter()
+            .filter(|m| key(m).is_some_and(|k| wanted.contains(&k)))
+            .map(Mark::id)
+            .collect();
+        match ids.is_empty() {
+            true => self.say(
+                Tone::Info,
+                "no pixels of this drawing have that colour: click a palette colour, or select a mark first",
+            ),
+            false => {
+                let count = ids.len();
+                self.tool = Tool::Strokes;
+                self.picked = Some(Picked::whole(cel, ids));
+                self.say(Tone::Done, format!("{count} marks of that colour selected"));
+            }
+        }
     }
 
     fn attached_parts(&self) -> Vec<(String, String, Vec<u32>)> {
@@ -5281,6 +5389,7 @@ mod tests {
                 grab,
                 node: "c1:1,2".into(),
                 strokes: true,
+                whole: false,
                 fresh: false,
                 copy: false,
                 start: vec2(140.0, 80.0),

@@ -1183,7 +1183,7 @@ Select the strokes and fills of a paint layer inside a polygon and move, turn, s
 
 Also a lasso op in klad apply: {"op":"lasso","layer":"l3","polygon":[[100,100],[400,120],[380,400]],"cut":true,"x":60,"y":-20} (or "rm":true).
 
-Usage: klad lasso [OPTIONS] --polygon <POLYGON> <BUNDLE> <LAYER>
+Usage: klad lasso [OPTIONS] <BUNDLE> <LAYER>
 
 Arguments:
   <BUNDLE>
@@ -1196,8 +1196,11 @@ Options:
       --polygon <POLYGON>
           x,y pairs separated by spaces
 
+      --box <X,Y,W,H>
+          A box in place of a polygon: its top left pixel and its size in pixels
+
       --cut
-          Split strokes and fills crossing the edge and take the inside parts too
+          Split strokes and fills crossing the edge and take the inside parts too (pixel marks split between whole pixels)
 
       --move <OFFSET>
           dx,dy in px
@@ -3638,6 +3641,9 @@ Options:
           Only strokes with an id above this
 
           [default: 0]
+
+      --entry <COLOUR>
+          On a pixel layer: only the marks of one palette colour (a name, a colour, an index or an id), to edit them together
 
       --json
           Print strokes as JSON with their points (x, y, pressure)

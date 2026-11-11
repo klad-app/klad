@@ -459,7 +459,19 @@ fn resampled(c: &Coverage, a: Affine, hard: bool) -> Coverage {
     out
 }
 
+fn on_the_grid(a: Affine) -> Affine {
+    let whole = |v: f32| (v - v.round()).abs() < 1e-4;
+    match a[..4].iter().all(|v| whole(*v)) {
+        true => a.map(f32::round),
+        false => a,
+    }
+}
+
 pub fn transform_fill(fill: &mut Fill, a: Affine) {
+    let a = match fill.on_grid() {
+        true => on_the_grid(a),
+        false => a,
+    };
     let map = |p: [f32; 2]| mapped(a, p);
     match &mut fill.source {
         FillSource::Seed { seed, .. } => [seed.x, seed.y] = map([seed.x, seed.y]),
@@ -632,6 +644,23 @@ pub fn split(marks: &mut Vec<Mark>, polygon: &[[f32; 2]], cut: bool, ids: MarkId
         chosen.push(next);
         pieces.push((mark.id(), next));
         next += 1;
+        if let (Mark::Fill(outer), Mark::Fill(inner)) = (&mut mark, &mut part)
+            && outer.on_grid()
+        {
+            let shown: Vec<[u32; 2]> = outer
+                .coverage
+                .cells()
+                .filter(|c| cut::keeps(&outer.cuts, (c[0] as f32 + 0.5, c[1] as f32 + 0.5)))
+                .collect();
+            let (inside, outside): (Vec<[u32; 2]>, Vec<[u32; 2]>) = shown
+                .into_iter()
+                .partition(|c| inside_polygon(polygon, (c[0] as f32 + 0.5, c[1] as f32 + 0.5)));
+            outer.coverage = Coverage::from_cells(&outside);
+            inner.coverage = Coverage::from_cells(&inside);
+            outer.cuts.clear();
+            inner.cuts.clear();
+            return vec![mark, part];
+        }
         mark.cuts_mut().push(Cut {
             keep: Keep::Outside,
             polygon: polygon.to_vec(),
@@ -1067,6 +1096,89 @@ mod tests {
         });
         assert_eq!(turned.cells().collect::<Vec<_>>(), [[4, 4], [5, 4], [5, 5], [5, 6]]);
         assert_eq!(turned.pixels(), 4, "a quarter turn keeps every pixel");
+    }
+
+    #[test]
+    fn a_lasso_splits_pixel_marks_between_whole_pixels_and_turns_and_scales_land_on_the_grid() {
+        let grid = |id: u32, cells: &[[u32; 2]]| -> Mark {
+            Fill::cells(id, [1.0, 0.0, 0.0, 1.0], "p1", false, Coverage::from_cells(cells)).into()
+        };
+        let row: Vec<[u32; 2]> = (2..10).map(|x| [x, 5]).collect();
+        let mut marks = vec![grid(1, &row), grid(2, &[[20, 20]])];
+        let mut lasso = MarkChange::Lasso {
+            polygon: vec![[4.3, 3.0], [7.6, 3.0], [7.6, 8.0], [4.3, 8.0]],
+            cut: true,
+            action: LassoAction::Transform(MarkTransform {
+                y: 3.0,
+                ..Default::default()
+            }),
+            chosen: Vec::new(),
+        };
+        apply(&mut marks, &mut lasso, "c1", MarkIds::default()).unwrap();
+        assert_eq!(marks.len(), 3, "the row is two marks now");
+        let cells_of = |m: &Mark| m.as_fill().unwrap().coverage.cells().collect::<Vec<_>>();
+        assert_eq!(
+            cells_of(&marks[0]),
+            [[2, 5], [3, 5], [8, 5], [9, 5]],
+            "the pixels whose middle is outside the lasso stay"
+        );
+        assert_eq!(
+            cells_of(&marks[1]),
+            [[4, 8], [5, 8], [6, 8], [7, 8]],
+            "the others moved, as a mark of their own"
+        );
+        assert!(
+            marks.iter().all(
+                |m| m.cuts().is_empty() && m.as_fill().unwrap().coverage.alpha.iter().all(|a| *a == 0 || *a == 255)
+            ),
+            "no cut is left to soften an edge"
+        );
+        assert_eq!(marks[1].as_fill().unwrap().entry(), Some("p1"));
+        let pair = || vec![grid(1, &[[4, 4], [5, 4], [6, 4]]), grid(2, &[[4, 5]])];
+        let turned = |pivot: [f32; 2]| {
+            let mut marks = pair();
+            let mut change = MarkChange::Transform {
+                ids: vec![1, 2],
+                transform: MarkTransform {
+                    rotate: 90.0,
+                    pivot: Some(pivot),
+                    ..Default::default()
+                },
+            };
+            apply(&mut marks, &mut change, "c1", MarkIds::default()).unwrap();
+            (cells_of(&marks[0]), cells_of(&marks[1]))
+        };
+        [[5.5, 5.0], [5.0, 5.0], [5.25, 4.75], [5.5, 5.5]]
+            .iter()
+            .for_each(|pivot| {
+                let (bar, foot) = turned(*pivot);
+                assert_eq!(bar.len(), 3, "about {pivot:?} the bar keeps its three pixels: {bar:?}");
+                assert!(
+                    bar.windows(2).all(|w| w[0][0] == w[1][0] && w[1][1] == w[0][1] + 1),
+                    "upright: {bar:?}"
+                );
+                assert_eq!(foot.len(), 1);
+                assert_eq!(
+                    (foot[0][0] + 1, foot[0][1]),
+                    (bar[0][0], bar[0][1]),
+                    "the foot under the bar's left end is now left of its top: {bar:?} {foot:?}"
+                );
+            });
+        let mut doubled = pair();
+        let mut change = MarkChange::Transform {
+            ids: vec![1, 2],
+            transform: MarkTransform {
+                sx: 2.0,
+                sy: 2.0,
+                pivot: Some([5.5, 5.0]),
+                ..Default::default()
+            },
+        };
+        apply(&mut doubled, &mut change, "c1", MarkIds::default()).unwrap();
+        let (bar, foot) = (cells_of(&doubled[0]), cells_of(&doubled[1]));
+        assert_eq!((bar.len(), foot.len()), (12, 4), "every pixel is a 2 by 2 block");
+        let (bx, by) = (bar[0][0], bar[0][1]);
+        assert_eq!(foot[0], [bx, by + 2], "and the two marks still fit together");
     }
 
     #[test]

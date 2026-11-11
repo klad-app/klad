@@ -381,6 +381,27 @@ impl Editor {
                     }
                 }
                 Tool::Fill => self.fill_panel(ui),
+                Tool::Strokes if self.scene.on_grid() => {
+                    [(true, "box"), (false, "loop")].iter().for_each(|(boxed, label)| {
+                        if ui
+                            .selectable_label(self.pixel_box == *boxed, *label)
+                            .hint(match boxed {
+                                true => "drag a box around the pixels to select",
+                                false => "draw a loop around the pixels to select",
+                            })
+                            .clicked()
+                        {
+                            self.pixel_box = *boxed;
+                        }
+                    });
+                    self.command_check(ui, Cmd::CutLasso, "takes pixels, not whole marks");
+                    self.command_button(ui, Cmd::SelectSameColour, Some("same colour"));
+                    self.command_button(ui, Cmd::SelectAll, Some("select all"));
+                    ui.label(
+                        RichText::new("click a mark or drag around pixels; drag them to move by whole pixels; the bar under them edits them")
+                            .color(theme::WEAK),
+                    );
+                }
                 Tool::Strokes => {
                     self.pick_scope(ui);
                     self.command_check(ui, Cmd::CutLasso, "a lasso cuts strokes at its edge");
