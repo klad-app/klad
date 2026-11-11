@@ -191,6 +191,7 @@ pub enum Cmd {
     Refill,
     FillLike,
     ShowGaps,
+    CheckPixels,
     ShowParts,
     ShowArcs,
     CloseDocument,
@@ -523,7 +524,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 196] = [
+    pub const ALL: [Cmd; 197] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -717,6 +718,7 @@ impl Cmd {
         Cmd::FillLike,
         Cmd::PaintOver,
         Cmd::ShowGaps,
+        Cmd::CheckPixels,
         Cmd::ShowParts,
         Cmd::ShowArcs,
         Cmd::CompareReference,
@@ -2380,6 +2382,15 @@ impl Cmd {
                 R::No,
                 "outline the closed regions no fill covers on the active layer, on this frame or the selected frames",
             ),
+            Cmd::CheckPixels => spec(
+                "colour.check-pixels",
+                "check the pixels",
+                icon::SEARCH,
+                G::Colour,
+                T::None,
+                R::No,
+                "mark the places to look at on the pixel layer you are on: single pixels, doubled corners, jagged lines, banding and colours off the palette; it stays on and follows your edits until you turn it off",
+            ),
             Cmd::ShowParts => spec(
                 "view.parts",
                 "show parts",
@@ -2673,6 +2684,7 @@ impl Cmd {
             Cmd::Refill => "Refill drawing",
             Cmd::FillLike => "Fill like first drawing",
             Cmd::ShowGaps => "Show gaps",
+            Cmd::CheckPixels => "Check the pixels",
             Cmd::ShowParts => "Show parts",
             Cmd::ShowArcs => "Show arcs",
             Cmd::CloseDocument => "Close",
@@ -2889,6 +2901,7 @@ pub const MENUS: [Menu; 9] = [
             Line,
             Run(Cmd::Refill),
             Run(Cmd::ShowGaps),
+            Run(Cmd::CheckPixels),
         ],
     },
     Menu {

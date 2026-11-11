@@ -194,6 +194,9 @@ impl Editor {
                 }
             }
             Cmd::WrapCanvas => editing,
+            Cmd::CheckPixels if self.checks.pixels.is_none() && !self.scene.on_grid() => {
+                Some("pick a pixel layer first: the check reads pixel art".to_string())
+            }
             Cmd::NewVariant => match self.scene.bundle.doc.all_layers().iter().any(|l| l.pixel()) {
                 true => editing,
                 false => Some(
@@ -499,6 +502,7 @@ impl Editor {
             Cmd::PaintOver => self.windows.paintover,
             Cmd::CompareReference => self.windows.compare,
             Cmd::ShowGaps => self.checks.gaps.is_some(),
+            Cmd::CheckPixels => self.checks.pixels.is_some(),
             Cmd::ShowParts => self.checks.parts,
             Cmd::ShowArcs => self.checks.arcs.is_some(),
             Cmd::BrushWindow => self.windows.brush,
@@ -884,6 +888,7 @@ impl Editor {
             Cmd::Refill => self.refill()?,
             Cmd::FillLike => self.fill_like()?,
             Cmd::ShowGaps => self.show_gaps()?,
+            Cmd::CheckPixels => self.check_pixels(),
             Cmd::ShowParts => self.checks.parts = !self.checks.parts,
             Cmd::ShowArcs => self.show_arcs()?,
             Cmd::InstallCommand => self.start_job(install_job()),

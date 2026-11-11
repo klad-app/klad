@@ -12,10 +12,34 @@ use std::path::PathBuf;
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct Checks {
     pub gaps: Option<Gaps>,
+    pub pixels: Option<PixelCheck>,
     pub arcs: Option<Arcs>,
     pub parts: bool,
     pub part: String,
     pub font: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct PixelCheck {
+    pub layer: String,
+    pub frame: u32,
+    pub rev: u64,
+    pub found: Vec<klad_core::pixelcheck::Finding>,
+}
+
+pub(super) fn tally(found: &[klad_core::pixelcheck::Finding]) -> String {
+    use klad_core::pixelcheck::Kind;
+    let parts: Vec<String> = Kind::ALL
+        .iter()
+        .filter_map(|kind| {
+            let count = found.iter().filter(|f| f.kind == *kind).count();
+            (count > 0).then(|| format!("{count} {}", kind.name()))
+        })
+        .collect();
+    match parts.is_empty() {
+        true => "nothing to look at on this layer".to_string(),
+        false => format!("to look at, marked on the canvas: {}", parts.join(", ")),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -406,9 +430,72 @@ impl Editor {
         }
     }
 
+    fn pixel_findings(&self) -> Option<PixelCheck> {
+        let layer = self.scene.active_layer().filter(|l| l.pixel())?;
+        let doc = &self.scene.bundle.doc;
+        let grid = klad_core::pixel::grid_of(self.scene.active_marks(), doc.canvas.width, doc.canvas.height);
+        let colour = |key: &str| match doc.entry(key) {
+            Some(swatch) => klad_core::color::parse_hex(&swatch.color).ok(),
+            None => klad_core::color::parse_hex(key).ok(),
+        };
+        Some(PixelCheck {
+            layer: layer.id.clone(),
+            frame: self.scene.frame,
+            rev: doc.rev,
+            found: klad_core::pixelcheck::check(&grid, doc.canvas.wrap, &colour),
+        })
+    }
+
+    pub(super) fn check_pixels(&mut self) {
+        if self.checks.pixels.take().is_some() {
+            return;
+        }
+        self.checks.pixels = self.pixel_findings();
+        if let Some(check) = &self.checks.pixels {
+            let words = tally(&check.found);
+            self.say(
+                match check.found.is_empty() {
+                    true => Tone::Done,
+                    false => Tone::Refused,
+                },
+                words,
+            );
+        }
+    }
+
+    pub(super) fn follow_pixel_check(&mut self) {
+        let stale = self.checks.pixels.as_ref().is_some_and(|check| {
+            check.rev != self.scene.bundle.doc.rev
+                || check.frame != self.scene.frame
+                || self.scene.active_id().as_deref() != Some(check.layer.as_str())
+        });
+        if stale {
+            self.checks.pixels = self.pixel_findings();
+        }
+    }
+
     pub(super) fn draw_checks(&self, painter: &egui::Painter, place: impl Fn(Vec2) -> Pos2) {
         let frame = self.scene.frame;
         let dark = Stroke::new(3.5, Color32::from_black_alpha(150));
+        if let Some(check) = &self.checks.pixels {
+            use klad_core::pixelcheck::Kind;
+            check.found.iter().for_each(|f| {
+                let tint = match f.kind {
+                    Kind::Stray => Color32::from_rgb(255, 196, 0),
+                    Kind::Corner => Color32::from_rgb(255, 80, 120),
+                    Kind::Jagged => Color32::from_rgb(255, 120, 40),
+                    Kind::Banding => Color32::from_rgb(90, 200, 255),
+                    Kind::OffPalette => Color32::from_rgb(200, 120, 255),
+                };
+                let r = Rect::from_two_pos(
+                    place(vec2(f.at[0] as f32, f.at[1] as f32)),
+                    place(vec2(f.to[0] as f32 + 1.0, f.to[1] as f32 + 1.0)),
+                )
+                .expand(2.0);
+                painter.rect_stroke(r, 1.0, dark, egui::StrokeKind::Middle);
+                painter.rect_stroke(r, 1.0, Stroke::new(1.5, tint), egui::StrokeKind::Middle);
+            });
+        }
         if let Some(gaps) = &self.checks.gaps {
             let warn = Color32::from_rgb(255, 80, 120);
             gaps.frames

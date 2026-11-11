@@ -66,6 +66,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad refill`](#klad-refill): Recompute the flood fills of a paint cel after the lines they were made from changed
 - [`klad palette`](#klad-palette): The document palette: list it, --add or --rm a colour, --recolour one, --load a palette, or group colours in a --ramp
 - [`klad pixels`](#klad-pixels): Read a pixel layer as a grid of characters, one per pixel, with a legend of its palette colours
+- [`klad check`](#klad-check): Look over pixel art: stray pixels, doubled corners, jagged lines, banding, colours off the palette
 - [`klad palettes`](#klad-palettes): The palettes that come with klad, to load with klad palette <bundle> --load <name>
 - [`klad export`](#klad-export): Export PNGs, sprite sheets, numbered frames or a Godot SpriteFrames and scene
 - [`klad brushes`](#klad-brushes): List brushes: the library, and with a bundle the ones it embeds
@@ -3468,6 +3469,47 @@ Options:
 
       --tile <COLUMN,ROW>
           In a drawing cut into tiles: only that tile (0,0 is the first), with pixels counted from its own top left
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## klad check
+
+```text
+Look over the pixel layers of a drawing for the usual slips of pixel art, and list each with its place:
+
+  stray pixel      a single pixel with no neighbour of its colour
+  doubled corner   an L in a one-pixel line, where the line reads thick (a corner whose arms are both two pixels or longer, as on a box, is left alone)
+  jagged line      a short run between two longer ones in a one-pixel line, a step that breaks its rhythm
+  banding          a band one pixel wide, lighter than one side and darker than the other, that follows the edge next to it for four pixels or more
+  off the palette  pixels in a colour that is not a palette entry
+
+  klad check sprite.klad                  every pixel layer, frame 0
+  klad check sprite.klad body --frame 4   one layer (or a group's layers) at a frame
+  klad check sprite.klad --all            every drawing of every pixel layer
+  klad check sprite.klad --json
+
+Places are canvas pixels, x,y from the top left, the way klad pixels counts them. These are places to look at, not errors: a single pixel can be an eye, and a band can be a rim light. klad render --focus or klad pixels shows the spot; klad pixel fixes it.
+
+Usage: klad check [OPTIONS] <BUNDLE> [LAYER]
+
+Arguments:
+  <BUNDLE>
+
+
+  [LAYER]
+          A pixel layer or a group (default: every pixel layer)
+
+Options:
+      --frame <FRAME>
+          [default: 0]
+
+      --all
+          Every drawing on every frame, each once
+
+      --json
+
 
   -h, --help
           Print help (see a summary with '-h')

@@ -20,6 +20,7 @@ pub mod patch;
 pub mod path;
 pub mod pathedit;
 pub mod pixel;
+pub mod pixelcheck;
 pub mod repair;
 pub mod retime;
 pub mod rig;

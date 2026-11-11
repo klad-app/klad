@@ -1810,6 +1810,72 @@ fn a_clicked_palette_colour_is_updated_with_its_pixels_and_ramps_and_palettes_jo
 }
 
 #[test]
+fn checking_the_pixels_marks_the_places_and_follows_edits_until_it_is_turned_off() {
+    use klad_core::pixelcheck::Kind;
+    let path = pixel_sample("check");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    h.run_steps(2);
+    assert_eq!(h.state().is_on(Cmd::CheckPixels), Some(false));
+    h.state_mut().invoke(Cmd::CheckPixels).unwrap();
+    h.run_steps(2);
+    let kinds = |h: &Harness<'static, Editor>| -> Vec<(Kind, [u32; 2])> {
+        h.state()
+            .checks
+            .pixels
+            .as_ref()
+            .map(|check| check.found.iter().map(|f| (f.kind, f.at)).collect())
+            .unwrap_or_default()
+    };
+    assert_eq!(
+        kinds(&h),
+        [(Kind::Stray, [5, 5])],
+        "the red pixel in the ring stands alone"
+    );
+    let said = h.state().messages.latest().map(|m| m.text.clone()).unwrap_or_default();
+    assert!(said.contains("1 stray pixel"), "{said}");
+    assert_eq!(h.state().is_on(Cmd::CheckPixels), Some(true));
+    let layer = h.state().scene.active_id().unwrap();
+    let pixel = |cells: serde_json::Value, colour: &str| {
+        klad_core::ops::Op::parse(serde_json::json!({"op":"pixel","layer":layer,"color":colour,"cells":cells})).unwrap()
+    };
+    h.state_mut()
+        .apply(vec![pixel(serde_json::json!([[5, 5]]), "#2b2d42")])
+        .unwrap();
+    h.run_steps(3);
+    assert!(
+        kinds(&h).is_empty(),
+        "painted over, the finding goes without asking again"
+    );
+    h.state_mut()
+        .apply(vec![pixel(
+            serde_json::json!([[12, 10], [13, 10], [13, 11], [14, 11], [14, 12], [15, 12]]),
+            "#ef233c",
+        )])
+        .unwrap();
+    h.run_steps(3);
+    assert_eq!(
+        kinds(&h).iter().filter(|(kind, _)| *kind == Kind::Corner).count(),
+        4,
+        "a staircase drawn with doubles is marked at each of its corners: {:?}",
+        kinds(&h)
+    );
+    h.state_mut().invoke(Cmd::CheckPixels).unwrap();
+    h.run_steps(2);
+    assert!(h.state().checks.pixels.is_none() && h.state().is_on(Cmd::CheckPixels) == Some(false));
+    let painting = sample("check-paint");
+    let plain = harness(editor(&painting), vec2(1440.0, 900.0));
+    assert!(
+        plain
+            .state()
+            .can_run(Cmd::CheckPixels)
+            .is_some_and(|why| why.contains("pixel layer")),
+        "on a painting the check says what it needs"
+    );
+    let _ = std::fs::remove_dir_all(&path);
+    let _ = std::fs::remove_dir_all(&painting);
+}
+
+#[test]
 fn the_brush_tool_is_a_pixel_pencil_and_eraser_on_a_pixel_layer() {
     let path = pixel_sample("pencil");
     let mut h = harness(editor(&path), vec2(1440.0, 900.0));

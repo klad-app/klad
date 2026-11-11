@@ -3,6 +3,7 @@ mod arcs;
 mod aseprite;
 mod bench;
 mod brushes;
+mod check;
 mod colour;
 mod compare;
 mod demo;
@@ -1996,6 +1997,21 @@ enum Command {
             help = "In a drawing cut into tiles: only that tile (0,0 is the first), with pixels counted from its own top left"
         )]
         tile: Option<[i64; 2]>,
+    },
+    #[command(
+        about = "Look over pixel art: stray pixels, doubled corners, jagged lines, banding, colours off the palette",
+        long_about = "Look over the pixel layers of a drawing for the usual slips of pixel art, and list each with its place:\n\n  stray pixel      a single pixel with no neighbour of its colour\n  doubled corner   an L in a one-pixel line, where the line reads thick (a corner whose arms are both two pixels or longer, as on a box, is left alone)\n  jagged line      a short run between two longer ones in a one-pixel line, a step that breaks its rhythm\n  banding          a band one pixel wide, lighter than one side and darker than the other, that follows the edge next to it for four pixels or more\n  off the palette  pixels in a colour that is not a palette entry\n\n  klad check sprite.klad                  every pixel layer, frame 0\n  klad check sprite.klad body --frame 4   one layer (or a group's layers) at a frame\n  klad check sprite.klad --all            every drawing of every pixel layer\n  klad check sprite.klad --json\n\nPlaces are canvas pixels, x,y from the top left, the way klad pixels counts them. These are places to look at, not errors: a single pixel can be an eye, and a band can be a rim light. klad render --focus or klad pixels shows the spot; klad pixel fixes it."
+    )]
+    Check {
+        bundle: PathBuf,
+        #[arg(help = "A pixel layer or a group (default: every pixel layer)")]
+        layer: Option<String>,
+        #[arg(long, default_value_t = 0)]
+        frame: u32,
+        #[arg(long, conflicts_with = "frame", help = "Every drawing on every frame, each once")]
+        all: bool,
+        #[arg(long)]
+        json: bool,
     },
     #[command(about = "The palettes that come with klad, to load with klad palette <bundle> --load <name>")]
     Palettes {
@@ -4286,6 +4302,13 @@ fn run() -> Result<()> {
             }
         }
         Command::Palettes { json } => palettes(json),
+        Command::Check {
+            bundle,
+            layer,
+            frame,
+            all,
+            json,
+        } => check::run(&bundle, layer.as_deref(), frame, all, json)?,
         Command::Pixels {
             bundle,
             layer,

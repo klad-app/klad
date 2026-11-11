@@ -79,6 +79,7 @@ impl Editor {
             || self.capturing.is_some();
         self.check(|e| e.sync());
         self.tend_jobs();
+        self.follow_pixel_check();
         self.check(|e| e.tab_keys());
         let window = ctx.content_rect().size();
         self.settings.layout.clamp(window);
