@@ -562,6 +562,7 @@ struct Windows {
     clip: bool,
     between: bool,
     import: bool,
+    palettes: bool,
     about: bool,
     export: bool,
     report: bool,
@@ -659,6 +660,8 @@ pub(crate) struct Editor {
     mirror_buffer: StrokeBuffer,
     typing: BTreeMap<String, String>,
     import_path: String,
+    palette_path: String,
+    swatch_picked: Option<usize>,
     depth: depth::Parallax,
     batch: usize,
     pen_path: Option<PenPath>,
@@ -852,6 +855,8 @@ impl Editor {
             mirror_buffer: StrokeBuffer::new(size.0, size.1),
             typing: BTreeMap::new(),
             import_path: String::new(),
+            palette_path: String::new(),
+            swatch_picked: None,
             depth: depth::Parallax::default(),
             batch: timeline::FILL,
             pen_path: None,
@@ -4860,6 +4865,11 @@ impl Editor {
             .labelled_by(label.id)
             .hint("a name for the colour; agents can use it in place of the hex");
             self.command_button(ui, Cmd::AddSwatch, Some("add colour"));
+            if self.can_run(Cmd::UpdateSwatch).is_none() {
+                self.command_button(ui, Cmd::UpdateSwatch, Some("update"));
+            }
+            self.command_button(ui, Cmd::AddRamp, Some("ramp"));
+            self.command_button(ui, Cmd::LoadPalette, Some("palettes"));
         });
         if !self.settings.recent.is_empty() {
             ui.label("recent");

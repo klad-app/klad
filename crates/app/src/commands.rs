@@ -60,6 +60,9 @@ pub enum Cmd {
     Simplify,
     MakePath,
     AddSwatch,
+    UpdateSwatch,
+    AddRamp,
+    LoadPalette,
     NewPaintLayer,
     NewPixelLayer,
     NewVectorLayer,
@@ -509,7 +512,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 182] = [
+    pub const ALL: [Cmd; 185] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -566,6 +569,9 @@ impl Cmd {
         Cmd::Simplify,
         Cmd::MakePath,
         Cmd::AddSwatch,
+        Cmd::UpdateSwatch,
+        Cmd::AddRamp,
+        Cmd::LoadPalette,
         Cmd::NewPaintLayer,
         Cmd::NewPixelLayer,
         Cmd::NewVectorLayer,
@@ -1199,6 +1205,33 @@ impl Cmd {
                 T::None,
                 R::No,
                 "the current colour, with the name typed next to it",
+            ),
+            Cmd::UpdateSwatch => spec(
+                "colour.update",
+                "change the palette colour to this colour",
+                icon::PALETTE,
+                G::Colour,
+                T::None,
+                R::No,
+                "the palette colour you clicked last takes the current colour, and every pixel painted with it changes too",
+            ),
+            Cmd::AddRamp => spec(
+                "colour.ramp",
+                "add a ramp of the colour",
+                icon::PALETTE,
+                G::Colour,
+                T::None,
+                R::No,
+                "five steps of the current colour in the palette, from dark and cool to light and warm, named after the name typed next to it",
+            ),
+            Cmd::LoadPalette => spec(
+                "colour.palettes",
+                "load a palette",
+                icon::PALETTE,
+                G::Colour,
+                T::None,
+                R::No,
+                "add the colours of a palette that comes with klad, or of a palette file (a list of hex colours or a GIMP palette)",
             ),
             Cmd::NewPaintLayer => spec(
                 "layer.new-paint",
@@ -2391,6 +2424,9 @@ impl Cmd {
             Cmd::Simplify => "Simplify",
             Cmd::MakePath => "Make path",
             Cmd::AddSwatch => "Add colour to palette",
+            Cmd::UpdateSwatch => "Change palette colour to this",
+            Cmd::AddRamp => "Add a ramp of the colour",
+            Cmd::LoadPalette => "Load a palette…",
             Cmd::NewPaintLayer => "New paint layer",
             Cmd::NewPixelLayer => "New pixel layer",
             Cmd::NewVectorLayer => "New vector layer",
@@ -2660,6 +2696,9 @@ pub const MENUS: [Menu; 9] = [
             Line,
             Run(Cmd::SwapColours),
             Run(Cmd::AddSwatch),
+            Run(Cmd::UpdateSwatch),
+            Run(Cmd::AddRamp),
+            Run(Cmd::LoadPalette),
         ],
     },
     Menu {

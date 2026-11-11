@@ -15,6 +15,7 @@ pub mod markedit;
 pub mod migrate;
 pub mod notes;
 pub mod ops;
+pub mod palettes;
 pub mod patch;
 pub mod path;
 pub mod pathedit;

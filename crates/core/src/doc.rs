@@ -78,6 +78,8 @@ pub struct Swatch {
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ramp: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1232,6 +1234,14 @@ impl Document {
                     .position(|s| key.starts_with('#') && s.color.eq_ignore_ascii_case(key))
             })
             .or_else(|| key.parse::<usize>().ok().filter(|i| *i < self.palette.len()))
+            .or_else(|| self.palette.iter().position(|s| !s.id.is_empty() && s.id == key))
+    }
+
+    pub fn ramp(&self, name: &str) -> Vec<&Swatch> {
+        self.palette
+            .iter()
+            .filter(|s| !s.ramp.is_empty() && s.ramp == name)
+            .collect()
     }
 
     pub fn entry(&self, id: &str) -> Option<&Swatch> {
@@ -1248,6 +1258,7 @@ impl Document {
                     color: key.to_string(),
                     name: String::new(),
                     id: String::new(),
+                    ramp: String::new(),
                 });
                 self.palette.len() - 1
             }
@@ -1326,6 +1337,9 @@ impl Document {
             }
             if swatch.name.starts_with('#') {
                 bail!("palette name {} cannot start with #", swatch.name);
+            }
+            if swatch.ramp.starts_with('#') {
+                bail!("ramp name {} cannot start with #", swatch.ramp);
             }
             if !swatch.name.is_empty() && !swatch_names.insert(&swatch.name) {
                 bail!("palette name {} is used twice", swatch.name);
@@ -1565,11 +1579,13 @@ mod tests {
                 color: "#1b1b1b".into(),
                 name: "ink".into(),
                 id: String::new(),
+                ramp: String::new(),
             },
             Swatch {
                 color: "#F4EFE6".into(),
                 name: String::new(),
                 id: String::new(),
+                ramp: String::new(),
             },
         ];
         doc.next_id = 10;

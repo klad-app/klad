@@ -1581,4 +1581,150 @@ mod tests {
         assert!(Bundle::open(&dir).unwrap().doc.find_layer("more").unwrap().pixel());
         fs::remove_dir_all(&dir).unwrap();
     }
+
+    #[test]
+    fn a_swatch_change_recolours_the_marks_bound_to_it_and_ramps_and_loads_shape_the_palette() {
+        use crate::ops::parse_lines;
+        let dir = scratch("palette");
+        let mut bundle = Bundle::blank(
+            &dir,
+            &Blank {
+                width: 16,
+                height: 16,
+                pixel: true,
+                frames: 2,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let layer = bundle.doc.layers[0].id.clone();
+        let first = bundle.doc.layers[0].cels()[0].id.clone();
+        let run = |bundle: &mut Bundle, lines: &str| bundle.apply(&parse_lines(lines).unwrap()).unwrap();
+        run(
+            &mut bundle,
+            &format!(
+                "{}\n{}\n{}\n{}\n{}",
+                r##"{"op":"palette","add":"#f0c8a0","name":"skin"}"##,
+                r##"{"op":"palette","add":"#2b2d42","name":"ink"}"##,
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"skin","cells":[[1,1],[2,1]]}}"##),
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"ink","cells":[[3,3]]}}"##),
+                format_args!(r##"{{"op":"add","cel":{{"frame":1}},"in":"{layer}"}}"##),
+            ),
+        );
+        run(
+            &mut bundle,
+            &format!(r##"{{"op":"pixel","layer":"{layer}","frame":1,"color":"skin","cells":[[5,5]]}}"##),
+        );
+        let second = bundle.doc.layers[0].cels()[1].id.clone();
+        let colours = |bundle: &Bundle, cel: &str| -> Vec<(String, Option<String>)> {
+            crate::stroke::fills_of(&bundle.read_marks(&layer, cel).unwrap())
+                .map(|f| (crate::color::to_hex(f.color()), f.entry().map(String::from)))
+                .collect()
+        };
+        let skin = bundle.doc.palette[0].id.clone();
+        let ink = bundle.doc.palette[1].id.clone();
+        run(&mut bundle, r##"{"op":"palette","recolour":"skin","to":"#e8b796"}"##);
+        assert_eq!(
+            colours(&bundle, &first),
+            [
+                ("#e8b796".to_string(), Some(skin.clone())),
+                ("#2b2d42".to_string(), Some(ink.clone()))
+            ],
+            "the marks of the changed swatch follow it, the others stay"
+        );
+        assert_eq!(
+            colours(&bundle, &second),
+            [("#e8b796".to_string(), Some(skin.clone()))],
+            "on every drawing"
+        );
+        crate::history::step(&mut bundle, crate::history::Stack::Undo).unwrap();
+        assert_eq!(
+            colours(&bundle, &second),
+            [("#f0c8a0".to_string(), Some(skin.clone()))],
+            "and undo brings it back"
+        );
+        assert_eq!(bundle.doc.palette[0].color, "#f0c8a0");
+        run(&mut bundle, r##"{"op":"palette","add":"#ffd9b3","name":"skin"}"##);
+        assert_eq!(
+            colours(&bundle, &first)[0].0,
+            "#ffd9b3",
+            "adding a name again changes its colour, and its marks"
+        );
+        run(
+            &mut bundle,
+            r##"{"op":"palette","set":[{"color":"#101020","name":"ink"},{"color":"#ffd9b3","name":"skin"}]}"##,
+        );
+        let ids: Vec<&str> = bundle.doc.palette.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [ink.as_str(), skin.as_str()],
+            "a rewritten palette keeps the ids by name"
+        );
+        assert_eq!(colours(&bundle, &first)[1], ("#101020".to_string(), Some(ink.clone())));
+        run(&mut bundle, r##"{"op":"palette","rm":"ink"}"##);
+        assert_eq!(
+            colours(&bundle, &first)[1],
+            ("#101020".to_string(), None),
+            "a mark whose swatch is removed keeps its colour and is bound to nothing"
+        );
+        run(&mut bundle, r##"{"op":"palette","load":"pico-8"}"##);
+        assert_eq!(bundle.doc.palette.len(), 17);
+        run(&mut bundle, r##"{"op":"palette","load":"pico-8"}"##);
+        assert_eq!(
+            bundle.doc.palette.len(),
+            17,
+            "colours the palette holds are not loaded twice"
+        );
+        run(
+            &mut bundle,
+            r##"{"op":"palette","load":[{"color":"#123456","name":"skin"},{"color":"#abcdef","name":"sky","ramp":"blues"}]}"##,
+        );
+        let last: Vec<(&str, &str, &str)> = bundle.doc.palette[17..]
+            .iter()
+            .map(|s| (s.color.as_str(), s.name.as_str(), s.ramp.as_str()))
+            .collect();
+        assert_eq!(
+            last,
+            [("#123456", "", ""), ("#abcdef", "sky", "blues")],
+            "a name already taken is dropped"
+        );
+        run(
+            &mut bundle,
+            r##"{"op":"palette","ramp":"reds","of":["#ff004d","#7e2553","#ab5236"]}"##,
+        );
+        let reds: Vec<&str> = bundle.doc.ramp("reds").iter().map(|s| s.color.as_str()).collect();
+        assert_eq!(
+            reds,
+            ["#ff004d", "#7e2553", "#ab5236"],
+            "a ramp keeps the order it is given"
+        );
+        let at = bundle.doc.swatch("#ff004d").unwrap();
+        assert_eq!(
+            bundle.doc.palette[at..at + 3]
+                .iter()
+                .map(|s| s.ramp.as_str())
+                .collect::<Vec<_>>(),
+            ["reds", "reds", "reds"],
+            "and its colours sit side by side"
+        );
+        run(&mut bundle, r##"{"op":"palette","ramp":"reds","of":[]}"##);
+        assert!(bundle.doc.ramp("reds").is_empty());
+        let refuse = |line: &str| {
+            format!(
+                "{:#}",
+                crate::ops::apply_all(&bundle.doc, &parse_lines(line).unwrap()).unwrap_err()
+            )
+        };
+        assert!(format!("{:#}", parse_lines(r##"{"op":"palette","load":"nes"}"##).unwrap_err()).contains("comes with"));
+        assert!(refuse(r##"{"op":"palette","recolour":"teal","to":"#000000"}"##).contains("teal"));
+        assert!(
+            format!(
+                "{:#}",
+                parse_lines(r##"{"op":"palette","recolour":"skin"}"##).unwrap_err()
+            )
+            .contains("\"to\"")
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
 }

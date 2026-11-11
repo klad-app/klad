@@ -265,6 +265,17 @@ pub enum PaletteEdit {
     Set {
         swatches: Vec<Swatch>,
     },
+    Recolour {
+        key: String,
+        color: String,
+    },
+    Load {
+        swatches: Vec<Swatch>,
+    },
+    Ramp {
+        name: String,
+        keys: Vec<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -2749,7 +2760,50 @@ fn parse_palette(map: &mut Map<String, Value>) -> Result<PaletteEdit> {
             .context("palette set takes a list like [{\"color\":\"#1b1b1b\",\"name\":\"ink\"}]")?;
         return Ok(PaletteEdit::Set { swatches });
     }
-    bail!("palette needs \"add\" (with \"name\"), \"rm\" or \"set\"")
+    if let Some(key) = map.remove("recolour").or_else(|| map.remove("recolor")) {
+        let key = match key {
+            Value::String(s) => s,
+            Value::Number(n) => n.to_string(),
+            other => bail!("palette recolour takes a name, a colour, an index or an id, not {other}"),
+        };
+        let color = take_str(map, "to")?
+            .ok_or_else(|| anyhow!("palette recolour needs \"to\": the new colour, #rrggbb or #rrggbbaa"))?;
+        return Ok(PaletteEdit::Recolour { key, color });
+    }
+    if let Some(load) = map.remove("load") {
+        let swatches = match load {
+            Value::String(name) => crate::palettes::shipped(&name)
+                .ok_or_else(|| {
+                    anyhow!(
+                        "klad has no palette {name:?}: it comes with {}",
+                        crate::palettes::names()
+                    )
+                })?
+                .swatches(),
+            list => serde_json::from_value(list).context(
+                "palette load takes the name of a palette that comes with klad, or a list like [{\"color\":\"#1b1b1b\"}]",
+            )?,
+        };
+        return Ok(PaletteEdit::Load { swatches });
+    }
+    if let Some(name) = take_str(map, "ramp")? {
+        let keys = match map.remove("of") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Array(items)) => items
+                .into_iter()
+                .map(|v| match v {
+                    Value::String(s) => Ok(s),
+                    Value::Number(n) => Ok(n.to_string()),
+                    other => bail!("a ramp lists palette names, colours, indexes or ids, not {other}"),
+                })
+                .collect::<Result<_>>()?,
+            Some(other) => bail!("\"of\" is the list of the ramp's colours, dark to light, not {other}"),
+        };
+        return Ok(PaletteEdit::Ramp { name, keys });
+    }
+    bail!(
+        "palette needs \"add\" (with \"name\"), \"rm\", \"set\", \"recolour\" (with \"to\"), \"load\" or \"ramp\" (with \"of\")"
+    )
 }
 
 fn edit_palette(doc: &mut Document, edit: &PaletteEdit) -> Result<()> {
@@ -2778,6 +2832,7 @@ fn edit_palette(doc: &mut Document, edit: &PaletteEdit) -> Result<()> {
                     color: color.clone(),
                     name: name.clone(),
                     id: String::new(),
+                    ramp: String::new(),
                 },
             );
         }
@@ -2787,8 +2842,138 @@ fn edit_palette(doc: &mut Document, edit: &PaletteEdit) -> Result<()> {
                 .ok_or_else(|| anyhow!("the palette has no {key:?} (give a name, a colour or an index)"))?;
             doc.palette.remove(at);
         }
-        PaletteEdit::Set { swatches } => doc.palette = swatches.clone(),
+        PaletteEdit::Set { swatches } => doc.palette = carry_ids(&doc.palette, swatches),
+        PaletteEdit::Recolour { key, color } => {
+            parse_hex(color)?;
+            let at = doc
+                .swatch(key)
+                .ok_or_else(|| anyhow!("the palette has no {key:?} (give a name, a colour, an index or an id)"))?;
+            doc.palette[at].color = color.clone();
+        }
+        PaletteEdit::Load { swatches } => {
+            swatches.iter().try_for_each(|swatch| {
+                parse_hex(&swatch.color)?;
+                let held = doc.palette.iter().any(|s| s.color.eq_ignore_ascii_case(&swatch.color));
+                let named = !swatch.name.is_empty() && doc.palette.iter().any(|s| s.name == swatch.name);
+                if !held {
+                    doc.palette.push(Swatch {
+                        color: swatch.color.clone(),
+                        name: match named {
+                            true => String::new(),
+                            false => swatch.name.clone(),
+                        },
+                        id: String::new(),
+                        ramp: swatch.ramp.clone(),
+                    });
+                }
+                Ok::<_, anyhow::Error>(())
+            })?;
+        }
+        PaletteEdit::Ramp { name, keys } => {
+            let name = name.trim();
+            if name.is_empty() || name.starts_with('#') {
+                bail!("a ramp needs a name that does not start with #");
+            }
+            let places = keys
+                .iter()
+                .map(|key| {
+                    doc.swatch(key)
+                        .ok_or_else(|| anyhow!("the palette has no {key:?} (give a name, a colour, an index or an id)"))
+                })
+                .collect::<Result<Vec<usize>>>()?;
+            doc.palette
+                .iter_mut()
+                .filter(|s| s.ramp == name)
+                .for_each(|s| s.ramp.clear());
+            let Some(&first) = places.iter().min() else {
+                return Ok(());
+            };
+            let chosen: Vec<Swatch> = places
+                .iter()
+                .map(|&at| Swatch {
+                    ramp: name.to_string(),
+                    ..doc.palette[at].clone()
+                })
+                .collect();
+            let before = places.iter().filter(|&&at| at < first).count();
+            let mut rest: Vec<Swatch> = doc
+                .palette
+                .iter()
+                .enumerate()
+                .filter(|(at, _)| !places.contains(at))
+                .map(|(_, s)| s.clone())
+                .collect();
+            let at = (first - before).min(rest.len());
+            rest.splice(at..at, chosen);
+            doc.palette = rest;
+        }
     }
+    Ok(())
+}
+
+fn carry_ids(old: &[Swatch], new: &[Swatch]) -> Vec<Swatch> {
+    let mut free: Vec<&Swatch> = old.iter().filter(|s| !s.id.is_empty()).collect();
+    free.retain(|s| !new.iter().any(|n| n.id == s.id));
+    new.iter()
+        .map(|swatch| {
+            if !swatch.id.is_empty() {
+                return swatch.clone();
+            }
+            let found = free
+                .iter()
+                .position(|s| !swatch.name.is_empty() && s.name == swatch.name)
+                .or_else(|| {
+                    free.iter().position(|s| {
+                        s.name.is_empty() == swatch.name.is_empty() && s.color.eq_ignore_ascii_case(&swatch.color)
+                    })
+                });
+            match found {
+                Some(at) => Swatch {
+                    id: free.remove(at).id.clone(),
+                    ..swatch.clone()
+                },
+                None => swatch.clone(),
+            }
+        })
+        .collect()
+}
+
+fn follow_palette(doc: &Document, before: &[Swatch], out: &mut Applied) -> Result<()> {
+    let changes: Vec<MarkChange> = before
+        .iter()
+        .filter(|old| !old.id.is_empty())
+        .filter_map(|old| match doc.entry(&old.id) {
+            Some(now) if now.color.eq_ignore_ascii_case(&old.color) => None,
+            Some(now) => Some(parse_hex(&now.color).map(|c| MarkChange::Entry {
+                entry: old.id.clone(),
+                color: Some(crate::color::to_u16(c)),
+                changed: Vec::new(),
+            })),
+            None => Some(Ok(MarkChange::Entry {
+                entry: old.id.clone(),
+                color: None,
+                changed: Vec::new(),
+            })),
+        })
+        .collect::<Result<_>>()?;
+    if changes.is_empty() {
+        return Ok(());
+    }
+    doc.all_layers()
+        .into_iter()
+        .filter(|layer| layer.pixel())
+        .flat_map(|layer| {
+            layer
+                .cels()
+                .iter()
+                .filter(|c| c.link.is_none())
+                .map(move |c| (layer, c))
+        })
+        .for_each(|(layer, cel)| {
+            changes
+                .iter()
+                .for_each(|change| out.push(&layer.id, &cel.id, change.clone()));
+        });
     Ok(())
 }
 
@@ -3648,7 +3833,9 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
             out.changed.push(id.clone());
         }
         Op::Palette(edit) => {
+            let before = doc.palette.clone();
             edit_palette(doc, edit)?;
+            follow_palette(doc, &before, out)?;
             if !out.changed.iter().any(|c| c == "palette") {
                 out.changed.push("palette".into());
             }

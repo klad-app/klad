@@ -1627,6 +1627,101 @@ fn a_pixel_drawing_zooms_in_whole_steps_and_shows_its_grid_the_pointers_pixel_an
 }
 
 #[test]
+fn a_clicked_palette_colour_is_updated_with_its_pixels_and_ramps_and_palettes_join_the_palette() {
+    let path = pixel_sample("palette-edit");
+    let mut h = harness(editor(&path), vec2(1440.0, 1060.0));
+    let hexes = |h: &Harness<'static, Editor>| -> Vec<String> {
+        h.state()
+            .scene
+            .bundle
+            .doc
+            .palette
+            .iter()
+            .map(|s| s.color.clone())
+            .collect()
+    };
+    assert_eq!(hexes(&h), ["#2b2d42", "#ef233c"]);
+    assert!(
+        h.state()
+            .can_run(Cmd::UpdateSwatch)
+            .is_some_and(|why| why.contains("click a colour in the palette first"))
+    );
+    let red = h.get_by_role_and_label(Role::Button, "#ef233c").rect();
+    h.hover_at(red.center());
+    h.run_steps(1);
+    h.drag_at(red.center());
+    h.run_steps(1);
+    h.drop_at(red.center());
+    h.run_steps(2);
+    assert_eq!(h.state().swatch_picked, Some(1));
+    assert!(
+        h.state()
+            .can_run(Cmd::UpdateSwatch)
+            .is_some_and(|why| why.contains("already is this colour"))
+    );
+    assert!(h.query_by_label_contains("update").is_none(), "nothing to update yet");
+    let teal = klad_core::color::parse_hex("#2a9d8f").unwrap();
+    h.state_mut().set_colour(teal);
+    h.run_steps(2);
+    h.state_mut().invoke(Cmd::UpdateSwatch).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    assert_eq!(hexes(&h), ["#2b2d42", "#2a9d8f"]);
+    let marks = h.state().scene.active_marks().to_vec();
+    let centre = marks[1].as_fill().unwrap();
+    assert_eq!(
+        klad_core::color::to_hex(centre.color()),
+        "#2a9d8f",
+        "the pixel painted with it changed"
+    );
+    assert_eq!(klad_core::color::to_hex(marks[0].as_fill().unwrap().color()), "#2b2d42");
+    let raster = h.state().scene.active_raster().unwrap();
+    let tile = raster.at(0).unwrap();
+    let at = (5 * klad_brush::TILE + 5) * 4;
+    assert!(
+        (0..3).all(|i| (tile[at + i].to_f32() - teal[i]).abs() < 1e-3),
+        "and the canvas shows it"
+    );
+    h.state_mut().swatch_name = "sea".into();
+    h.state_mut().invoke(Cmd::AddRamp).unwrap();
+    h.run_steps(2);
+    let doc = h.state().scene.bundle.doc.clone();
+    let ramp: Vec<&str> = doc.ramp("sea").iter().map(|s| s.color.as_str()).collect();
+    assert_eq!(ramp.len(), 5);
+    assert_eq!(ramp[2], "#2a9d8f", "the colour itself is the middle of its ramp");
+    assert_eq!(
+        doc.palette.len(),
+        6,
+        "the palette colour joined the ramp instead of being added twice"
+    );
+    h.state_mut().invoke(Cmd::LoadPalette).unwrap();
+    h.run_steps(2);
+    h.get_by_label("PICO-8").click();
+    h.run_steps(3);
+    assert_eq!(h.state().scene.bundle.doc.palette.len(), 22);
+    assert!(
+        !h.state().windows.palettes,
+        "the window closes once a palette is loaded"
+    );
+    let said = h.state().messages.latest().map(|m| m.text.clone()).unwrap_or_default();
+    assert!(said.contains("16 colours added"), "{said}");
+    let file = path.with_extension("hex");
+    std::fs::write(&file, "ff00ff\n00ffff\n000000\n").unwrap();
+    h.state_mut().invoke(Cmd::LoadPalette).unwrap();
+    h.state_mut().palette_path = file.display().to_string();
+    h.run_steps(2);
+    h.get_by_label("load").click();
+    h.run_steps(3);
+    assert_eq!(
+        h.state().scene.bundle.doc.palette.len(),
+        24,
+        "two new colours: black is in the palette already"
+    );
+    let _ = std::fs::remove_file(&file);
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn a_tap_that_wobbles_selects_and_a_drag_past_three_points_moves() {
     let path = sample("tap");
     let mut h = harness(editor(&path), vec2(1440.0, 900.0));

@@ -1,4 +1,4 @@
-_Last updated: 2026-11-11 13:30 (format `klad/7`, stroke files `KLST` version 3, brushes `klad-brush/1`)_
+_Last updated: 2026-11-11 17:20 (format `klad/7`, stroke files `KLST` version 3, brushes `klad-brush/1`)_
 
 # The klad drawing format
 
@@ -63,12 +63,12 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
 | `format` | string | | `"klad/7"` |
 | `canvas` | object | | `width`, `height` (px), `background` (a colour; none is transparent) |
 | `timeline` | object | 12 fps, 1 frame | see below |
-| `palette` | array | `[]` | swatches: `color`, optional `name` (unique, not starting with `#`), optional `id` (unique; set once a pixel mark uses the swatch) |
+| `palette` | array | `[]` | swatches: `color`, optional `name` (unique, not starting with `#`), optional `id` (unique; set once a pixel mark uses the swatch), optional `ramp` (the name of the ramp it belongs to) |
 | `layers` | array | | the layers, **bottom first** |
 | `export` | object | `{}` | `godot`: the folder Godot exports go to, relative to the folder holding the bundle |
 | `atmosphere` | object | none | fog by depth: `color` (`#9aa8b8`), `top` (a colour higher up), `density` (0.5), `blur` (1), `desaturate` (0.15) |
 
-Strokes and fills store their colour, so for them the palette is a list of names for colours, never a reference: renaming or recolouring a swatch changes nothing drawn. Pixel marks (below) also name the swatch they were drawn with, by its `id`.
+Strokes and fills store their colour, so for them the palette is a list of names for colours, never a reference: renaming or recolouring a swatch changes nothing drawn. Pixel marks (below) also name the swatch they were drawn with, by its `id`: when klad changes that swatch's colour it rewrites the colour of every pixel mark bound to it, and when the swatch is removed it clears the marks' binding and leaves their colour. A reader draws a pixel mark in the colour the mark stores. A **ramp** is the swatches that share a `ramp` name, in palette order, dark to light.
 
 ### The timeline
 

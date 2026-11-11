@@ -61,7 +61,8 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad grass`](#klad-grass): Grow grass in closed shapes: blades lit by the ground, smaller with distance, breaking the top edge
 - [`klad gaps`](#klad-gaps): List closed regions of the lines that no fill on the layer covers
 - [`klad refill`](#klad-refill): Recompute the flood fills of a paint cel after the lines they were made from changed
-- [`klad palette`](#klad-palette): The document palette: list, --add a colour (with --name), --rm a name, colour or index
+- [`klad palette`](#klad-palette): The document palette: list it, --add or --rm a colour, --recolour one, --load a palette, or group colours in a --ramp
+- [`klad palettes`](#klad-palettes): The palettes that come with klad, to load with klad palette <bundle> --load <name>
 - [`klad export`](#klad-export): Export PNGs, sprite sheets, numbered frames or a Godot SpriteFrames and scene
 - [`klad brushes`](#klad-brushes): List brushes: the library, and with a bundle the ones it embeds
 - [`klad effect`](#klad-effect): List, add or remove a layer's effects: klad effect art.klad l3 glow radius=24 color=#ffd080
@@ -3062,14 +3063,21 @@ Options:
 ## klad palette
 
 ```text
-The document palette, kept in doc.json. Named colours can be used wherever a colour goes (--color skin).
+The document palette, kept in doc.json. Named colours can be used wherever a colour goes (--color skin). On pixel layers every mark is bound to the palette colour it was drawn with, so changing that colour here changes the marks.
 
   klad palette art.klad
   klad palette art.klad --add '#f0c8a0' --name skin
   klad palette art.klad --add '#d0a080' --name skin    (changes skin)
+  klad palette art.klad --recolour skin --to '#e8b796'  (by name, colour, index or id)
   klad palette art.klad --rm skin
+  klad palette art.klad --load pico-8                  (a palette that comes with klad: klad palettes lists them)
+  klad palette art.klad --load my.hex                  (a list of hex colours, one per line, or a GIMP .gpl palette)
+  klad palette art.klad --ramp wood --base '#8b5a2b' --steps 5   (wood-1 to wood-5, dark and cool to light and warm)
+  klad palette art.klad --ramp skin --of skin-dark,skin,skin-light   (group colours it has, dark to light)
 
-As ops: {"op":"palette","add":"#f0c8a0","name":"skin"}, {"op":"palette","rm":"skin"}, {"op":"palette","set":[{"color":"#1b1b1b","name":"ink"}]}
+A loaded colour the palette already holds is not added again. A ramp is a row of colours from dark to light, used to shade one material.
+
+As ops: {"op":"palette","add":"#f0c8a0","name":"skin"}, {"op":"palette","rm":"skin"}, {"op":"palette","recolour":"skin","to":"#e8b796"}, {"op":"palette","load":"pico-8"}, {"op":"palette","ramp":"skin","of":["skin-dark","skin"]}, {"op":"palette","set":[{"color":"#1b1b1b","name":"ink"}]}
 
 Usage: klad palette [OPTIONS] <BUNDLE>
 
@@ -3087,6 +3095,29 @@ Options:
       --rm <RM>
 
 
+      --recolour <RECOLOUR>
+          Change one colour (a name, a colour, an index or an id) to --to; pixel marks drawn with it change too
+
+      --to <TO>
+          The new colour for --recolour
+
+      --load <LOAD>
+          Add the colours of a palette that comes with klad (klad palettes), or of a .hex or .gpl file
+
+      --ramp <RAMP>
+          A ramp of that name: made from --base in --steps, or the palette's own colours listed in --of
+
+      --base <BASE>
+          The middle colour of a new ramp
+
+      --steps <STEPS>
+          How many colours a new ramp has (2 to 16)
+
+          [default: 5]
+
+      --of <OF>
+          The colours of the ramp, dark to light: names, colours, indexes or ids (empty: the ramp is dropped)
+
       --render
           Render a preview after the edit and print its path
 
@@ -3101,6 +3132,21 @@ Options:
 
   -h, --help
           Print help (see a summary with '-h')
+```
+
+## klad palettes
+
+```text
+The palettes that come with klad, to load with klad palette <bundle> --load <name>
+
+Usage: klad palettes [OPTIONS]
+
+Options:
+      --json
+
+
+  -h, --help
+          Print help
 ```
 
 ## klad export

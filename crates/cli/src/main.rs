@@ -1616,8 +1616,8 @@ enum Command {
         flags: EditFlags,
     },
     #[command(
-        about = "The document palette: list, --add a colour (with --name), --rm a name, colour or index",
-        long_about = "The document palette, kept in doc.json. Named colours can be used wherever a colour goes (--color skin).\n\n  klad palette art.klad\n  klad palette art.klad --add '#f0c8a0' --name skin\n  klad palette art.klad --add '#d0a080' --name skin    (changes skin)\n  klad palette art.klad --rm skin\n\nAs ops: {\"op\":\"palette\",\"add\":\"#f0c8a0\",\"name\":\"skin\"}, {\"op\":\"palette\",\"rm\":\"skin\"}, {\"op\":\"palette\",\"set\":[{\"color\":\"#1b1b1b\",\"name\":\"ink\"}]}"
+        about = "The document palette: list it, --add or --rm a colour, --recolour one, --load a palette, or group colours in a --ramp",
+        long_about = "The document palette, kept in doc.json. Named colours can be used wherever a colour goes (--color skin). On pixel layers every mark is bound to the palette colour it was drawn with, so changing that colour here changes the marks.\n\n  klad palette art.klad\n  klad palette art.klad --add '#f0c8a0' --name skin\n  klad palette art.klad --add '#d0a080' --name skin    (changes skin)\n  klad palette art.klad --recolour skin --to '#e8b796'  (by name, colour, index or id)\n  klad palette art.klad --rm skin\n  klad palette art.klad --load pico-8                  (a palette that comes with klad: klad palettes lists them)\n  klad palette art.klad --load my.hex                  (a list of hex colours, one per line, or a GIMP .gpl palette)\n  klad palette art.klad --ramp wood --base '#8b5a2b' --steps 5   (wood-1 to wood-5, dark and cool to light and warm)\n  klad palette art.klad --ramp skin --of skin-dark,skin,skin-light   (group colours it has, dark to light)\n\nA loaded colour the palette already holds is not added again. A ramp is a row of colours from dark to light, used to shade one material.\n\nAs ops: {\"op\":\"palette\",\"add\":\"#f0c8a0\",\"name\":\"skin\"}, {\"op\":\"palette\",\"rm\":\"skin\"}, {\"op\":\"palette\",\"recolour\":\"skin\",\"to\":\"#e8b796\"}, {\"op\":\"palette\",\"load\":\"pico-8\"}, {\"op\":\"palette\",\"ramp\":\"skin\",\"of\":[\"skin-dark\",\"skin\"]}, {\"op\":\"palette\",\"set\":[{\"color\":\"#1b1b1b\",\"name\":\"ink\"}]}"
     )]
     Palette {
         bundle: PathBuf,
@@ -1627,8 +1627,56 @@ enum Command {
         name: Option<String>,
         #[arg(long, conflicts_with = "add")]
         rm: Option<String>,
+        #[arg(
+            long,
+            alias = "recolor",
+            requires = "to",
+            conflicts_with_all = ["add", "rm"],
+            help = "Change one colour (a name, a colour, an index or an id) to --to; pixel marks drawn with it change too"
+        )]
+        recolour: Option<String>,
+        #[arg(long, requires = "recolour", help = "The new colour for --recolour")]
+        to: Option<String>,
+        #[arg(
+            long,
+            conflicts_with_all = ["add", "rm", "recolour"],
+            help = "Add the colours of a palette that comes with klad (klad palettes), or of a .hex or .gpl file"
+        )]
+        load: Option<String>,
+        #[arg(
+            long,
+            conflicts_with_all = ["add", "rm", "recolour", "load"],
+            help = "A ramp of that name: made from --base in --steps, or the palette's own colours listed in --of"
+        )]
+        ramp: Option<String>,
+        #[arg(
+            long,
+            requires = "ramp",
+            conflicts_with = "of",
+            help = "The middle colour of a new ramp"
+        )]
+        base: Option<String>,
+        #[arg(
+            long,
+            requires = "base",
+            default_value_t = 5,
+            help = "How many colours a new ramp has (2 to 16)"
+        )]
+        steps: usize,
+        #[arg(
+            long,
+            requires = "ramp",
+            value_delimiter = ',',
+            help = "The colours of the ramp, dark to light: names, colours, indexes or ids (empty: the ramp is dropped)"
+        )]
+        of: Option<Vec<String>>,
         #[command(flatten)]
         flags: EditFlags,
+    },
+    #[command(about = "The palettes that come with klad, to load with klad palette <bundle> --load <name>")]
+    Palettes {
+        #[arg(long)]
+        json: bool,
     },
     #[command(
         about = "Export PNGs, sprite sheets, numbered frames or a Godot SpriteFrames and scene",
@@ -3536,22 +3584,63 @@ fn run() -> Result<()> {
             add,
             name,
             rm,
+            recolour,
+            to,
+            load,
+            ramp,
+            base,
+            steps,
+            of,
             flags,
         } => {
-            let edit = match (add, rm) {
-                (Some(color), _) => Some(PaletteEdit::Add {
+            let edit = match (add, rm, recolour, load, ramp) {
+                (Some(color), ..) => Some(PaletteEdit::Add {
                     color,
                     name: name.unwrap_or_default(),
                     index: None,
                 }),
-                (_, Some(key)) => Some(PaletteEdit::Remove { key }),
+                (_, Some(key), ..) => Some(PaletteEdit::Remove { key }),
+                (_, _, Some(key), ..) => Some(PaletteEdit::Recolour {
+                    key,
+                    color: to.unwrap_or_default(),
+                }),
+                (_, _, _, Some(source), _) => Some(PaletteEdit::Load {
+                    swatches: palette_source(&source)?,
+                }),
+                (_, _, _, _, Some(name)) => Some(match (base, of) {
+                    (Some(base), _) => PaletteEdit::Load {
+                        swatches: klad_core::palettes::ramp_swatches(&name, &base, steps)?,
+                    },
+                    (None, Some(keys)) => PaletteEdit::Ramp {
+                        name,
+                        keys: keys.into_iter().filter(|k| !k.trim().is_empty()).collect(),
+                    },
+                    (None, None) => {
+                        return Err(anyhow!(
+                            "--ramp needs --base '#rrggbb' to make its colours, or --of with the palette colours it groups"
+                        ));
+                    }
+                }),
+                _ => None,
+            };
+            let ramped = match &edit {
+                Some(PaletteEdit::Load { swatches }) => swatches.first().filter(|s| !s.ramp.is_empty()).map(|first| {
+                    Op::Palette(PaletteEdit::Ramp {
+                        name: first.ramp.clone(),
+                        keys: swatches.iter().map(|s| s.color.clone()).collect(),
+                    })
+                }),
                 _ => None,
             };
             match edit {
-                Some(edit) => agent::edit(&bundle, &[Op::Palette(edit)], &output(&flags, 0))?,
+                Some(edit) => {
+                    let ops: Vec<Op> = std::iter::once(Op::Palette(edit)).chain(ramped).collect();
+                    agent::edit(&bundle, &ops, &output(&flags, 0))?
+                }
                 None => palette(&bundle, flags.json)?,
             }
         }
+        Command::Palettes { json } => palettes(json),
         Command::Export {
             bundle,
             png: _,
@@ -4232,12 +4321,58 @@ fn palette(path: &Path, as_json: bool) -> Result<()> {
         println!("the palette is empty: klad palette <bundle> --add '#rrggbb' --name <name>");
     }
     palette.iter().enumerate().for_each(|(i, s)| {
+        let ramp = match s.ramp.is_empty() {
+            true => String::new(),
+            false => format!("  ramp {}", s.ramp),
+        };
         println!(
             "{}",
-            format!("{i:<3} {:<10} {:<8} {}", s.color, s.id, s.name).trim_end()
-        )
+            format!("{i:<3} {:<10} {:<8} {}{ramp}", s.color, s.id, s.name).trim_end()
+        );
     });
     Ok(())
+}
+
+fn palette_source(source: &str) -> Result<Vec<klad_core::doc::Swatch>> {
+    if let Some(shipped) = klad_core::palettes::shipped(source) {
+        return Ok(shipped.swatches());
+    }
+    let path = Path::new(source);
+    if !path.is_file() {
+        bail!(
+            "{source:?} is not a palette that comes with klad ({}) or a palette file (.hex or .gpl)",
+            klad_core::palettes::names()
+        );
+    }
+    let text = std::fs::read_to_string(path).with_context(|| format!("reading {source}"))?;
+    klad_core::palettes::parse(&text).with_context(|| format!("reading {source}"))
+}
+
+fn palettes(as_json: bool) {
+    use klad_core::palettes::SHIPPED;
+    if as_json {
+        let list: Vec<serde_json::Value> = SHIPPED
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "name": p.id,
+                    "title": p.title,
+                    "by": p.by,
+                    "colors": p.swatches().iter().map(|s| s.color.clone()).collect::<Vec<_>>(),
+                })
+            })
+            .collect();
+        println!("{}", serde_json::Value::Array(list));
+        return;
+    }
+    SHIPPED.iter().for_each(|p| {
+        let by = match p.by.is_empty() {
+            true => String::new(),
+            false => format!(", by {}", p.by),
+        };
+        println!("{:<16} {:>2} colours  {}{by}", p.id, p.count(), p.title);
+    });
+    println!("load one with: klad palette <bundle> --load <name>");
 }
 
 const REFERENCE_HEAD: &str = "_Last updated: with the commands it lists. `just reference` writes it from `klad reference`; `cargo test -p klad-cli` fails when it is out of date._

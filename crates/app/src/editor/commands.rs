@@ -162,6 +162,16 @@ impl Editor {
                 .view
                 .is_none()
                 .then(|| "the canvas is not shown yet: wait a moment".to_string()),
+            Cmd::UpdateSwatch => {
+                let picked = self.swatch_picked.and_then(|at| self.scene.bundle.doc.palette.get(at));
+                match picked {
+                    None => Some("click a colour in the palette first, then change the colour".to_string()),
+                    Some(swatch) if swatch.color.eq_ignore_ascii_case(&crate::color::hex(self.color)) => {
+                        Some("the palette colour already is this colour: change the colour first".to_string())
+                    }
+                    Some(_) => editing,
+                }
+            }
             Cmd::PixelGrid => (!self.scene.bundle.doc.pixel_art())
                 .then(|| "this drawing has no pixel layer: Layer > New pixel layer adds one".to_string()),
             Cmd::Corner | Cmd::Smooth => direct
@@ -544,6 +554,43 @@ impl Editor {
             Cmd::MakeMirror => self.wrap("mirror")?,
             Cmd::Unwrap => self.unwrap()?,
             Cmd::ImportPicture => self.windows.import = !self.windows.import,
+            Cmd::LoadPalette => self.windows.palettes = !self.windows.palettes,
+            Cmd::UpdateSwatch => {
+                if let Some(at) = self.swatch_picked {
+                    let edit = PaletteEdit::Recolour {
+                        key: at.to_string(),
+                        color: crate::color::hex(self.color),
+                    };
+                    self.apply(vec![Op::Palette(edit)])?;
+                }
+            }
+            Cmd::AddRamp => {
+                let typed = self.swatch_name.trim().to_string();
+                let doc = &self.scene.bundle.doc;
+                let taken = |name: &str| {
+                    doc.palette
+                        .iter()
+                        .any(|s| s.ramp == name || s.name.starts_with(&format!("{name}-")))
+                };
+                let name = match typed.is_empty() || taken(&typed) {
+                    false => typed,
+                    true => {
+                        let stem = if typed.is_empty() { "ramp".to_string() } else { typed };
+                        (2..)
+                            .map(|n| format!("{stem} {n}"))
+                            .chain(std::iter::once(stem.clone()))
+                            .find(|n| !taken(n))
+                            .unwrap_or(stem)
+                    }
+                };
+                let swatches = klad_core::palettes::ramp_swatches(&name, &crate::color::hex(self.color), 5)?;
+                let keys = swatches.iter().map(|s| s.color.clone()).collect();
+                self.swatch_name.clear();
+                self.apply(vec![
+                    Op::Palette(PaletteEdit::Load { swatches }),
+                    Op::Palette(PaletteEdit::Ramp { name, keys }),
+                ])?;
+            }
             Cmd::Parallax => {}
             Cmd::Note => self.tool = Tool::Note,
             Cmd::Smaller => self.size = (self.size / 1.25).max(0.5),

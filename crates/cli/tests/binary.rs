@@ -601,6 +601,62 @@ fn a_pixel_drawing_is_made_drawn_listed_and_edited_from_the_command_line() {
 }
 
 #[test]
+fn the_palette_recolours_its_pixels_loads_palettes_and_groups_ramps_from_the_command_line() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-palette-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("sprite.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let json = |args: &[&str]| -> serde_json::Value { serde_json::from_str(&draw(args)).unwrap() };
+    draw(&["new", path, "--pixel", "8"]);
+    draw(&["palette", path, "--add", "#f0c8a0", "--name", "skin"]);
+    draw(&["pixel", path, "l1", "--color", "skin", "--cells", "1-3,1-3"]);
+    draw(&["palette", path, "--recolour", "skin", "--to", "#e8b796"]);
+    let marks = json(&["strokes", path, "l1", "--json"]);
+    assert_eq!(
+        marks["fills"][0]["color"], "#e8b796ff",
+        "the pixels follow their palette colour"
+    );
+    draw(&["palette", path, "--ramp", "skin", "--base", "#e8b796", "--steps", "3"]);
+    let palette = json(&["palette", path, "--json"]);
+    let ramp: Vec<(&str, &str)> = palette
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| (s["name"].as_str().unwrap_or(""), s["ramp"].as_str().unwrap_or("")))
+        .collect();
+    assert_eq!(
+        ramp,
+        [("skin-1", "skin"), ("skin", "skin"), ("skin-3", "skin")],
+        "the colour the palette has takes its place in the middle of its ramp"
+    );
+    assert!(draw(&["palettes"]).contains("pico-8"));
+    assert_eq!(json(&["palettes", "--json"])[2]["colors"].as_array().unwrap().len(), 16);
+    draw(&["palette", path, "--load", "gameboy"]);
+    let file = dir.join("mine.hex");
+    std::fs::write(&file, "081820\nabcdef\n").unwrap();
+    draw(&["palette", path, "--load", file.to_str().unwrap()]);
+    assert_eq!(
+        json(&["palette", path, "--json"]).as_array().unwrap().len(),
+        8,
+        "three of the ramp, four of the game boy, one new from the file"
+    );
+    draw(&["palette", path, "--ramp", "greens", "--of", "#081820,#346856,#88c070"]);
+    assert!(draw(&["palette", path]).contains("ramp greens"));
+    let refused = run(&["palette", path, "--load", "nope"]);
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("comes with klad"));
+    let lonely = run(&["palette", path, "--ramp", "x"]);
+    assert!(String::from_utf8_lossy(&lonely.stderr).contains("--base"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn recolour_moves_strokes_together_and_keeps_their_shades() {
     let dir = std::env::temp_dir().join(format!("draw-binary-recolour-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

@@ -144,6 +144,7 @@ impl Editor {
         self.windows(&ctx);
         self.first_steps_window(&ctx);
         self.import_window(&ctx);
+        self.palettes_window(&ctx);
         self.dropped_pictures(&ctx);
         self.tend_thumbs(&ctx);
         if let Some(path) = self.queued_activate.take() {

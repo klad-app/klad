@@ -1,6 +1,7 @@
 use super::{Editor, Tool};
 use crate::color;
 use crate::commands::Cmd;
+use crate::messages::Tone;
 use crate::theme::{self, Hint, icon};
 use anyhow::{Result, anyhow};
 use egui::{Color32, ColorImage, RichText, Sense, TextureHandle, TextureOptions, vec2};
@@ -547,6 +548,14 @@ impl Editor {
                     true => swatch.color.clone(),
                     false => format!("{}  {}", swatch.name, swatch.color),
                 };
+                let name = match swatch.ramp.is_empty() {
+                    true => name,
+                    false => format!("{name}  (ramp {})", swatch.ramp),
+                };
+                let edge = i > 0 && palette[i - 1].ramp != swatch.ramp;
+                if edge {
+                    ui.add_space(6.0);
+                }
                 let response = color::swatch_with(
                     ui,
                     rgba,
@@ -580,7 +589,10 @@ impl Editor {
                             rest.remove(i);
                             edit = Some(PaletteEdit::Set { swatches: rest });
                         }
-                        false => picked = Some(rgba),
+                        false => {
+                            picked = Some(rgba);
+                            self.swatch_picked = Some(i);
+                        }
                     }
                 }
                 if response.secondary_clicked() {
@@ -606,7 +618,95 @@ impl Editor {
         if let Some(rgba) = picked {
             self.pick_new_colour(rgba);
         }
+        if edit.is_some() {
+            self.swatch_picked = None;
+        }
         edit
+    }
+
+    pub(super) fn palettes_window(&mut self, ctx: &egui::Context) {
+        if !self.windows.palettes {
+            return;
+        }
+        let mut open = true;
+        let mut load: Option<Vec<klad_core::doc::Swatch>> = None;
+        egui::Window::new("palettes")
+            .open(&mut open)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label("Add the colours of a palette to this drawing's palette:");
+                klad_core::palettes::SHIPPED.iter().for_each(|shipped| {
+                    ui.horizontal(|ui| {
+                        let by = match shipped.by.is_empty() {
+                            true => String::new(),
+                            false => format!(", by {}", shipped.by),
+                        };
+                        if ui
+                            .add(egui::Button::new(shipped.title).min_size(vec2(130.0, theme::TARGET)))
+                            .hint(format!("{} colours{by}", shipped.count()))
+                            .clicked()
+                        {
+                            load = Some(shipped.swatches());
+                        }
+                        let swatches = shipped.swatches();
+                        let side = (300.0 / swatches.len() as f32).clamp(4.0, 14.0);
+                        let (rect, _) =
+                            ui.allocate_exact_size(vec2(side * swatches.len() as f32, 14.0), Sense::hover());
+                        swatches.iter().enumerate().for_each(|(i, swatch)| {
+                            let [r, g, b, _] = color::rgba_of(&swatch.color).unwrap_or([0.0; 4]);
+                            ui.painter().rect_filled(
+                                egui::Rect::from_min_size(rect.min + vec2(i as f32 * side, 0.0), vec2(side, 14.0)),
+                                0.0,
+                                Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8),
+                            );
+                        });
+                    });
+                });
+                ui.separator();
+                let label = ui.label("or a palette file");
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut self.palette_path).desired_width(240.0))
+                        .labelled_by(label.id)
+                        .hint("a list of hex colours, one per line (.hex), or a GIMP palette (.gpl)");
+                    if crate::picker::NATIVE
+                        && ui.button("Choose").hint("pick the palette file").clicked()
+                        && let Some(file) = crate::picker::choose_file(None, "Choose")
+                    {
+                        self.palette_path = file.display().to_string();
+                    }
+                    if ui
+                        .button("load")
+                        .hint("add the file's colours to the palette")
+                        .clicked()
+                    {
+                        let path = self.palette_path.trim().to_string();
+                        let read = std::fs::read_to_string(&path)
+                            .map_err(|e| format!("could not read {path}: {}", crate::report::io_words(&e)))
+                            .and_then(|text| klad_core::palettes::parse(&text).map_err(|e| format!("{path}: {e:#}")));
+                        match read {
+                            Ok(swatches) => load = Some(swatches),
+                            Err(why) => self.say(Tone::Refused, why),
+                        }
+                    }
+                });
+            });
+        if let Some(swatches) = load {
+            let before = self.scene.bundle.doc.palette.len();
+            self.check(|e| e.apply(vec![Op::Palette(PaletteEdit::Load { swatches })]));
+            let added = self.scene.bundle.doc.palette.len() - before;
+            self.say(
+                Tone::Done,
+                match added {
+                    0 => "the palette already has all of these colours".to_string(),
+                    1 => "1 colour added to the palette".to_string(),
+                    n => format!("{n} colours added to the palette"),
+                },
+            );
+            self.windows.palettes = false;
+        }
+        if !open {
+            self.windows.palettes = false;
+        }
     }
 }
 

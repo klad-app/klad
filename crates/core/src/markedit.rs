@@ -149,6 +149,11 @@ pub enum MarkChange {
     Detach {
         ids: Vec<u32>,
     },
+    Entry {
+        entry: String,
+        color: Option<[u16; 4]>,
+        changed: Vec<u32>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -176,6 +181,7 @@ impl MarkChange {
             MarkChange::Paste { made, .. } => made.iter().map(|c| c.to).collect(),
             MarkChange::Put(marks) => marks.iter().map(Mark::id).collect(),
             MarkChange::Detach { ids } => ids.clone(),
+            MarkChange::Entry { changed, .. } => changed.clone(),
             MarkChange::Copy { .. } | MarkChange::Part { .. } => Vec::new(),
         }
     }
@@ -746,6 +752,26 @@ pub fn apply_following(marks: &mut Vec<Mark>, change: &mut MarkChange, cel: &str
         MarkChange::Detach { ids } => {
             ids.iter().try_for_each(|id| position(marks, cel, *id).map(|_| ()))?;
             attach::detach(marks, ids);
+        }
+        MarkChange::Entry { entry, color, changed } => {
+            *changed = marks
+                .iter_mut()
+                .filter_map(|m| match m {
+                    Mark::Fill(f) if f.entry() == Some(entry.as_str()) => Some(f),
+                    _ => None,
+                })
+                .map(|f| {
+                    match color {
+                        Some(c) => f.color = *c,
+                        None => {
+                            if let FillSource::Cells { entry, .. } = &mut f.source {
+                                entry.clear();
+                            }
+                        }
+                    }
+                    f.id
+                })
+                .collect();
         }
     }
     Ok(alone)
