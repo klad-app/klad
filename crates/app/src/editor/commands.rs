@@ -730,7 +730,10 @@ impl Editor {
                 self.apply(vec![Op::Palette(edit)])?;
             }
             Cmd::NewPaintLayer => self.add_layer("paint")?,
-            Cmd::NewPixelLayer => self.add_layer("pixel")?,
+            Cmd::NewPixelLayer => {
+                self.add_layer("pixel")?;
+                self.settings_dirty |= self.settings.offer_real_size(true);
+            }
             Cmd::NewGroupLayer => self.new_group(false)?,
             Cmd::NewBonesLayer => {
                 self.new_skeleton()?;

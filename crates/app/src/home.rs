@@ -127,6 +127,7 @@ impl Home {
             editor.say(Tone::Done, words);
         }
         settings.opened(path);
+        settings.offer_real_size(editor.scene.bundle.doc.pixel_art());
         editor.settings = settings.clone();
         editor.settings_path = self.settings_path.clone();
         editor.settings_dirty = true;
@@ -524,6 +525,29 @@ mod tests {
         let doc = Bundle::open(&made).unwrap().doc;
         assert_eq!(doc, cli.doc);
         assert!(doc.layers[0].pixel() && doc.layers[0].name == "pixel 1");
+        let real_size = |h: &Harness<'static, Home>| {
+            h.state()
+                .editor
+                .as_ref()
+                .unwrap()
+                .settings
+                .layout
+                .is_open(crate::layout::Pane::Preview)
+        };
+        assert!(real_size(&h), "the first pixel drawing opens the real size panel");
+        assert!(h.query_by_label("Real size").is_some(), "and it shows in the dock");
+        h.state_mut()
+            .editor
+            .as_mut()
+            .unwrap()
+            .settings
+            .layout
+            .toggle(crate::layout::Pane::Preview);
+        h.run_steps(2);
+        let ctx = h.ctx.clone();
+        h.state_mut().open(&ctx, &dir.join("cli.klad")).unwrap();
+        h.run_steps(3);
+        assert!(!real_size(&h), "once closed, the next pixel drawing leaves it closed");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

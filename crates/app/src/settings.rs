@@ -188,6 +188,17 @@ impl Settings {
         settings
     }
 
+    pub fn offer_real_size(&mut self, pixel_art: bool) -> bool {
+        if !pixel_art || self.real_size_shown {
+            return false;
+        }
+        self.real_size_shown = true;
+        if !self.layout.is_open(crate::layout::Pane::Preview) {
+            self.layout.toggle(crate::layout::Pane::Preview);
+        }
+        true
+    }
+
     pub fn save(&self, path: &Path) -> Result<()> {
         let mut text = serde_json::to_string_pretty(self)?;
         text.push('\n');

@@ -764,13 +764,7 @@ impl Editor {
         );
         let settings_path = settings::default_path();
         let mut settings = settings_path.as_deref().map(Settings::load).unwrap_or_default();
-        let offered = scene.bundle.doc.pixel_art() && !settings.real_size_shown;
-        if offered {
-            settings.real_size_shown = true;
-            if !settings.layout.is_open(crate::layout::Pane::Preview) {
-                settings.layout.toggle(crate::layout::Pane::Preview);
-            }
-        }
+        let offered = settings.offer_real_size(scene.bundle.doc.pixel_art());
         let open = format!(
             "{} layers, opened in {:.0} ms",
             scene.bundle.doc.all_layers().len(),

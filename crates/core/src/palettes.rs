@@ -17,8 +17,8 @@ pub const SHIPPED: [Shipped; 9] = [
         colors: "000000 ffffff",
     },
     Shipped {
-        id: "gameboy",
-        title: "Game Boy (bgb)",
+        id: "four-greens",
+        title: "Four greens",
         by: "",
         colors: "081820 346856 88c070 e0f8d0",
     },
@@ -209,7 +209,7 @@ mod tests {
             counts,
             [
                 ("1-bit", 2),
-                ("gameboy", 4),
+                ("four-greens", 4),
                 ("pico-8", 16),
                 ("sweetie-16", 16),
                 ("dawnbringer-16", 16),

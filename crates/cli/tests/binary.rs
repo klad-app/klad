@@ -689,14 +689,14 @@ fn the_palette_recolours_its_pixels_loads_palettes_and_groups_ramps_from_the_com
     );
     assert!(draw(&["palettes"]).contains("pico-8"));
     assert_eq!(json(&["palettes", "--json"])[2]["colors"].as_array().unwrap().len(), 16);
-    draw(&["palette", path, "--load", "gameboy"]);
+    draw(&["palette", path, "--load", "four-greens"]);
     let file = dir.join("mine.hex");
     std::fs::write(&file, "081820\nabcdef\n").unwrap();
     draw(&["palette", path, "--load", file.to_str().unwrap()]);
     assert_eq!(
         json(&["palette", path, "--json"]).as_array().unwrap().len(),
         8,
-        "three of the ramp, four of the game boy, one new from the file"
+        "three of the ramp, the four greens, one new from the file"
     );
     draw(&["palette", path, "--ramp", "greens", "--of", "#081820,#346856,#88c070"]);
     assert!(draw(&["palette", path]).contains("ramp greens"));
