@@ -605,6 +605,8 @@ pub fn preview(bundle: &Bundle, out: &Output) -> Result<Option<PathBuf>> {
 pub fn edit(path: &Path, ops: &[Op], out: &Output) -> Result<()> {
     let mut bundle = Bundle::open(path)?;
     let mut ops = ops.to_vec();
+    ops.iter()
+        .try_for_each(|op| klad_core::ops::grid_refusal(&bundle.doc, op))?;
     crate::paintover::resolve(&bundle, &mut ops)?
         .iter()
         .for_each(|n| eprintln!("{n}"));

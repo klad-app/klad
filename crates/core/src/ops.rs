@@ -3743,6 +3743,7 @@ fn move_item(doc: &mut Document, id: &str, place: &Place) -> Result<()> {
 }
 
 pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
+    grid_refusal(doc, op)?;
     match op {
         Op::AddLayer { layer, place } => {
             let mut value = layer.clone();
@@ -4173,6 +4174,31 @@ fn put_pixels(doc: &mut Document, spec: &PixelSpec, out: &mut Applied) -> Result
         );
     }
     Ok(())
+}
+
+pub fn grid_refusal(doc: &Document, op: &Op) -> Result<()> {
+    let pixel = |key: &str| doc.find_layer(key).is_ok_and(Layer::pixel);
+    match op {
+        Op::Inbetween(spec) => match spec.layers.iter().find(|l| pixel(l)) {
+            Some(layer) => bail!(
+                "{layer} is a pixel layer: in-betweens move the points of strokes, and pixel marks have none. Draw the frames in between, or key the layer's position (klad key) to move it by whole pixels"
+            ),
+            None => Ok(()),
+        },
+        Op::Pose(spec) if pixel(&spec.layer) => bail!(
+            "{} is a pixel layer: a pose bends strokes point by point, which would take pixels off the grid. Draw each pose as a frame",
+            spec.layer
+        ),
+        Op::Weights(spec) if pixel(&spec.layer) => bail!(
+            "{} is a pixel layer: bone weights bend strokes, and pixel layers stay on the grid",
+            spec.layer
+        ),
+        Op::Attach(spec) if pixel(&spec.layer) && (spec.skeleton.is_some() || spec.bone.is_some()) => bail!(
+            "{} is a pixel layer: bones turn and bend what they hold, which would take pixels off the grid. Draw the frames, or key the layer's position",
+            spec.layer
+        ),
+        _ => Ok(()),
+    }
 }
 
 fn off_the_grid(doc: &Document, layer: &str, what: &str) -> Result<()> {
@@ -4858,6 +4884,32 @@ mod tests {
                 .len(),
             2
         );
+    }
+
+    #[test]
+    fn in_betweens_poses_weights_and_bones_say_why_they_do_not_take_pixel_layers() {
+        let (doc, _) = apply_all(
+            &base(),
+            &ops(&[
+                json!({"op":"add","layer":{"kind":"pixel","name":"sprite","id":"lp"}}),
+                json!({"op":"add","layer":{"kind":"group","name":"both","id":"g1","children":[{"kind":"pixel","name":"a","id":"la"}]}}),
+            ]),
+        )
+        .unwrap();
+        assert!(doc.layer("lp").unwrap().grid_only() && doc.layer("g1").unwrap().grid_only());
+        assert!(!doc.find_layer("ink").unwrap().grid_only() && !doc.find_layer("shapes").unwrap().grid_only());
+        let why = |value: Value| {
+            let op = Op::parse(value).unwrap();
+            format!("{:#}", grid_refusal(&doc, &op).unwrap_err())
+        };
+        assert!(why(json!({"op":"inbetween","layers":["lp"],"from":0,"to":4})).contains("Draw the frames in between"));
+        assert!(why(json!({"op":"pose","layer":"lp","to":2})).contains("Draw each pose as a frame"));
+        assert!(why(json!({"op":"weights","layer":"lp","auto":true})).contains("stay on the grid"));
+        assert!(why(json!({"op":"attach","layer":"lp","bone":"arm"})).contains("off the grid"));
+        let fine = |value: Value| grid_refusal(&doc, &Op::parse(value).unwrap()).is_ok();
+        assert!(fine(json!({"op":"attach","layer":"lp"})), "unrigging is always fine");
+        assert!(fine(json!({"op":"inbetween","layers":["l2"],"from":0,"to":4})));
+        assert!(fine(json!({"op":"key","id":"lp","frame":2,"x":3})));
     }
 
     #[test]

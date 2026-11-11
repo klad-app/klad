@@ -1057,6 +1057,78 @@ fn a_tile_wraps_at_its_edges_mirrors_and_renders_repeated_from_the_command_line(
 }
 
 #[test]
+fn a_pixel_layer_animates_frame_by_frame_moves_by_whole_pixels_and_refuses_in_betweens_and_bones() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-pixel-anim-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("hop.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let refused = |args: &[&str]| {
+        let out = run(args);
+        assert!(!out.status.success(), "{args:?} went through");
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    draw(&["new", path, "--pixel", "12x6", "--frames", "4", "--fps", "8"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--rect", "1,3,2,2", "--filled"]);
+    draw(&["add", path, "cel", "--in", "l1", "frame=2"]);
+    draw(&[
+        "pixel", path, "l1", "--frame", "2", "--color", "ink", "--rect", "1,1,2,2", "--filled",
+    ]);
+    let row = |frame: &str, at: usize| -> String {
+        draw(&["pixels", path, "l1", "--frame", frame, "--plain"])
+            .lines()
+            .skip_while(|line| !line.is_empty())
+            .skip(1)
+            .nth(at)
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(
+        (row("0", 3), row("1", 3), row("2", 3), row("2", 1)),
+        (
+            ".ii.........".to_string(),
+            ".ii.........".to_string(),
+            "............".to_string(),
+            ".ii.........".to_string()
+        ),
+        "each drawing holds until the next: frames 0 and 1 show the first, 2 and 3 the second"
+    );
+    draw(&["clip", path, "--add", "hop", "--from", "0", "--to", "3", "--loop"]);
+    assert!(draw(&["frames", path]).contains("hop"));
+    draw(&["key", path, "l1", "--frame", "0", "x=0"]);
+    draw(&["key", path, "l1", "--frame", "3", "x=4"]);
+    let hashes = draw(&["hash", path, "--all"]);
+    assert_eq!(hashes.lines().count(), 4);
+    let shown = |frame: &str| {
+        let out = dir.join(format!("f{frame}.png"));
+        draw(&["export", path, "--frame", frame, "-o", out.to_str().unwrap()]);
+        std::fs::read(&out).unwrap()
+    };
+    assert_ne!(shown("0"), shown("1"), "the key moves the drawing between frames");
+    let onion = run(&["render", path, "--frame", "2", "--overlay", "onion"]);
+    assert!(onion.status.success(), "{}", String::from_utf8_lossy(&onion.stderr));
+    let between = refused(&["inbetween", path, "--layers", "l1", "--from", "0", "--to", "2"]);
+    assert!(
+        between.contains("pixel layer") && between.contains("Draw the frames"),
+        "{between}"
+    );
+    draw(&["add", path, "layer", "bones", "name=bones"]);
+    let attached = refused(&["attach", path, "l1", "--bend", "--skeleton", "bones"]);
+    assert!(
+        attached.contains("pixel layer") && attached.contains("off the grid"),
+        "{attached}"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn recolour_moves_strokes_together_and_keeps_their_shades() {
     let dir = std::env::temp_dir().join(format!("draw-binary-recolour-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

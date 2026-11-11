@@ -756,17 +756,24 @@ fn draw_content(canvas: &Canvas, layer: &Layer, ctx: Ctx) -> Result<()> {
     let pivot = ctx.doc.map_or((0.0, 0.0), |d| {
         (d.canvas.width as f32 / 2.0, d.canvas.height as f32 / 2.0)
     });
+    let grid = layer.grid_only();
+    let (x, y) = match grid {
+        true => (moved.x.round(), moved.y.round()),
+        false => (moved.x, moved.y),
+    };
     canvas.save();
-    canvas.translate((moved.x + pivot.0, moved.y + pivot.1));
+    canvas.translate((x + pivot.0, y + pivot.1));
     canvas.rotate(moved.rotate, None);
     canvas.scale((moved.sx, moved.sy));
     canvas.translate((-pivot.0, -pivot.1));
     let whole = Ctx {
         area: None,
-        sampling: Some(
-            ctx.sampling
+        sampling: Some(match grid {
+            true => SamplingOptions::new(FilterMode::Nearest, MipmapMode::None),
+            false => ctx
+                .sampling
                 .unwrap_or(SamplingOptions::new(FilterMode::Linear, MipmapMode::None)),
-        ),
+        }),
         ..ctx
     };
     let drawn = draw_unmoved(canvas, layer, whole);

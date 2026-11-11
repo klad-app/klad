@@ -234,4 +234,63 @@ mod tests {
         });
         std::fs::remove_dir_all(&dir).unwrap();
     }
+
+    #[test]
+    fn a_keyed_pixel_layer_moves_by_whole_pixels_and_stays_hard() {
+        use klad_core::bundle::Blank;
+        let dir = std::env::temp_dir().join(format!("draw-export-pixel-key-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut bundle = Bundle::blank(
+            dir.join("art.klad"),
+            &Blank {
+                width: 12,
+                height: 4,
+                pixel: true,
+                frames: 5,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let layer = bundle.doc.layers[0].id.clone();
+        bundle
+            .apply(
+                &klad_core::ops::parse_lines(&format!(
+                    "{}\n{}\n{}",
+                    format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"#ef233c","cells":[[1,1],[2,1]]}}"##),
+                    format_args!(r##"{{"op":"key","id":"{layer}","frame":0,"x":0}}"##),
+                    format_args!(r##"{{"op":"key","id":"{layer}","frame":4,"x":6}}"##),
+                ))
+                .unwrap(),
+            )
+            .unwrap();
+        let brushes = BrushSet::for_bundle(&bundle).unwrap();
+        let reds = |frame: u32| -> Vec<usize> {
+            let rasters = layers::load_at(&bundle, frame, &brushes, 1.0).unwrap();
+            let options = Options {
+                scale: 1.0,
+                background: false,
+                references: false,
+                detail: 1.0,
+            };
+            let image = render(&bundle.doc, frame, &rasters, &Target::Frame, options).unwrap();
+            let pixels = klad_render::export::dither8(&image).unwrap();
+            (0..12)
+                .filter(|x| {
+                    let at = (12 + x) * 4;
+                    let px = &pixels[at..at + 4];
+                    assert!(
+                        px == [0xef, 0x23, 0x3c, 255] || px == [0, 0, 0, 0],
+                        "frame {frame}, pixel {x} is {px:?}: neither the colour nor empty"
+                    );
+                    px[3] == 255
+                })
+                .collect()
+        };
+        assert_eq!(reds(0), [1, 2]);
+        assert_eq!(reds(1), [3, 4], "a quarter of the way is 1.5 pixels: it lands on 2");
+        assert_eq!(reds(2), [4, 5]);
+        assert_eq!(reds(4), [7, 8]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

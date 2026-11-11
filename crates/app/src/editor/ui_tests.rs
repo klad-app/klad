@@ -2178,6 +2178,12 @@ fn the_pixel_pencil_mirrors_across_a_line_and_wraps_on_a_tile() {
             .map(|f| f.coverage.cells().collect())
             .unwrap_or_default()
     };
+    assert!(
+        h.state()
+            .can_run(Cmd::Inbetween)
+            .is_some_and(|why| why.contains("pixel layer") && why.contains("Draw the frames")),
+        "in-betweens say why they do not apply to pixels"
+    );
     assert_eq!(h.state().is_on(Cmd::Symmetry), Some(false));
     h.state_mut().invoke(Cmd::Symmetry).unwrap();
     h.run_steps(2);

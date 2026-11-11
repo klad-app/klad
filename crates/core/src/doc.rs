@@ -589,6 +589,14 @@ impl Layer {
         matches!(self.content, LayerContent::Paint { pixel: true, .. })
     }
 
+    pub fn grid_only(&self) -> bool {
+        match &self.content {
+            LayerContent::Paint { pixel, .. } => *pixel,
+            LayerContent::Group { children } => !children.is_empty() && children.iter().all(Layer::grid_only),
+            _ => false,
+        }
+    }
+
     pub fn kind_name(&self) -> &'static str {
         match self.pixel() {
             true => "pixel",

@@ -332,6 +332,10 @@ impl Editor {
             Cmd::OnOnes | Cmd::OnTwos | Cmd::OnThrees | Cmd::FitFrames | Cmd::Reverse | Cmd::Pingpong => {
                 need_span().or_else(|| self.timeline_edit())
             }
+            Cmd::Inbetween if self.scene.on_grid() => Some(
+                "this is a pixel layer: in-betweens move the points of strokes, and pixels have none. Draw the frames in between"
+                    .to_string(),
+            ),
             Cmd::Inbetween => need_span()
                 .or_else(|| self.timeline_edit())
                 .or_else(|| {
