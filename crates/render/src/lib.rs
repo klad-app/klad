@@ -8,6 +8,7 @@ pub mod form;
 pub mod gif;
 pub mod onion;
 pub mod overlay;
+pub mod pixelise;
 pub mod pngwrite;
 pub mod shapes;
 pub mod sheet;

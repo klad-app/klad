@@ -2279,6 +2279,18 @@ fn the_pixel_pencil_mirrors_across_a_line_and_wraps_on_a_tile() {
         "a GIF has no 16-bit form"
     );
     h.state_mut().windows.export = false;
+    h.state_mut().invoke(Cmd::Pixelize).unwrap();
+    h.run_steps(3);
+    assert_eq!(h.state().is_on(Cmd::Pixelize), Some(true));
+    assert!(
+        h.query_by_label("a picture file").is_some() && h.query_by_label("this layer").is_some(),
+        "the window offers a picture file or a layer of this drawing"
+    );
+    h.get_by_label("make pixels").click();
+    h.run_steps(3);
+    let said = h.state().messages.latest().map(|m| m.text.clone()).unwrap_or_default();
+    assert!(said.contains("type the path of a PNG or JPEG file first"), "{said}");
+    h.state_mut().invoke(Cmd::Pixelize).unwrap();
     h.run_steps(2);
     assert_eq!(h.state().is_on(Cmd::Symmetry), Some(false));
     h.state_mut().invoke(Cmd::Symmetry).unwrap();

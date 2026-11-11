@@ -8,7 +8,8 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 
 ## Commands
 
-- [`klad import`](#klad-import): Open an Aseprite file as a klad drawing
+- [`klad import`](#klad-import): Open an Aseprite file or a picture as a klad pixel drawing
+- [`klad pixelize`](#klad-pixelize): Make pixels of a picture or of a painted or vector layer
 - [`klad new`](#klad-new): Create an empty bundle with paint layers
 - [`klad canvas`](#klad-canvas): The canvas: its size and background, and whether it wraps at its edges
 - [`klad frames`](#klad-frames): Exposure sheet: a row per frame, a column per layer (top first)
@@ -96,12 +97,17 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 ## klad import
 
 ```text
-Make a klad drawing from an Aseprite file (.aseprite or .ase): its layers and groups, the drawing of every frame, its palette and its tags. The drawing is written next to the file (hero.aseprite makes hero.klad) unless -o names it, and its path is printed.
+Make a klad drawing from an Aseprite file (.aseprite or .ase), or a pixel drawing from a picture (.png, .jpg). The drawing is written next to the file (hero.aseprite makes hero.klad) unless -o names it, and its path is printed.
 
   klad import hero.aseprite
   klad import hero.ase -o sprites/hero.klad
+  klad import sprite.png                      (a picture of 512 px or less a side, at its own size)
+  klad import sprite@8x.png --size 32         (shrunk to 32 px on its longest side)
+  klad import photo.jpg --size 64 --colors 16
 
-What comes over: image layers as pixel layers with their name, visibility, opacity and blend mode, groups as groups, every cel as a drawing on its frame (linked cels stay linked), the palette with its names, and tags as clips. Frame times become whole frames: a file of 100 ms frames is 10 frames a second, and a frame shown for 300 ms holds for three. Indexed, grey and RGBA files all open; every pixel is bound to its palette colour, and colours a file uses outside its palette are added to it.
+A picture becomes one pixel layer: every solid pixel takes a palette colour, and the palette is the picture's own colours when it has 256 or fewer, else 32 made from it, or --colors N. klad pixelize puts a picture on a layer of a drawing you have, in that drawing's palette.
+
+From an Aseprite file, what comes over: image layers as pixel layers with their name, visibility, opacity and blend mode, groups as groups, every cel as a drawing on its frame (linked cels stay linked), the palette with its names, and tags as clips. Frame times become whole frames: a file of 100 ms frames is 10 frames a second, and a frame shown for 300 ms holds for three. Indexed, grey and RGBA files all open; every pixel is bound to its palette colour, and colours a file uses outside its palette are added to it.
 
 What does not: tilemap layers, tilesets and slices are left out, a tag that plays backwards or back and forth becomes a clip that plays forwards, and blend modes klad does not have blend as normal. Each of these is said when it happens.
 
@@ -114,8 +120,84 @@ Arguments:
 
 
 Options:
+      --size <SIZE>
+          A picture: its longest side in pixels once it is pixel art, 1 to 512 (needed when the picture is larger)
+
+      --colors <COLORS>
+          A picture: reduce it to this many colours, 2 to 256 (default: its own colours when it has 256 or fewer, else 32)
+
   -o, --out <OUT>
           The drawing to make (default: the file's name with .klad, next to it)
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## klad pixelize
+
+```text
+Turn a picture into pixel art. Each pixel takes one palette colour and becomes part of a pixel mark, so the result is edited like any pixel drawing: recolour a palette colour, move marks, shade along ramps.
+
+A picture file onto a pixel layer of this drawing:
+
+  klad pixelize sprite.klad --image ref.png --to l1               (at its own size, top left)
+  klad pixelize sprite.klad --image photo.jpg --to l1 --size 48 --at 8,8
+
+Every pixel takes the nearest colour of the drawing's palette, so the picture lands in the colours the sprite already has. --colors N makes N colours from the picture instead and adds them to the palette. --size is the picture's longest side in pixels once it is shrunk (each pixel is the average of the area it covers; a picture enlarged by a whole number comes back exact). Pixels less than half solid are left empty.
+
+A painted or vector layer, or the whole picture, as a new pixel drawing:
+
+  klad pixelize hero.klad --size 64                    (the whole picture, 64 px on its longest side: hero-pixel.klad)
+  klad pixelize hero.klad --layer body --size 48 --colors 12 -o body.klad
+
+Every frame is pixelised with one set of colours, frames that come out the same hold, and clips are kept. Without --colors the drawing's own palette is used when it has one, else 16 colours are made from the picture. The drawing itself is not changed.
+
+klad import ref.png makes a new pixel drawing straight from a picture file.
+
+Usage: klad pixelize [OPTIONS] <BUNDLE>
+
+Arguments:
+  <BUNDLE>
+
+
+Options:
+      --image <IMAGE>
+          A PNG or JPEG file to put on a pixel layer
+
+      --to <TO>
+          With --image: the pixel layer it goes on (an id or a name)
+
+      --at <AT>
+          With --image: the canvas pixel of its top left corner, x,y
+
+      --frame <FRAME>
+          With --image: the frame it is drawn on
+
+          [default: 0]
+
+      --layer <LAYER>
+          Without --image: the layer or group to pixelise (default: the whole picture)
+
+      --size <SIZE>
+          The longest side in pixels, 1 to 512
+
+      --colors <COLORS>
+          Make this many colours from the picture, 2 to 256
+
+  -o, --out <OUT>
+          Without --image: the pixel drawing to make
+
+      --render
+          Render a preview after the edit and print its path
+
+      --scale <SCALE>
+          Preview scale (default: longest side 1024 px)
+
+      --json
+          Print the result as JSON
+
+      --overlay <OVERLAY>
+          Draw on the preview: ids, bbox, grid or all (comma separated)
 
   -h, --help
           Print help (see a summary with '-h')

@@ -1020,6 +1020,17 @@ impl Editor {
             );
             self.windows.export &= open;
         }
+        if self.windows.pixels {
+            let mut open = true;
+            Self::window(
+                ctx,
+                "pixels",
+                (format!("{} Pixels of a picture", icon::PIXELS), near_timeline),
+                &mut open,
+                |ui| self.check(|e| e.pixels_window(ui)),
+            );
+            self.windows.pixels &= open;
+        }
         if self.windows.paintover {
             let mut open = true;
             Self::window(

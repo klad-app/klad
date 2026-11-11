@@ -20,6 +20,7 @@ mod options;
 mod paintover;
 mod panels;
 mod pins;
+mod pixels;
 mod prefs;
 mod selection;
 mod shift;
@@ -606,6 +607,7 @@ struct Windows {
     palettes: bool,
     about: bool,
     export: bool,
+    pixels: bool,
     report: bool,
     font: bool,
     paintover: bool,
@@ -713,6 +715,7 @@ pub(crate) struct Editor {
     between: between::Between,
     checks: checks::Checks,
     export: export::Form,
+    pixels: pixels::Form,
     paintover: paintover::Form,
     compare: Option<compare::Compared>,
     bones: bones::BoneTool,
@@ -914,6 +917,7 @@ impl Editor {
             between: between::Between::default(),
             checks: checks::Checks::default(),
             export: export::Form::default(),
+            pixels: pixels::Form::default(),
             paintover: paintover::Form::default(),
             compare: None,
             bones: bones::BoneTool::default(),

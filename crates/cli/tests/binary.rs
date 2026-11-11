@@ -1565,6 +1565,250 @@ fn a_pixel_drawing_goes_out_to_an_aseprite_file_and_comes_back_the_same() {
 }
 
 #[test]
+fn pictures_and_painted_layers_become_pixels_on_the_palette() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-pixelize-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("hop.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let both = |args: &[&str]| {
+        let out = run(args);
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        (
+            String::from_utf8_lossy(&out.stdout).to_string(),
+            String::from_utf8_lossy(&out.stderr).to_string(),
+        )
+    };
+    let draw = |args: &[&str]| both(args).0;
+    let refused = |args: &[&str]| {
+        let out = run(args);
+        assert!(!out.status.success(), "{args:?} went through");
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    let rows = |drawing: &str, layer: &str| -> Vec<String> {
+        draw(&["pixels", drawing, layer, "--plain"])
+            .lines()
+            .skip_while(|line| !line.is_empty())
+            .skip(1)
+            .map(String::from)
+            .collect()
+    };
+    draw(&["new", path, "--pixel", "16x12"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&["palette", path, "--add", "#ef233c", "--name", "red"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--rect", "2,6,4,4", "--filled"]);
+    draw(&["pixel", path, "l1", "--color", "red", "--cells", "3,7 4,7"]);
+    let png = dir.join("hop@8x.png");
+    draw(&["export", path, "--scale", "8", "-o", png.to_str().unwrap()]);
+
+    let back = dir.join("back.klad");
+    let (named, told) = both(&[
+        "import",
+        png.to_str().unwrap(),
+        "--size",
+        "16",
+        "-o",
+        back.to_str().unwrap(),
+    ]);
+    assert_eq!(named.trim(), back.to_str().unwrap());
+    assert!(told.contains("16x12, 2 palette colours"), "{told}");
+    let again = back.to_str().unwrap();
+    let swapped =
+        |rows: Vec<String>| -> Vec<String> { rows.iter().map(|r| r.replace('a', "i").replace('b', "r")).collect() };
+    assert_eq!(
+        swapped(rows(again, "l1")),
+        rows(path, "l1"),
+        "a picture enlarged eight times comes back exact"
+    );
+    let own = draw(&["import", png.to_str().unwrap()]);
+    assert!(own.trim().ends_with("hop@8x.klad"));
+    assert!(
+        draw(&["info", own.trim()]).contains("128x96"),
+        "without --size a small picture keeps its size"
+    );
+    assert!(refused(&["import", png.to_str().unwrap(), "-o", again]).contains("is there already"));
+    assert!(
+        refused(&[
+            "import",
+            png.to_str().unwrap(),
+            "--size",
+            "900",
+            "-o",
+            dir.join("x.klad").to_str().unwrap()
+        ])
+        .contains("past 512")
+    );
+    assert!(refused(&["import", dir.join("notes.txt").to_str().unwrap()]).contains("Aseprite files"));
+
+    let (_, told) = both(&[
+        "pixelize",
+        path,
+        "--image",
+        png.to_str().unwrap(),
+        "--to",
+        "l1",
+        "--size",
+        "8",
+        "--at",
+        "8,0",
+    ]);
+    assert!(
+        told.contains("8x6 pixels in 1 colour on") && told.contains("nearest of the palette's 2 colours"),
+        "at half the size the two red pixels are a quarter of their blocks, so the blocks are ink: {told}"
+    );
+    let placed = rows(path, "l1");
+    assert_eq!(
+        (placed[3].as_str(), placed[4].as_str(), placed[6].as_str()),
+        (".........ii.....", ".........ii.....", "..iiii.........."),
+        "the small copy sits beside the first, in the same palette colour"
+    );
+    assert_eq!(
+        draw(&["palette", path]).lines().count(),
+        2,
+        "nothing was added to the palette"
+    );
+    let (_, told) = both(&[
+        "pixelize",
+        path,
+        "--image",
+        png.to_str().unwrap(),
+        "--to",
+        "l1",
+        "--size",
+        "8",
+        "--colors",
+        "2",
+        "--at",
+        "0,0",
+    ]);
+    assert!(
+        told.contains("8x6 pixels in 2 colours"),
+        "with colours made from the picture, the blocks that held a red pixel keep their own mix: {told}"
+    );
+    assert_eq!(
+        draw(&["palette", path]).lines().count(),
+        3,
+        "the mixed colour joined the palette; ink was there already"
+    );
+    let quarter = refused(&[
+        "pixelize",
+        path,
+        "--image",
+        png.to_str().unwrap(),
+        "--to",
+        "l1",
+        "--size",
+        "4",
+    ]);
+    assert!(
+        quarter.contains("no solid pixels"),
+        "at a quarter of the size no block is half covered: {quarter}"
+    );
+    assert!(
+        refused(&[
+            "pixelize",
+            path,
+            "--image",
+            png.to_str().unwrap(),
+            "--to",
+            "l1",
+            "--at",
+            "40,40"
+        ])
+        .contains("no solid pixels")
+    );
+    assert!(
+        refused(&[
+            "pixelize",
+            path,
+            "--image",
+            png.to_str().unwrap(),
+            "--to",
+            "l1",
+            "--colors",
+            "1"
+        ])
+        .contains("2 to 256")
+    );
+
+    let painting = dir.join("sign.klad");
+    let sign = painting.to_str().unwrap();
+    draw(&[
+        "new", sign, "--width", "320", "--height", "160", "--frames", "3", "--fps", "6",
+    ]);
+    draw(&["add", sign, "layer", "vector", "name=board"]);
+    let board = draw(&["ls", sign])
+        .lines()
+        .find(|l| l.contains("board"))
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .to_string();
+    draw(&[
+        "add",
+        sign,
+        "rect",
+        "--in",
+        &board,
+        "x=40",
+        "y=40",
+        "w=240",
+        "h=80",
+        "fill=#8b5a2b",
+    ]);
+    draw(&[
+        "add",
+        sign,
+        "ellipse",
+        "--in",
+        &board,
+        "cx=160",
+        "cy=80",
+        "rx=30",
+        "ry=30",
+        "fill=#f0c8a0",
+    ]);
+    draw(&["clip", sign, "--add", "sway", "--from", "0", "--to", "2", "--loop"]);
+    assert!(refused(&["pixelize", sign]).contains("give --size"));
+    let (named, told) = both(&["pixelize", sign, "--layer", "board", "--size", "32"]);
+    let made = named.trim().to_string();
+    assert!(made.ends_with("sign-board-pixel.klad"), "{made}");
+    assert!(told.contains("32x16, 3 frames (1 drawing)"), "{told}");
+    let pixels = rows(&made, "board");
+    assert_eq!(pixels.len(), 16);
+    assert_eq!(
+        pixels[4],
+        format!("....{}....", pixels[4][4..5].repeat(24)),
+        "the board is one colour across, from 40 to 280 of 320"
+    );
+    assert_ne!(
+        pixels[8].chars().nth(16),
+        pixels[8].chars().nth(5),
+        "with the disc in another colour"
+    );
+    assert!(
+        pixels[0].chars().all(|c| c == '.'),
+        "and nothing where the layer is clear"
+    );
+    let timeline = draw(&["frames", &made]);
+    assert!(
+        timeline.contains("3 frames at 6 fps") && timeline.contains("clip sway"),
+        "{timeline}"
+    );
+    assert!(
+        draw(&["ls", sign]).contains("board"),
+        "the painting itself is unchanged"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn recolour_moves_strokes_together_and_keeps_their_shades() {
     let dir = std::env::temp_dir().join(format!("draw-binary-recolour-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

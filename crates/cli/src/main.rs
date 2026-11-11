@@ -20,6 +20,7 @@ mod looks;
 mod marks;
 mod paintover;
 mod paths;
+mod pixelise;
 mod rig;
 mod scene;
 mod shapes;
@@ -131,17 +132,75 @@ impl Where {
 #[derive(Subcommand)]
 enum Command {
     #[command(
-        about = "Open an Aseprite file as a klad drawing",
-        long_about = "Make a klad drawing from an Aseprite file (.aseprite or .ase): its layers and groups, the drawing of every frame, its palette and its tags. The drawing is written next to the file (hero.aseprite makes hero.klad) unless -o names it, and its path is printed.\n\n  klad import hero.aseprite\n  klad import hero.ase -o sprites/hero.klad\n\nWhat comes over: image layers as pixel layers with their name, visibility, opacity and blend mode, groups as groups, every cel as a drawing on its frame (linked cels stay linked), the palette with its names, and tags as clips. Frame times become whole frames: a file of 100 ms frames is 10 frames a second, and a frame shown for 300 ms holds for three. Indexed, grey and RGBA files all open; every pixel is bound to its palette colour, and colours a file uses outside its palette are added to it.\n\nWhat does not: tilemap layers, tilesets and slices are left out, a tag that plays backwards or back and forth becomes a clip that plays forwards, and blend modes klad does not have blend as normal. Each of these is said when it happens.\n\nklad export art.klad --aseprite writes a drawing's pixel layers back to an Aseprite file."
+        about = "Open an Aseprite file or a picture as a klad pixel drawing",
+        long_about = "Make a klad drawing from an Aseprite file (.aseprite or .ase), or a pixel drawing from a picture (.png, .jpg). The drawing is written next to the file (hero.aseprite makes hero.klad) unless -o names it, and its path is printed.\n\n  klad import hero.aseprite\n  klad import hero.ase -o sprites/hero.klad\n  klad import sprite.png                      (a picture of 512 px or less a side, at its own size)\n  klad import sprite@8x.png --size 32         (shrunk to 32 px on its longest side)\n  klad import photo.jpg --size 64 --colors 16\n\nA picture becomes one pixel layer: every solid pixel takes a palette colour, and the palette is the picture's own colours when it has 256 or fewer, else 32 made from it, or --colors N. klad pixelize puts a picture on a layer of a drawing you have, in that drawing's palette.\n\nFrom an Aseprite file, what comes over: image layers as pixel layers with their name, visibility, opacity and blend mode, groups as groups, every cel as a drawing on its frame (linked cels stay linked), the palette with its names, and tags as clips. Frame times become whole frames: a file of 100 ms frames is 10 frames a second, and a frame shown for 300 ms holds for three. Indexed, grey and RGBA files all open; every pixel is bound to its palette colour, and colours a file uses outside its palette are added to it.\n\nWhat does not: tilemap layers, tilesets and slices are left out, a tag that plays backwards or back and forth becomes a clip that plays forwards, and blend modes klad does not have blend as normal. Each of these is said when it happens.\n\nklad export art.klad --aseprite writes a drawing's pixel layers back to an Aseprite file."
     )]
     Import {
         file: PathBuf,
+        #[arg(
+            long,
+            help = "A picture: its longest side in pixels once it is pixel art, 1 to 512 (needed when the picture is larger)"
+        )]
+        size: Option<u32>,
+        #[arg(
+            long,
+            alias = "colours",
+            help = "A picture: reduce it to this many colours, 2 to 256 (default: its own colours when it has 256 or fewer, else 32)"
+        )]
+        colors: Option<usize>,
         #[arg(
             short,
             long,
             help = "The drawing to make (default: the file's name with .klad, next to it)"
         )]
         out: Option<PathBuf>,
+    },
+    #[command(
+        about = "Make pixels of a picture or of a painted or vector layer",
+        long_about = "Turn a picture into pixel art. Each pixel takes one palette colour and becomes part of a pixel mark, so the result is edited like any pixel drawing: recolour a palette colour, move marks, shade along ramps.\n\nA picture file onto a pixel layer of this drawing:\n\n  klad pixelize sprite.klad --image ref.png --to l1               (at its own size, top left)\n  klad pixelize sprite.klad --image photo.jpg --to l1 --size 48 --at 8,8\n\nEvery pixel takes the nearest colour of the drawing's palette, so the picture lands in the colours the sprite already has. --colors N makes N colours from the picture instead and adds them to the palette. --size is the picture's longest side in pixels once it is shrunk (each pixel is the average of the area it covers; a picture enlarged by a whole number comes back exact). Pixels less than half solid are left empty.\n\nA painted or vector layer, or the whole picture, as a new pixel drawing:\n\n  klad pixelize hero.klad --size 64                    (the whole picture, 64 px on its longest side: hero-pixel.klad)\n  klad pixelize hero.klad --layer body --size 48 --colors 12 -o body.klad\n\nEvery frame is pixelised with one set of colours, frames that come out the same hold, and clips are kept. Without --colors the drawing's own palette is used when it has one, else 16 colours are made from the picture. The drawing itself is not changed.\n\nklad import ref.png makes a new pixel drawing straight from a picture file."
+    )]
+    Pixelize {
+        bundle: PathBuf,
+        #[arg(
+            long,
+            requires = "to",
+            conflicts_with = "layer",
+            help = "A PNG or JPEG file to put on a pixel layer"
+        )]
+        image: Option<PathBuf>,
+        #[arg(
+            long,
+            requires = "image",
+            help = "With --image: the pixel layer it goes on (an id or a name)"
+        )]
+        to: Option<String>,
+        #[arg(
+            long,
+            requires = "image",
+            allow_hyphen_values = true,
+            help = "With --image: the canvas pixel of its top left corner, x,y"
+        )]
+        at: Option<String>,
+        #[arg(long, default_value_t = 0, help = "With --image: the frame it is drawn on")]
+        frame: u32,
+        #[arg(
+            long,
+            help = "Without --image: the layer or group to pixelise (default: the whole picture)"
+        )]
+        layer: Option<String>,
+        #[arg(long, help = "The longest side in pixels, 1 to 512")]
+        size: Option<u32>,
+        #[arg(long, alias = "colours", help = "Make this many colours from the picture, 2 to 256")]
+        colors: Option<usize>,
+        #[arg(
+            short,
+            long,
+            conflicts_with = "image",
+            help = "Without --image: the pixel drawing to make"
+        )]
+        out: Option<PathBuf>,
+        #[command(flatten)]
+        flags: EditFlags,
     },
     #[command(about = "Create an empty bundle with paint layers")]
     New {
@@ -2489,14 +2548,67 @@ fn pixel_size(text: &str) -> Result<(u32, u32)> {
 
 fn run() -> Result<()> {
     match Cli::parse().command {
-        Command::Import { file, out } => {
-            if !aseprite::is_file(&file) {
-                return Err(anyhow!(
-                    "klad import opens Aseprite files (.aseprite or .ase): {} is something else. A picture goes on a layer with klad add <bundle> layer image src=<file>",
-                    file.display()
-                ));
+        Command::Import {
+            file,
+            size,
+            colors,
+            out,
+        } => {
+            let made = match (aseprite::is_file(&file), pixelise::is_picture(&file)) {
+                (true, _) if size.is_some() || colors.is_some() => {
+                    return Err(anyhow!(
+                        "--size and --colors are for pictures: an Aseprite file comes in as it is"
+                    ));
+                }
+                (true, _) => aseprite::import(&file, out)?,
+                (_, true) => pixelise::import(&file, &pixelise::Ask { size, colors }, out)?,
+                _ => {
+                    return Err(anyhow!(
+                        "klad import opens Aseprite files (.aseprite, .ase) and pictures (.png, .jpg) as pixel drawings: {} is something else. A picture to trace or paint over goes on a layer with klad add <bundle> layer image src=<file>",
+                        file.display()
+                    ));
+                }
+            };
+            println!("{}", made.display());
+        }
+        Command::Pixelize {
+            bundle,
+            image,
+            to,
+            at,
+            frame,
+            layer,
+            size,
+            colors,
+            out,
+            flags,
+        } => {
+            let ask = pixelise::Ask { size, colors };
+            match (image, to) {
+                (Some(file), Some(to)) => {
+                    let at = match at.as_deref().map(|text| {
+                        text.split(',')
+                            .map(|part| part.trim().parse::<i64>())
+                            .collect::<std::result::Result<Vec<_>, _>>()
+                    }) {
+                        None => [0, 0],
+                        Some(Ok(v)) if v.len() == 2 => [v[0], v[1]],
+                        _ => {
+                            return Err(anyhow!(
+                                "--at takes x,y: the canvas pixel of the picture's top left corner"
+                            ));
+                        }
+                    };
+                    let doc = Bundle::open(&bundle)?.doc;
+                    let (ops, notes) = pixelise::placed(&doc, &file, &to, frame, at, &ask)?;
+                    agent::edit(&bundle, &ops, &output(&flags, frame))?;
+                    notes.iter().for_each(|note| eprintln!("note: {note}"));
+                }
+                _ => println!(
+                    "{}",
+                    pixelise::pixelize(&bundle, layer.as_deref(), &ask, out)?.display()
+                ),
             }
-            println!("{}", aseprite::import(&file, out)?.display());
         }
         Command::New {
             bundle,

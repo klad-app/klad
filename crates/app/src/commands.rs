@@ -18,6 +18,7 @@ pub enum Cmd {
     MakeMirror,
     Unwrap,
     ImportPicture,
+    Pixelize,
     Shapes,
     Strokes,
     Points,
@@ -521,7 +522,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 194] = [
+    pub const ALL: [Cmd; 195] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -536,6 +537,7 @@ impl Cmd {
         Cmd::MakeMirror,
         Cmd::Unwrap,
         Cmd::ImportPicture,
+        Cmd::Pixelize,
         Cmd::Shapes,
         Cmd::Strokes,
         Cmd::Points,
@@ -863,6 +865,15 @@ impl Cmd {
                 T::None,
                 R::No,
                 "place a PNG or JPEG on a new layer to trace over or paint from (dropping the file works too)",
+            ),
+            Cmd::Pixelize => spec(
+                "layer.pixelize",
+                "pixels of a picture",
+                icon::PIXELS,
+                G::Layers,
+                T::None,
+                R::No,
+                "turn a PNG or JPEG into pixels on the pixel layer you are on, or make a pixel drawing of this layer or of the whole picture, as klad pixelize does",
             ),
             Cmd::Points => spec(
                 "tool.points",
@@ -2484,6 +2495,7 @@ impl Cmd {
             Cmd::MakeMirror => "Mirror",
             Cmd::Unwrap => "Take shapes out",
             Cmd::ImportPicture => "Import picture…",
+            Cmd::Pixelize => "Pixels of a picture…",
             Cmd::Shapes => "Select and move",
             Cmd::Strokes => "Select strokes",
             Cmd::Points => "Edit points",
@@ -2699,6 +2711,7 @@ pub const MENUS: [Menu; 9] = [
             Run(Cmd::CloseDocument),
             Line,
             Run(Cmd::ImportPicture),
+            Run(Cmd::Pixelize),
             Run(Cmd::AddFont),
             Line,
             Run(Cmd::Export),

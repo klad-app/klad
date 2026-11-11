@@ -21,7 +21,7 @@ fn colours(shots: &[Shot]) -> BTreeMap<[u8; 3], usize> {
     seen
 }
 
-fn median_cut(counts: &BTreeMap<[u8; 3], usize>, room: usize) -> Vec<[u8; 3]> {
+pub(crate) fn median_cut(counts: &BTreeMap<[u8; 3], usize>, room: usize) -> Vec<[u8; 3]> {
     let mut boxes: Vec<Vec<([u8; 3], usize)>> = vec![counts.iter().map(|(c, n)| (*c, *n)).collect()];
     while boxes.len() < room {
         let widest = boxes

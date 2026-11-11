@@ -493,6 +493,7 @@ impl Editor {
             Cmd::About => self.windows.about,
             Cmd::ReportProblem => self.windows.report,
             Cmd::Export => self.windows.export,
+            Cmd::Pixelize => self.windows.pixels,
             Cmd::AddFont => self.windows.font,
             Cmd::PaintOver => self.windows.paintover,
             Cmd::CompareReference => self.windows.compare,
@@ -603,6 +604,7 @@ impl Editor {
             Cmd::MakeMirror => self.wrap("mirror")?,
             Cmd::Unwrap => self.unwrap()?,
             Cmd::ImportPicture => self.windows.import = !self.windows.import,
+            Cmd::Pixelize => self.windows.pixels = !self.windows.pixels,
             Cmd::LoadPalette => self.windows.palettes = !self.windows.palettes,
             Cmd::NewVariant => {
                 let typed = self.swatch_name.trim().to_string();
