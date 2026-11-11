@@ -8,6 +8,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 
 ## Commands
 
+- [`klad import`](#klad-import): Open an Aseprite file as a klad drawing
 - [`klad new`](#klad-new): Create an empty bundle with paint layers
 - [`klad canvas`](#klad-canvas): The canvas: its size and background, and whether it wraps at its edges
 - [`klad frames`](#klad-frames): Exposure sheet: a row per frame, a column per layer (top first)
@@ -91,6 +92,34 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad updates`](#klad-updates): Check now whether a newer klad is out (the editor also checks once a day by itself)
 - [`klad bench`](#klad-bench): Measure stroke storage, brush speed, replay, cache and compositing
 - [`klad open`](#klad-open): Open the editor, on a bundle or on the start window (new, open, recent)
+
+## klad import
+
+```text
+Make a klad drawing from an Aseprite file (.aseprite or .ase): its layers and groups, the drawing of every frame, its palette and its tags. The drawing is written next to the file (hero.aseprite makes hero.klad) unless -o names it, and its path is printed.
+
+  klad import hero.aseprite
+  klad import hero.ase -o sprites/hero.klad
+
+What comes over: image layers as pixel layers with their name, visibility, opacity and blend mode, groups as groups, every cel as a drawing on its frame (linked cels stay linked), the palette with its names, and tags as clips. Frame times become whole frames: a file of 100 ms frames is 10 frames a second, and a frame shown for 300 ms holds for three. Indexed, grey and RGBA files all open; every pixel is bound to its palette colour, and colours a file uses outside its palette are added to it.
+
+What does not: tilemap layers, tilesets and slices are left out, a tag that plays backwards or back and forth becomes a clip that plays forwards, and blend modes klad does not have blend as normal. Each of these is said when it happens.
+
+klad export art.klad --aseprite writes a drawing's pixel layers back to an Aseprite file.
+
+Usage: klad import [OPTIONS] <FILE>
+
+Arguments:
+  <FILE>
+
+
+Options:
+  -o, --out <OUT>
+          The drawing to make (default: the file's name with .klad, next to it)
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
 
 ## klad new
 
@@ -3375,6 +3404,7 @@ Animations (each clip, or the whole timeline when there are no clips):
   klad export art.klad --sheet run            one clip; --sheet 0-11 a range
   klad export art.klad --frames run           numbered full-size PNGs, one per frame (run-0000.png ...) in art-run/
   klad export art.klad --gif [run] [--scale 8]  an animated GIF with each frame's own duration: one per clip (art-run.gif; clips that loop, loop), or art.gif of the whole timeline; up to 255 colours kept exactly, more are reduced to the nearest of 255, in flat areas of one colour or, with --dither, mixed in a fine even pattern that keeps gradients smooth; transparent unless --background
+  klad export art.klad --aseprite             art.aseprite: the pixel layers and groups, the drawing of every frame (holds and links as linked cels), the palette and clips as tags, in RGBA; frames that show the same drawings are one frame with their time added up. Paint and vector layers are left out and named. klad import opens such a file
   klad export art.klad --godot ../game/art    the sheet, art.tres (SpriteFrames: one animation per clip with its fps, loop and per-frame durations) and art.tscn (an AnimatedSprite2D placed so the timeline's origin sits on the node's position). For a pixel drawing the scenes set texture_filter to nearest, so the sprite stays sharp in the game. The first folder given is kept in the document (export.godot); later exports and the editor's button write there, and Godot uids are kept so scenes using them keep working. --store replaces a kept folder.
 
 Usage: klad export [OPTIONS] <BUNDLE>
@@ -3418,6 +3448,9 @@ Options:
 
       --dither
           With --gif: where a picture has more than 255 colours, mix the nearest ones in a fine even pattern so gradients do not band
+
+      --aseprite
+          An Aseprite file of the drawing's pixel layers: groups, the drawing of every frame, the palette and clips as tags
 
       --godot [<GODOT>]
           Godot SpriteFrames and AnimatedSprite2D scene into this folder (default: the document's export.godot)

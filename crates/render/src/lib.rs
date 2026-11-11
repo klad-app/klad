@@ -1,4 +1,5 @@
 pub mod align;
+pub mod aseprite;
 pub mod assets;
 pub mod effects;
 pub mod export;

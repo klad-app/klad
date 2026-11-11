@@ -118,12 +118,17 @@ impl Home {
     }
 
     pub(crate) fn open(&mut self, ctx: &egui::Context, path: &Path) -> Result<()> {
+        let (made, told) = start::brought_in(path)?;
+        let path = made.as_path();
         let mut settings = self
             .editor
             .as_ref()
             .map_or_else(|| self.settings.clone(), |e| e.settings.clone());
         let mut editor = Editor::open(ctx.clone(), path)?;
         if let Some(words) = self.start.as_mut().and_then(|s| s.repaired.take()) {
+            editor.say(Tone::Done, words);
+        }
+        if let Some(words) = told {
             editor.say(Tone::Done, words);
         }
         settings.opened(path);
@@ -548,6 +553,81 @@ mod tests {
         h.state_mut().open(&ctx, &dir.join("cli.klad")).unwrap();
         h.run_steps(3);
         assert!(!real_size(&h), "once closed, the next pixel drawing leaves it closed");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_aseprite_file_opens_as_a_drawing_made_next_to_it() {
+        use klad_render::aseprite::{Cel, Layer, Picture, Sprite, Tag};
+        let dir = folder("aseprite");
+        let file = dir.join("hero.aseprite");
+        let sprite = Sprite {
+            width: 8,
+            height: 8,
+            layers: vec![Layer::image("body", 0)],
+            durations: vec![100, 100],
+            cels: vec![Cel {
+                layer: 0,
+                frame: 0,
+                x: 1,
+                y: 1,
+                opacity: 255,
+                picture: Picture::Pixels {
+                    width: 2,
+                    height: 1,
+                    rgba: vec![255, 0, 0, 255, 0, 0, 255, 255],
+                },
+            }],
+            tags: vec![Tag {
+                name: "idle".into(),
+                from: 0,
+                to: 1,
+                direction: 2,
+                repeat: 0,
+            }],
+            ..Sprite::default()
+        };
+        std::fs::write(&file, klad_render::aseprite::write(&sprite).unwrap()).unwrap();
+        let mut first = home(&dir, &[]);
+        first.begin(&egui::Context::default(), None);
+        let mut h = harness(first);
+        let ctx = h.ctx.clone();
+        h.state_mut().open(&ctx, &file).unwrap();
+        h.run_steps(3);
+        assert_eq!(opened(&h), dir.join("hero.klad"));
+        {
+            let doc = &h.state().editor.as_ref().unwrap().scene.bundle.doc;
+            assert!(doc.pixel_art());
+            assert_eq!((doc.timeline.frames, doc.timeline.fps), (2, 10));
+            assert_eq!(doc.layers[0].name, "body");
+            assert_eq!(doc.timeline.clips[0].name, "idle");
+            assert_eq!(doc.palette.len(), 2, "the two colours it uses are its palette");
+        }
+        assert!(
+            h.query_all_by_label_contains("made hero.klad from hero.aseprite")
+                .count()
+                > 0,
+            "the editor says what it made"
+        );
+        assert!(
+            h.query_all_by_label_contains("plays forwards").count() > 0,
+            "and what did not come over"
+        );
+        h.state_mut().open(&ctx, &file).unwrap();
+        h.run_steps(2);
+        assert_eq!(opened(&h), dir.join("hero.klad"));
+        assert!(
+            h.query_all_by_label_contains("made from hero.aseprite before").count() > 0,
+            "a second time it opens the drawing it made"
+        );
+        let broken = dir.join("broken.ase");
+        std::fs::write(&broken, b"not a sprite").unwrap();
+        let error = format!("{:#}", h.state_mut().open(&ctx, &broken).unwrap_err());
+        assert!(error.contains("not an Aseprite file"), "{error}");
+        assert!(!dir.join("broken.klad").exists());
+        assert!(
+            start::foreign(&file) && !start::foreign(&dir.join("hero.klad")) && !start::foreign(&dir.join("gone.ase"))
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -12,6 +12,7 @@ pub(super) enum What {
     Frames,
     Sheet,
     Gif,
+    Aseprite,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -60,11 +61,16 @@ pub(super) fn args(bundle: &Path, home: &Path, frame: u32, form: &Form) -> Vec<S
         What::Frames => push("--frames", Some(form.range.trim().to_string())),
         What::Sheet => push("--sheet", Some(form.range.trim().to_string())),
         What::Gif => push("--gif", Some(form.range.trim().to_string())),
+        What::Aseprite => push("--aseprite", None),
     }
-    if let Some(layer) = form.layer.as_ref().filter(|_| form.what != What::Frames) {
+    if let Some(layer) = form
+        .layer
+        .as_ref()
+        .filter(|_| !matches!(form.what, What::Frames | What::Aseprite))
+    {
         push("--layer", Some(layer.clone()));
     }
-    if form.scale != 1.0 {
+    if form.scale != 1.0 && form.what != What::Aseprite {
         push("--scale", Some(form.scale.to_string()));
     }
     if form.deep && matches!(form.what, What::Image | What::Sheet) {
@@ -95,7 +101,14 @@ fn written(out: &str, err: &str) -> String {
     out.lines()
         .chain(err.lines())
         .map(str::trim)
-        .filter(|l| l.ends_with(".png") || l.ends_with(".json") || l.ends_with(".gif") || l.contains(" in all"))
+        .filter(|l| {
+            l.ends_with(".png")
+                || l.ends_with(".json")
+                || l.ends_with(".gif")
+                || l.ends_with(".aseprite")
+                || l.starts_with("note: ")
+                || l.contains(" in all")
+        })
         .take(3)
         .collect::<Vec<_>>()
         .join("; ")
@@ -104,7 +117,7 @@ fn written(out: &str, err: &str) -> String {
 impl Editor {
     pub(super) fn export(&mut self) -> Result<()> {
         let form = self.export.clone();
-        if form.what != What::Image && form.range.trim().is_empty() {
+        if !matches!(form.what, What::Image | What::Aseprite) && form.range.trim().is_empty() {
             bail!("say which frames: all, a clip's name or a range like 0-11");
         }
         let args = args(&self.scene.bundle.root, &self.bundle_home(), self.scene.frame, &form);
@@ -113,6 +126,7 @@ impl Editor {
             What::Frames => format!("export frames {}", form.range.trim()),
             What::Sheet => format!("export the sheet of {}", form.range.trim()),
             What::Gif => format!("export a GIF of {}", form.range.trim()),
+            What::Aseprite => "export an Aseprite file".to_string(),
         };
         self.start_job(Spec {
             tag: Tag::Export,
@@ -163,8 +177,15 @@ impl Editor {
                 .hint("sheet pages and Aseprite JSON");
             ui.selectable_value(&mut form.what, What::Gif, "GIF")
                 .hint("an animated GIF: one for each clip, or one of the whole timeline");
+            if pixel || form.what == What::Aseprite {
+                ui.selectable_value(&mut form.what, What::Aseprite, "Aseprite")
+                    .hint("an .aseprite file of the pixel layers: groups, every frame's drawing, the palette, and clips as tags");
+            }
         });
-        if form.what != What::Frames {
+        if form.what == What::Aseprite {
+            ui.weak("pixel layers and groups only; frames that show the same drawings become one frame");
+        }
+        if !matches!(form.what, What::Frames | What::Aseprite) {
             let shown = form
                 .layer
                 .as_ref()
@@ -181,7 +202,7 @@ impl Editor {
                 .response
                 .hint("export the whole image or one layer or group");
         }
-        if form.what != What::Image {
+        if !matches!(form.what, What::Image | What::Aseprite) {
             ui.horizontal(|ui| {
                 let label = ui.label("frames");
                 ui.add(
@@ -199,6 +220,7 @@ impl Editor {
             });
         }
         match pixel {
+            _ if form.what == What::Aseprite => {}
             true => {
                 form.scale = form.scale.round().clamp(1.0, most);
                 ui.add(
@@ -357,6 +379,25 @@ mod tests {
         assert_eq!(
             args(bundle, home, 0, &gif).join(" "),
             "export /w/art.klad --gif hop --scale 8 --background --dither"
+        );
+        let file = Form {
+            what: What::Aseprite,
+            scale: 4.0,
+            layer: Some("l2".into()),
+            range: String::new(),
+            variant: "blue".into(),
+            ..Form::default()
+        };
+        assert_eq!(
+            args(bundle, home, 0, &file).join(" "),
+            "export /w/art.klad --aseprite --variant blue"
+        );
+        assert_eq!(
+            written(
+                "/w/art.aseprite\n",
+                "16x12, 1 layers, 2 frames\nnote: left out, since an Aseprite file holds only pixel layers: notes\n"
+            ),
+            "/w/art.aseprite; note: left out, since an Aseprite file holds only pixel layers: notes"
         );
         let every = Form {
             what: What::Sheet,

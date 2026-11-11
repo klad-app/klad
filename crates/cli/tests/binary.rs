@@ -1408,6 +1408,163 @@ fn palette_variants_are_made_shown_and_exported_one_by_one() {
 }
 
 #[test]
+fn a_pixel_drawing_goes_out_to_an_aseprite_file_and_comes_back_the_same() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-aseprite-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("hero.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let both = |args: &[&str]| {
+        let out = run(args);
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        (
+            String::from_utf8_lossy(&out.stdout).to_string(),
+            String::from_utf8_lossy(&out.stderr).to_string(),
+        )
+    };
+    let draw = |args: &[&str]| both(args).0;
+    let refused = |args: &[&str]| {
+        let out = run(args);
+        assert!(!out.status.success(), "{args:?} went through");
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    draw(&["new", path, "--pixel", "12x8", "--frames", "6", "--fps", "10"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&["palette", path, "--add", "#ef233c", "--name", "red"]);
+    draw(&["palette", path, "--add", "#f0c8a080", "--name", "glow"]);
+    draw(&["set", path, "l1", "name=body"]);
+    draw(&["pixel", path, "body", "--color", "ink", "--rect", "1,4,3,3", "--filled"]);
+    draw(&["add", path, "cel", "--in", "l1", "frame=2"]);
+    draw(&[
+        "pixel", path, "body", "--frame", "2", "--color", "ink", "--rect", "1,1,3,3", "--filled",
+    ]);
+    draw(&[
+        "pixel", path, "body", "--frame", "2", "--color", "red", "--cells", "2,2",
+    ]);
+    draw(&["add", path, "cel", "--in", "l1", "frame=5", "link=c2"]);
+    let ops = dir.join("fx.jsonl");
+    std::fs::write(
+        &ops,
+        r##"{"op":"add","layer":{"kind":"group","name":"fx","opacity":0.5,"children":[{"kind":"pixel","name":"spark","blend":"screen","visible":false,"cels":[{"frame":1,"hold":2}]}]}}"##,
+    )
+    .unwrap();
+    draw(&["apply", path, "--file", ops.to_str().unwrap()]);
+    draw(&[
+        "pixel",
+        path,
+        "spark",
+        "--frame",
+        "1",
+        "--color",
+        "glow",
+        "--cells",
+        "8,1 9,1 9,2",
+    ]);
+    draw(&["add", path, "layer", "paint", "name=notes"]);
+    draw(&["clip", path, "--add", "hop", "--from", "0", "--to", "4", "--loop"]);
+    draw(&["clip", path, "--add", "land", "--from", "5", "--to", "5"]);
+
+    let (named, said) = both(&["export", path, "--aseprite"]);
+    let file = std::path::PathBuf::from(named.trim());
+    assert_eq!(file.file_name().unwrap(), "hero.aseprite");
+    assert!(said.contains("left out") && said.contains("notes"), "{said}");
+    assert!(said.contains("3 layers") && said.contains("2 tags"), "{said}");
+    let bytes = std::fs::read(&file).unwrap();
+    assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), 0xA5E0);
+    assert_eq!(
+        u16::from_le_bytes([bytes[6], bytes[7]]),
+        5,
+        "frames 0-1, 1 (the spark), 2, 3-4 and 5: a frame for each change, not for each klad frame"
+    );
+
+    let back = dir.join("back.klad");
+    let (_, told) = both(&["import", file.to_str().unwrap(), "-o", back.to_str().unwrap()]);
+    assert!(told.contains("6 frames at 10 fps"), "{told}");
+    let again = back.to_str().unwrap();
+    let grid = |drawing: &str, layer: &str, frame: u32| -> Vec<String> {
+        draw(&["pixels", drawing, layer, "--frame", &frame.to_string(), "--plain"])
+            .lines()
+            .skip_while(|line| !line.is_empty())
+            .skip(1)
+            .map(String::from)
+            .collect()
+    };
+    (0..6).for_each(|frame| {
+        assert_eq!(
+            grid(again, "body", frame),
+            grid(path, "body", frame),
+            "body, frame {frame}"
+        );
+        assert_eq!(
+            grid(again, "spark", frame),
+            grid(path, "spark", frame),
+            "spark, frame {frame}"
+        );
+    });
+    let listed = draw(&["ls", again]);
+    assert!(
+        listed.contains("group") && listed.contains("fx") && listed.contains("hidden"),
+        "{listed}"
+    );
+    assert!(!listed.contains("notes"));
+    let doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(back.join("doc.json")).unwrap()).unwrap();
+    let fx = doc["layers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|l| l["name"] == "fx")
+        .unwrap();
+    assert!(
+        (fx["opacity"].as_f64().unwrap() - 0.5).abs() < 0.003,
+        "the group keeps its opacity, to the nearest of 255 steps: {fx}"
+    );
+    assert_eq!(
+        fx["children"][0]["blend"], "screen",
+        "and the layer its blend mode: {fx}"
+    );
+    let colours = draw(&["palette", again]);
+    assert!(
+        colours.contains("#f0c8a080") && colours.contains("glow") && colours.contains("ink"),
+        "{colours}"
+    );
+    let timeline = draw(&["frames", again]);
+    assert!(
+        timeline.contains("clip hop  frames 0 to 4") && timeline.contains("loops"),
+        "{timeline}"
+    );
+    assert!(timeline.contains("clip land  frames 5 to 5"), "{timeline}");
+    assert!(timeline.contains("->"), "the linked drawing stays a link: {timeline}");
+    assert_eq!(
+        draw(&["hash", again, "--all"])
+            .lines()
+            .map(|l| l.split_whitespace().last().unwrap().to_string())
+            .collect::<Vec<_>>(),
+        draw(&["hash", path, "--all"])
+            .lines()
+            .map(|l| l.split_whitespace().last().unwrap().to_string())
+            .collect::<Vec<_>>(),
+        "every frame renders the same"
+    );
+
+    assert!(refused(&["import", file.to_str().unwrap(), "-o", again]).contains("is there already"));
+    assert!(refused(&["import", path]).contains("Aseprite files"));
+    let fake = dir.join("fake.ase");
+    std::fs::write(&fake, b"not a sprite at all").unwrap();
+    assert!(refused(&["import", fake.to_str().unwrap()]).contains("not an Aseprite file"));
+    assert!(!dir.join("fake.klad").exists());
+    let painting = dir.join("painting.klad");
+    draw(&["new", painting.to_str().unwrap(), "--width", "64", "--height", "64"]);
+    assert!(refused(&["export", painting.to_str().unwrap(), "--aseprite"]).contains("no pixel layers"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn recolour_moves_strokes_together_and_keeps_their_shades() {
     let dir = std::env::temp_dir().join(format!("draw-binary-recolour-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

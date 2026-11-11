@@ -1,5 +1,6 @@
 mod agent;
 mod arcs;
+mod aseprite;
 mod bench;
 mod brushes;
 mod colour;
@@ -129,6 +130,19 @@ impl Where {
 
 #[derive(Subcommand)]
 enum Command {
+    #[command(
+        about = "Open an Aseprite file as a klad drawing",
+        long_about = "Make a klad drawing from an Aseprite file (.aseprite or .ase): its layers and groups, the drawing of every frame, its palette and its tags. The drawing is written next to the file (hero.aseprite makes hero.klad) unless -o names it, and its path is printed.\n\n  klad import hero.aseprite\n  klad import hero.ase -o sprites/hero.klad\n\nWhat comes over: image layers as pixel layers with their name, visibility, opacity and blend mode, groups as groups, every cel as a drawing on its frame (linked cels stay linked), the palette with its names, and tags as clips. Frame times become whole frames: a file of 100 ms frames is 10 frames a second, and a frame shown for 300 ms holds for three. Indexed, grey and RGBA files all open; every pixel is bound to its palette colour, and colours a file uses outside its palette are added to it.\n\nWhat does not: tilemap layers, tilesets and slices are left out, a tag that plays backwards or back and forth becomes a clip that plays forwards, and blend modes klad does not have blend as normal. Each of these is said when it happens.\n\nklad export art.klad --aseprite writes a drawing's pixel layers back to an Aseprite file."
+    )]
+    Import {
+        file: PathBuf,
+        #[arg(
+            short,
+            long,
+            help = "The drawing to make (default: the file's name with .klad, next to it)"
+        )]
+        out: Option<PathBuf>,
+    },
     #[command(about = "Create an empty bundle with paint layers")]
     New {
         bundle: PathBuf,
@@ -1904,7 +1918,7 @@ enum Command {
     },
     #[command(
         about = "Export PNGs, sprite sheets, numbered frames or a Godot SpriteFrames and scene",
-        long_about = "Export a transparent PNG of the whole image or one layer or group, at a frame, at any scale from 1/16 to 8 (vectors stay sharp; paint layers are resampled). A pixel drawing exports at whole-number scales only, up to 64 (or 16384 px a side), enlarged pixel for pixel so it stays sharp: --scale 8 turns a 32 px sprite into 256 px. 8-bit PNGs are dithered from the 16-bit float pixels so gradients do not band; --depth 16 writes 16-bit PNGs. --background keeps the canvas background colour.\n\n  klad export art.klad\n  klad export art.klad --scale 2\n  klad export art.klad --layer lines --scale 4 --depth 16 -o lines.png\n\nAnimations (each clip, or the whole timeline when there are no clips):\n\n  klad export art.klad --sheet all [--scale 0.5] [--padding 2] [--max 4096]\n      a PNG holding each distinct picture once, trimmed to its pixels (more pages, art-sheet-2.png ..., when it does not fit --max), plus art-sheet.json in Aseprite's array layout: one entry per exposure with its duration in ms, frameTags for clips\n  klad export art.klad --sheet run            one clip; --sheet 0-11 a range\n  klad export art.klad --frames run           numbered full-size PNGs, one per frame (run-0000.png ...) in art-run/\n  klad export art.klad --gif [run] [--scale 8]  an animated GIF with each frame's own duration: one per clip (art-run.gif; clips that loop, loop), or art.gif of the whole timeline; up to 255 colours kept exactly, more are reduced to the nearest of 255, in flat areas of one colour or, with --dither, mixed in a fine even pattern that keeps gradients smooth; transparent unless --background\n  klad export art.klad --godot ../game/art    the sheet, art.tres (SpriteFrames: one animation per clip with its fps, loop and per-frame durations) and art.tscn (an AnimatedSprite2D placed so the timeline's origin sits on the node's position). For a pixel drawing the scenes set texture_filter to nearest, so the sprite stays sharp in the game. The first folder given is kept in the document (export.godot); later exports and the editor's button write there, and Godot uids are kept so scenes using them keep working. --store replaces a kept folder."
+        long_about = "Export a transparent PNG of the whole image or one layer or group, at a frame, at any scale from 1/16 to 8 (vectors stay sharp; paint layers are resampled). A pixel drawing exports at whole-number scales only, up to 64 (or 16384 px a side), enlarged pixel for pixel so it stays sharp: --scale 8 turns a 32 px sprite into 256 px. 8-bit PNGs are dithered from the 16-bit float pixels so gradients do not band; --depth 16 writes 16-bit PNGs. --background keeps the canvas background colour.\n\n  klad export art.klad\n  klad export art.klad --scale 2\n  klad export art.klad --layer lines --scale 4 --depth 16 -o lines.png\n\nAnimations (each clip, or the whole timeline when there are no clips):\n\n  klad export art.klad --sheet all [--scale 0.5] [--padding 2] [--max 4096]\n      a PNG holding each distinct picture once, trimmed to its pixels (more pages, art-sheet-2.png ..., when it does not fit --max), plus art-sheet.json in Aseprite's array layout: one entry per exposure with its duration in ms, frameTags for clips\n  klad export art.klad --sheet run            one clip; --sheet 0-11 a range\n  klad export art.klad --frames run           numbered full-size PNGs, one per frame (run-0000.png ...) in art-run/\n  klad export art.klad --gif [run] [--scale 8]  an animated GIF with each frame's own duration: one per clip (art-run.gif; clips that loop, loop), or art.gif of the whole timeline; up to 255 colours kept exactly, more are reduced to the nearest of 255, in flat areas of one colour or, with --dither, mixed in a fine even pattern that keeps gradients smooth; transparent unless --background\n  klad export art.klad --aseprite             art.aseprite: the pixel layers and groups, the drawing of every frame (holds and links as linked cels), the palette and clips as tags, in RGBA; frames that show the same drawings are one frame with their time added up. Paint and vector layers are left out and named. klad import opens such a file\n  klad export art.klad --godot ../game/art    the sheet, art.tres (SpriteFrames: one animation per clip with its fps, loop and per-frame durations) and art.tscn (an AnimatedSprite2D placed so the timeline's origin sits on the node's position). For a pixel drawing the scenes set texture_filter to nearest, so the sprite stays sharp in the game. The first folder given is kept in the document (export.godot); later exports and the editor's button write there, and Godot uids are kept so scenes using them keep working. --store replaces a kept folder."
     )]
     Export {
         bundle: PathBuf,
@@ -1948,6 +1962,12 @@ enum Command {
             help = "With --gif: where a picture has more than 255 colours, mix the nearest ones in a fine even pattern so gradients do not band"
         )]
         dither: bool,
+        #[arg(
+            long,
+            conflicts_with_all = ["sheet", "frames", "gif", "godot", "godot_scene", "godot_rig"],
+            help = "An Aseprite file of the drawing's pixel layers: groups, the drawing of every frame, the palette and clips as tags"
+        )]
+        aseprite: bool,
         #[arg(
             long,
             num_args = 0..=1,
@@ -2469,6 +2489,15 @@ fn pixel_size(text: &str) -> Result<(u32, u32)> {
 
 fn run() -> Result<()> {
     match Cli::parse().command {
+        Command::Import { file, out } => {
+            if !aseprite::is_file(&file) {
+                return Err(anyhow!(
+                    "klad import opens Aseprite files (.aseprite or .ase): {} is something else. A picture goes on a layer with klad add <bundle> layer image src=<file>",
+                    file.display()
+                ));
+            }
+            println!("{}", aseprite::import(&file, out)?.display());
+        }
         Command::New {
             bundle,
             width,
@@ -4074,6 +4103,7 @@ fn run() -> Result<()> {
             frames,
             gif,
             dither,
+            aseprite,
             godot,
             store,
             godot_scene,
@@ -4120,6 +4150,7 @@ fn run() -> Result<()> {
                     variant: variant.clone(),
                 };
                 match (&sheet, &frames, &godot) {
+                    _ if aseprite => aseprite::export(&bundle, out, variant.as_deref()),
                     _ if gif.is_some() => sprites::gif(&bundle, gif.as_deref().unwrap_or("all"), &look, dither, out),
                     (Some(spec), _, _) => sprites::sheet(&bundle, spec, &look, &packing, out),
                     (_, Some(spec), _) => sprites::frames(&bundle, spec, &look, out),

@@ -453,6 +453,14 @@ impl Start {
         {
             picked = picker::choose_folder(Some(&settings.drawings_folder()), "Open");
         }
+        if picker::NATIVE
+            && ui
+                .add(egui::Button::new("Choose an Aseprite file...").min_size(vec2(200.0, 28.0)))
+                .on_hover_text("an .aseprite or .ase file opens as a new klad drawing next to it")
+                .clicked()
+        {
+            picked = picker::choose_file(Some(&settings.drawings_folder()), "Open");
+        }
         ui.add_space(6.0);
         let label = ui.label(RichText::new("Or paste its path").color(theme::WEAK));
         ui.horizontal(|ui| {
@@ -467,7 +475,11 @@ impl Start {
                 picked = Some(expand(self.path.trim()));
             }
         });
+        ui.label(RichText::new("The path of an Aseprite file (.aseprite, .ase) works too.").color(theme::WEAK));
         let path = picked?;
+        if foreign(&path) {
+            return Some(path);
+        }
         match openable(&path) {
             Ok(()) => Some(path),
             Err(e) => {
@@ -632,6 +644,52 @@ pub fn expand(text: &str) -> PathBuf {
         (Some(rest), Some(home)) => home.join(rest),
         _ => PathBuf::from(text),
     }
+}
+
+pub fn foreign(path: &Path) -> bool {
+    path.is_file()
+        && path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("aseprite") || e.eq_ignore_ascii_case("ase"))
+}
+
+pub fn brought_in(path: &Path) -> Result<(PathBuf, Option<String>)> {
+    if !foreign(path) {
+        return Ok((path.to_path_buf(), None));
+    }
+    let name = |p: &Path| p.file_name().map_or(String::new(), |n| n.to_string_lossy().to_string());
+    let target = path.with_extension("klad");
+    if target.join("doc.json").is_file() {
+        let told = format!(
+            "opened {}, the drawing made from {} before; rename or remove it to bring the file in again",
+            name(&target),
+            name(path)
+        );
+        return Ok((target, Some(told)));
+    }
+    let Some(exe) = draw_binary() else {
+        bail!(
+            "the klad command line tool is missing next to the editor, so an Aseprite file cannot be opened: install klad again (it ships both)"
+        );
+    };
+    let out = std::process::Command::new(exe).arg("import").arg(path).output()?;
+    let said = String::from_utf8_lossy(&out.stderr).to_string();
+    if !out.status.success() {
+        bail!("{}", said.trim().trim_start_matches("error: "));
+    }
+    let made = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .last()
+        .map(|line| PathBuf::from(line.trim()))
+        .filter(|p| p.join("doc.json").is_file())
+        .ok_or_else(|| anyhow::anyhow!("klad import did not say which drawing it made"))?;
+    let notes: Vec<&str> = said.lines().filter_map(|line| line.strip_prefix("note: ")).collect();
+    let told = match notes.is_empty() {
+        true => format!("made {} from {}", name(&made), name(path)),
+        false => format!("made {} from {}; {}", name(&made), name(path), notes.join("; ")),
+    };
+    Ok((made, Some(told)))
 }
 
 pub fn openable(path: &Path) -> Result<()> {
