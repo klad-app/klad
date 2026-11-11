@@ -317,6 +317,14 @@ impl Editor {
             {
                 self.export_godot_as("--godot-rig");
             }
+            let tiled = self.scene.bundle.doc.canvas.tile.is_some();
+            if ui
+                .add_enabled(tiled, egui::Button::new("as a tile set"))
+                .hint("a Godot TileSet with a tile for every cell that is not empty; needs the drawing cut into tiles (View > Tileset: cut into tiles…)")
+                .clicked()
+            {
+                self.export_godot_as("--tileset");
+            }
         });
         if run {
             self.export()?;

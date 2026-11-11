@@ -227,15 +227,27 @@ enum Command {
         pixel: Option<String>,
         #[arg(long, help = "A tile: what is drawn past an edge comes back in on the other side")]
         wrap: bool,
+        #[arg(
+            long,
+            value_name = "SIZE",
+            help = "Cut the drawing into tiles of this size, 16 or 16x24: a tileset (the canvas has to be a whole number of tiles each way)"
+        )]
+        tile: Option<String>,
     },
     #[command(
-        about = "The canvas: its size and background, and whether it wraps at its edges",
-        long_about = "The canvas: its size and background, and whether it wraps at its edges. On a canvas that wraps, a tile, pixels drawn past an edge come back in on the other side, and fills and outlines go round the edges, so the drawing repeats without a seam. klad render --repeat 3 shows it repeated.\n\n  klad canvas tile.klad\n  klad canvas tile.klad --wrap on\n\nAs an op: {\"op\":\"canvas\",\"wrap\":true}."
+        about = "The canvas: its size and background, whether it wraps at its edges, and the size of its tiles",
+        long_about = "The canvas: its size and background, and whether it wraps at its edges. On a canvas that wraps, a tile, pixels drawn past an edge come back in on the other side, and fills and outlines go round the edges, so the drawing repeats without a seam. klad render --repeat 3 shows it repeated.\n\n  klad canvas tile.klad\n  klad canvas tile.klad --wrap on\n\nA drawing can also be cut into tiles of one size, a tileset: --tile 16 (or 16x24) sets the size, which the canvas has to be a whole number of each way, and --tile off takes it away. klad pixels and klad pixel --grid then take --tile column,row to read and draw one tile at a time, the editor shows the tile lines, and klad export --tileset writes a Godot TileSet.\n\n  klad canvas tiles.klad --tile 16\n  klad pixels tiles.klad l1 --tile 2,0 --plain\n  klad export tiles.klad --tileset ../game/art\n\nAs an op: {\"op\":\"canvas\",\"wrap\":true}, {\"op\":\"canvas\",\"tile\":16}, {\"op\":\"canvas\",\"tile\":[16,24]}, {\"op\":\"canvas\",\"tile\":null}."
     )]
     Canvas {
         bundle: PathBuf,
         #[arg(long, value_parser = ["on", "off"], help = "Turn wrapping at the edges on or off")]
         wrap: Option<String>,
+        #[arg(
+            long,
+            value_name = "SIZE",
+            help = "Cut the drawing into tiles of this size, 16 or 16x24 (off: no tiles); the canvas has to be a whole number of tiles each way"
+        )]
+        tile: Option<String>,
         #[command(flatten)]
         flags: EditFlags,
     },
@@ -1111,6 +1123,14 @@ enum Command {
         at: [i64; 2],
         #[arg(
             long,
+            requires = "grid",
+            value_parser = parse_cell,
+            value_name = "COLUMN,ROW",
+            help = "With --grid, in a drawing cut into tiles: put the grid's top left on that tile's (0,0 is the first tile)"
+        )]
+        tile: Option<[i64; 2]>,
+        #[arg(
+            long,
             conflicts_with = "cells",
             help = "SVG path data drawn as a line of pixels, one pixel wide with no doubled corners on curves: 'M3.5 20.5 C 10 4 22 4 28.5 20.5'"
         )]
@@ -1969,6 +1989,13 @@ enum Command {
         plain: bool,
         #[arg(long)]
         json: bool,
+        #[arg(
+            long,
+            value_parser = parse_cell,
+            value_name = "COLUMN,ROW",
+            help = "In a drawing cut into tiles: only that tile (0,0 is the first), with pixels counted from its own top left"
+        )]
+        tile: Option<[i64; 2]>,
     },
     #[command(about = "The palettes that come with klad, to load with klad palette <bundle> --load <name>")]
     Palettes {
@@ -1977,7 +2004,7 @@ enum Command {
     },
     #[command(
         about = "Export PNGs, sprite sheets, numbered frames or a Godot SpriteFrames and scene",
-        long_about = "Export a transparent PNG of the whole image or one layer or group, at a frame, at any scale from 1/16 to 8 (vectors stay sharp; paint layers are resampled). A pixel drawing exports at whole-number scales only, up to 64 (or 16384 px a side), enlarged pixel for pixel so it stays sharp: --scale 8 turns a 32 px sprite into 256 px. 8-bit PNGs are dithered from the 16-bit float pixels so gradients do not band; --depth 16 writes 16-bit PNGs. --background keeps the canvas background colour.\n\n  klad export art.klad\n  klad export art.klad --scale 2\n  klad export art.klad --layer lines --scale 4 --depth 16 -o lines.png\n\nAnimations (each clip, or the whole timeline when there are no clips):\n\n  klad export art.klad --sheet all [--scale 0.5] [--padding 2] [--max 4096]\n      a PNG holding each distinct picture once, trimmed to its pixels (more pages, art-sheet-2.png ..., when it does not fit --max), plus art-sheet.json in Aseprite's array layout: one entry per exposure with its duration in ms, frameTags for clips\n  klad export art.klad --sheet run            one clip; --sheet 0-11 a range\n  klad export art.klad --frames run           numbered full-size PNGs, one per frame (run-0000.png ...) in art-run/\n  klad export art.klad --gif [run] [--scale 8]  an animated GIF with each frame's own duration: one per clip (art-run.gif; clips that loop, loop), or art.gif of the whole timeline; up to 255 colours kept exactly, more are reduced to the nearest of 255, in flat areas of one colour or, with --dither, mixed in a fine even pattern that keeps gradients smooth; transparent unless --background\n  klad export art.klad --aseprite             art.aseprite: the pixel layers and groups, the drawing of every frame (holds and links as linked cels), the palette and clips as tags, in RGBA; frames that show the same drawings are one frame with their time added up. Paint and vector layers are left out and named. klad import opens such a file\n  klad export art.klad --godot ../game/art    the sheet, art.tres (SpriteFrames: one animation per clip with its fps, loop and per-frame durations) and art.tscn (an AnimatedSprite2D placed so the timeline's origin sits on the node's position). For a pixel drawing the scenes set texture_filter to nearest, so the sprite stays sharp in the game. The first folder given is kept in the document (export.godot); later exports and the editor's button write there, and Godot uids are kept so scenes using them keep working. --store replaces a kept folder."
+        long_about = "Export a transparent PNG of the whole image or one layer or group, at a frame, at any scale from 1/16 to 8 (vectors stay sharp; paint layers are resampled). A pixel drawing exports at whole-number scales only, up to 64 (or 16384 px a side), enlarged pixel for pixel so it stays sharp: --scale 8 turns a 32 px sprite into 256 px. 8-bit PNGs are dithered from the 16-bit float pixels so gradients do not band; --depth 16 writes 16-bit PNGs. --background keeps the canvas background colour.\n\n  klad export art.klad\n  klad export art.klad --scale 2\n  klad export art.klad --layer lines --scale 4 --depth 16 -o lines.png\n\nAnimations (each clip, or the whole timeline when there are no clips):\n\n  klad export art.klad --sheet all [--scale 0.5] [--padding 2] [--max 4096]\n      a PNG holding each distinct picture once, trimmed to its pixels (more pages, art-sheet-2.png ..., when it does not fit --max), plus art-sheet.json in Aseprite's array layout: one entry per exposure with its duration in ms, frameTags for clips\n  klad export art.klad --sheet run            one clip; --sheet 0-11 a range\n  klad export art.klad --frames run           numbered full-size PNGs, one per frame (run-0000.png ...) in art-run/\n  klad export art.klad --gif [run] [--scale 8]  an animated GIF with each frame's own duration: one per clip (art-run.gif; clips that loop, loop), or art.gif of the whole timeline; up to 255 colours kept exactly, more are reduced to the nearest of 255, in flat areas of one colour or, with --dither, mixed in a fine even pattern that keeps gradients smooth; transparent unless --background\n  klad export art.klad --aseprite             art.aseprite: the pixel layers and groups, the drawing of every frame (holds and links as linked cels), the palette and clips as tags, in RGBA; frames that show the same drawings are one frame with their time added up. Paint and vector layers are left out and named. klad import opens such a file\n  klad export art.klad --tileset ../game/art  a drawing cut into tiles (klad canvas --tile 16) as a Godot TileSet: art-tiles.png and art-tiles.tres with one atlas source and a tile for every cell that is not empty; --frame, --scale and --variant choose what is shown\n  klad export art.klad --godot ../game/art    the sheet, art.tres (SpriteFrames: one animation per clip with its fps, loop and per-frame durations) and art.tscn (an AnimatedSprite2D placed so the timeline's origin sits on the node's position). For a pixel drawing the scenes set texture_filter to nearest, so the sprite stays sharp in the game. The first folder given is kept in the document (export.godot); later exports and the editor's button write there, and Godot uids are kept so scenes using them keep working. --store replaces a kept folder."
     )]
     Export {
         bundle: PathBuf,
@@ -2027,6 +2054,13 @@ enum Command {
             help = "An Aseprite file of the drawing's pixel layers: groups, the drawing of every frame, the palette and clips as tags"
         )]
         aseprite: bool,
+        #[arg(
+            long,
+            num_args = 0..=1,
+            conflicts_with_all = ["sheet", "frames", "gif", "godot", "godot_scene", "godot_rig", "aseprite"],
+            help = "A Godot TileSet of a drawing cut into tiles (klad canvas --tile): the picture and a .tres with a tile for every cell that is not empty, into this folder (default: the document's export.godot)"
+        )]
+        tileset: Option<Option<PathBuf>>,
         #[arg(
             long,
             num_args = 0..=1,
@@ -2444,6 +2478,34 @@ fn parse_box(text: &str) -> Result<[i64; 4]> {
         .map_err(|_| anyhow!("{text:?} is not four whole numbers like 2,3,10,8"))
 }
 
+fn tile_size(text: &str) -> Result<Option<[u32; 2]>> {
+    let text = text.trim();
+    if ["off", "none", "0"].contains(&text) {
+        return Ok(None);
+    }
+    let sides: Vec<u32> = text
+        .split(['x', 'X', ','])
+        .map(|part| part.trim().parse::<u32>())
+        .collect::<std::result::Result<_, _>>()
+        .map_err(|_| anyhow!("a tile size is a number of pixels, 16 or 16x24, or off: not {text:?}"))?;
+    match sides.as_slice() {
+        [side] => Ok(Some([*side, *side])),
+        [width, height] => Ok(Some([*width, *height])),
+        _ => Err(anyhow!(
+            "a tile size is a number of pixels, 16 or 16x24, or off: not {text:?}"
+        )),
+    }
+}
+
+fn tile_of(canvas: &klad_core::doc::Canvas, at: [i64; 2]) -> Result<[u32; 4]> {
+    match (u32::try_from(at[0]), u32::try_from(at[1])) {
+        (Ok(column), Ok(row)) => canvas.tile_at(column, row),
+        _ => Err(anyhow!(
+            "a tile is its column and row, counted from 0,0 at the top left"
+        )),
+    }
+}
+
 fn parse_cell(text: &str) -> Result<[i64; 2]> {
     let parts: Vec<i64> = text
         .split(',')
@@ -2621,6 +2683,7 @@ fn run() -> Result<()> {
             sketch,
             pixel,
             wrap,
+            tile,
         } => {
             let size = pixel.as_deref().map(pixel_size).transpose()?;
             let mut made = edit::new(
@@ -2636,36 +2699,56 @@ fn run() -> Result<()> {
                     pixel: size.is_some(),
                 },
             )?;
-            if wrap {
-                made.apply(&[Op::Canvas { wrap: Some(true) }])?;
+            let cut = tile.as_deref().map(tile_size).transpose()?;
+            if wrap || cut.is_some() {
+                let applied = made.apply(&[Op::Canvas {
+                    wrap: wrap.then_some(true),
+                    tile: cut,
+                }]);
+                if let Err(error) = applied {
+                    let _ = std::fs::remove_dir_all(&bundle);
+                    return Err(error);
+                }
                 made.stamp("cli")?;
             }
             println!("{}", bundle.display());
         }
-        Command::Canvas { bundle, wrap, flags } => match wrap {
-            Some(wrap) => agent::edit(
-                &bundle,
-                &[Op::Canvas {
-                    wrap: Some(wrap == "on"),
-                }],
-                &output(&flags, 0),
-            )?,
-            None => {
+        Command::Canvas {
+            bundle,
+            wrap,
+            tile,
+            flags,
+        } => match (wrap, tile) {
+            (None, None) => {
                 let canvas = Bundle::open(&bundle)?.doc.canvas;
                 match flags.json {
                     true => println!("{}", serde_json::to_string(&canvas)?),
                     false => println!(
-                        "{}x{}  background {}  {}",
+                        "{}x{}  background {}  {}{}",
                         canvas.width,
                         canvas.height,
                         canvas.background.as_deref().unwrap_or("none"),
                         match canvas.wrap {
                             true => "wraps at its edges",
                             false => "stops at its edges",
+                        },
+                        match (canvas.tile, canvas.tiles()) {
+                            (Some([w, h]), Some((columns, rows))) => {
+                                format!("  tiles of {w}x{h}, {columns} across and {rows} down")
+                            }
+                            _ => String::new(),
                         }
                     ),
                 }
             }
+            (wrap, tile) => agent::edit(
+                &bundle,
+                &[Op::Canvas {
+                    wrap: wrap.map(|w| w == "on"),
+                    tile: tile.as_deref().map(tile_size).transpose()?,
+                }],
+                &output(&flags, 0),
+            )?,
         },
         Command::Frames { bundle, from, to, json } => frames::sheet(&bundle, from, to, json)?,
         Command::Frame {
@@ -3296,6 +3379,7 @@ fn run() -> Result<()> {
             cells,
             grid,
             at,
+            tile,
             path,
             line,
             rect,
@@ -3325,6 +3409,13 @@ fn run() -> Result<()> {
                     file => std::fs::read_to_string(file).with_context(|| format!("reading {file}"))?,
                 };
                 let (legend, rows) = klad_core::pixel::parse_text(&text)?;
+                let at = match tile {
+                    Some(tile) => {
+                        let [x, y, ..] = tile_of(&Bundle::open(&bundle)?.doc.canvas, tile)?;
+                        [x as i64 + at[0], y as i64 + at[1]]
+                    }
+                    None => at,
+                };
                 let spec = klad_core::ops::GridSpec {
                     layer,
                     frame,
@@ -4201,7 +4292,8 @@ fn run() -> Result<()> {
             frame,
             plain,
             json,
-        } => pixels(&bundle, &layer, frame, plain, json)?,
+            tile,
+        } => pixels(&bundle, &layer, frame, plain, json, tile)?,
         Command::Export {
             bundle,
             png: _,
@@ -4216,6 +4308,7 @@ fn run() -> Result<()> {
             gif,
             dither,
             aseprite,
+            tileset,
             godot,
             store,
             godot_scene,
@@ -4263,6 +4356,9 @@ fn run() -> Result<()> {
                 };
                 match (&sheet, &frames, &godot) {
                     _ if aseprite => aseprite::export(&bundle, out, variant.as_deref()),
+                    _ if tileset.is_some() => {
+                        sprites::tileset(&bundle, tileset.clone().flatten().or(out), store, &look, frame)
+                    }
                     _ if gif.is_some() => sprites::gif(&bundle, gif.as_deref().unwrap_or("all"), &look, dither, out),
                     (Some(spec), _, _) => sprites::sheet(&bundle, spec, &look, &packing, out),
                     (_, Some(spec), _) => sprites::frames(&bundle, spec, &look, out),
@@ -5069,7 +5165,7 @@ fn palette(path: &Path, as_json: bool) -> Result<()> {
     Ok(())
 }
 
-fn pixels(path: &Path, layer: &str, frame: u32, plain: bool, as_json: bool) -> Result<()> {
+fn pixels(path: &Path, layer: &str, frame: u32, plain: bool, as_json: bool, tile: Option<[i64; 2]>) -> Result<()> {
     let bundle = Bundle::open(path)?;
     let doc = &bundle.doc;
     let owner = doc.find_layer(layer)?;
@@ -5084,7 +5180,19 @@ fn pixels(path: &Path, layer: &str, frame: u32, plain: bool, as_json: bool) -> R
         Some(cel) => bundle.read_marks(&owner.id, &cel.id)?,
         None => Vec::new(),
     };
-    let grid = klad_core::pixel::grid_of(&marks, doc.canvas.width, doc.canvas.height);
+    let whole = klad_core::pixel::grid_of(&marks, doc.canvas.width, doc.canvas.height);
+    let region = tile.map(|tile| tile_of(&doc.canvas, tile)).transpose()?;
+    let grid = match region {
+        None => whole,
+        Some([x, y, w, h]) => klad_core::pixel::Grid {
+            width: w,
+            height: h,
+            cells: (y..y + h)
+                .flat_map(|row| (x..x + w).map(move |column| (column, row)))
+                .map(|(column, row)| whole.at(column, row).map(String::from))
+                .collect(),
+        },
+    };
     let legend = klad_core::pixel::legend(doc, &grid);
     if as_json {
         let named: serde_json::Map<String, serde_json::Value> = legend
@@ -5120,8 +5228,16 @@ fn pixels(path: &Path, layer: &str, frame: u32, plain: bool, as_json: bool) -> R
         return Ok(());
     }
     println!(
-        "{}x{}  layer {} \"{}\"  frame {frame}",
-        grid.width, grid.height, owner.id, owner.name
+        "{}x{}  layer {} \"{}\"  frame {frame}{}",
+        grid.width,
+        grid.height,
+        owner.id,
+        owner.name,
+        match (tile, region) {
+            (Some([column, row]), Some([x, y, ..])) =>
+                format!("  tile {column},{row} (its top left is canvas pixel {x},{y})"),
+            _ => String::new(),
+        }
     );
     println!("{}", klad_core::pixel::ruled(&grid, &legend));
     Ok(())

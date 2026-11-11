@@ -2279,6 +2279,36 @@ fn the_pixel_pencil_mirrors_across_a_line_and_wraps_on_a_tile() {
         "a GIF has no 16-bit form"
     );
     h.state_mut().windows.export = false;
+    h.state_mut().invoke(Cmd::TileSize).unwrap();
+    h.run_steps(3);
+    assert!(
+        h.query_all(By::new().label_contains("not cut into tiles")).count() > 0,
+        "the window says what the drawing is"
+    );
+    let (width, height) = {
+        let canvas = &h.state().scene.bundle.doc.canvas;
+        (canvas.width, canvas.height)
+    };
+    h.state_mut().tile_size = [width / 2, height / 2];
+    h.run_steps(2);
+    h.get_by_label("cut into tiles").click();
+    h.run_steps(3);
+    assert_eq!(
+        h.state().scene.bundle.doc.canvas.tile,
+        Some([width / 2, height / 2]),
+        "the drawing is four tiles"
+    );
+    assert!(h.query_all(By::new().label_contains("2 across, 2 down")).count() > 0);
+    h.state_mut().tile_size = [width / 2 + 1, height / 2];
+    h.run_steps(2);
+    assert!(
+        h.query_all(By::new().label_contains("does not cut into tiles")).count() > 0,
+        "a size that does not fit says why"
+    );
+    h.get_by_label("no tiles").click();
+    h.run_steps(3);
+    assert_eq!(h.state().scene.bundle.doc.canvas.tile, None);
+    h.state_mut().invoke(Cmd::TileSize).unwrap();
     h.state_mut().invoke(Cmd::Pixelize).unwrap();
     h.run_steps(3);
     assert_eq!(h.state().is_on(Cmd::Pixelize), Some(true));

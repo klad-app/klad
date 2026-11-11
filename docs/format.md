@@ -1,4 +1,4 @@
-_Last updated: 2026-11-12 11:00 (format `klad/7`, stroke files `KLST` version 3, brushes `klad-brush/1`)_
+_Last updated: 2026-11-12 19:30 (format `klad/7`, stroke files `KLST` version 3, brushes `klad-brush/1`)_
 
 # The klad drawing format
 
@@ -61,7 +61,7 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `format` | string | | `"klad/7"` |
-| `canvas` | object | | `width`, `height` (px), `background` (a colour; none is transparent), `wrap` (bool, default false: the drawing is a tile, and klad brings pixel marks drawn past an edge back in on the other side; it changes nothing about how the drawing renders) |
+| `canvas` | object | | `width`, `height` (px), `background` (a colour; none is transparent), `wrap` (bool, default false: the drawing is a tile, and klad brings pixel marks drawn past an edge back in on the other side; it changes nothing about how the drawing renders); `tile` ([width, height] in px, left out when there is none: the drawing is cut into tiles of that size, a tileset, and each side of the canvas is a whole number of them) |
 | `timeline` | object | 12 fps, 1 frame | see below |
 | `palette` | array | `[]` | swatches: `color`, optional `name` (unique, not starting with `#`), optional `id` (unique; set once a pixel mark uses the swatch), optional `ramp` (the name of the ramp it belongs to) |
 | `variants` | object | none | palette variants (below): `sets`, `shown` and `base`; left out when the drawing has none |
@@ -368,4 +368,4 @@ Drawing a stroke: walk the samples, interpolate between them, stamp the tip ever
 | `klad/4` | skeletons move to bones layers, and paint layers join one with `rig` (2026-11-08). Older drawings open without their bones, IK, weights links and the `pose` of their cels; the drawings themselves, posed ones too, stay. |
 | `klad/5` | `rev` and `nextId` leave `doc.json`, and new ids carry the tag of the copy that made them, so drawings diff and merge in git (2026-11-09). Older drawings open with their ids unchanged; their counters move to `.cache/copy.json`. |
 | `klad/6` | stroke files version 2: eraser, smudge and blender strokes record the marks they are attached to, and attached erasers erase only those (2026-11-09). Older drawings open unchanged, with nothing attached. |
-| `klad/7` | pixel layers: paint layers with `pixel`, pixel marks in stroke files (version 3), palette swatches with an `id` (2026-11-11), and palette `variants` (2026-11-12). Older drawings open unchanged. |
+| `klad/7` | pixel layers: paint layers with `pixel`, pixel marks in stroke files (version 3), palette swatches with an `id` (2026-11-11), palette `variants` and `canvas.tile` (2026-11-12). Older drawings open unchanged. |

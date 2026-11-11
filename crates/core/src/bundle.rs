@@ -864,7 +864,12 @@ pub fn summarize(ops: &[Op]) -> String {
             ),
             Op::Timeline { origin: Some(_), .. } => "timeline origin".to_string(),
             Op::Timeline { .. } => "timeline".to_string(),
-            Op::Canvas { wrap: Some(true) } => "the canvas wraps".to_string(),
+            Op::Canvas {
+                tile: Some(Some([w, h])),
+                ..
+            } => format!("tiles of {w}x{h}"),
+            Op::Canvas { tile: Some(None), .. } => "no tiles".to_string(),
+            Op::Canvas { wrap: Some(true), .. } => "the canvas wraps".to_string(),
             Op::Canvas { .. } => "the canvas stops at its edges".to_string(),
             Op::Atmosphere(Some(_)) => "atmosphere".to_string(),
             Op::Atmosphere(None) => "atmosphere off".to_string(),

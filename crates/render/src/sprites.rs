@@ -431,6 +431,28 @@ pub fn sprite_frames(res: &SpriteFrames) -> String {
     out
 }
 
+pub struct TileSet<'a> {
+    pub uid: &'a str,
+    pub texture: &'a Texture,
+    pub tile: [u32; 2],
+    pub tiles: &'a [(u32, u32)],
+}
+
+pub fn tile_set(set: &TileSet) -> String {
+    let uid = set
+        .texture
+        .uid
+        .as_deref()
+        .map_or(String::new(), |u| format!(" uid={}", quoted(u)));
+    let [w, h] = set.tile;
+    let tiles: String = set.tiles.iter().map(|(x, y)| format!("{x}:{y}/0 = 0\n")).collect();
+    format!(
+        "[gd_resource type=\"TileSet\" load_steps=3 format=3 uid={}]\n\n[ext_resource type=\"Texture2D\"{uid} path={} id=\"1_tiles\"]\n\n[sub_resource type=\"TileSetAtlasSource\" id=\"TileSetAtlasSource_1\"]\ntexture = ExtResource(\"1_tiles\")\ntexture_region_size = Vector2i({w}, {h})\n{tiles}\n[resource]\ntile_size = Vector2i({w}, {h})\nsources/0 = SubResource(\"TileSetAtlasSource_1\")\n",
+        quoted(set.uid),
+        quoted(&set.texture.path),
+    )
+}
+
 pub struct Scene<'a> {
     pub uid: &'a str,
     pub node: &'a str,

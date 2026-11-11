@@ -608,6 +608,7 @@ struct Windows {
     about: bool,
     export: bool,
     pixels: bool,
+    tiles: bool,
     report: bool,
     font: bool,
     paintover: bool,
@@ -716,6 +717,7 @@ pub(crate) struct Editor {
     checks: checks::Checks,
     export: export::Form,
     pixels: pixels::Form,
+    tile_size: [u32; 2],
     paintover: paintover::Form,
     compare: Option<compare::Compared>,
     bones: bones::BoneTool,
@@ -918,6 +920,7 @@ impl Editor {
             checks: checks::Checks::default(),
             export: export::Form::default(),
             pixels: pixels::Form::default(),
+            tile_size: [16, 16],
             paintover: paintover::Form::default(),
             compare: None,
             bones: bones::BoneTool::default(),
@@ -3857,6 +3860,21 @@ impl Editor {
             (y0 as i32..=y1 as i32)
                 .map(|y| y as f32)
                 .for_each(|y| rule(to_screen(x0, y), to_screen(x1, y)));
+        }
+        if let Some([tile_width, tile_height]) = self.scene.bundle.doc.canvas.tile {
+            let edge = egui::Stroke::new(1.5, Color32::from_black_alpha(150));
+            let glow = egui::Stroke::new(1.0, Color32::from_white_alpha(140));
+            let to_screen = |x: f32, y: f32| self.screen(view, rect, vec2(x, y));
+            let rule = |a: Pos2, b: Pos2| {
+                painter.line_segment([a, b], edge);
+                painter.extend(egui::Shape::dashed_line(&[a, b], glow, 4.0, 4.0));
+            };
+            (0..=(canvas.x as u32 / tile_width.max(1)))
+                .map(|column| (column * tile_width) as f32)
+                .for_each(|x| rule(to_screen(x, 0.0), to_screen(x, canvas.y)));
+            (0..=(canvas.y as u32 / tile_height.max(1)))
+                .map(|row| (row * tile_height) as f32)
+                .for_each(|y| rule(to_screen(0.0, y), to_screen(canvas.x, y)));
         }
         let shaped = self
             .pixel_shape_spec()

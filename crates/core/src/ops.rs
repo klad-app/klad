@@ -144,6 +144,7 @@ pub enum Op {
     },
     Canvas {
         wrap: Option<bool>,
+        tile: Option<Option<[u32; 2]>>,
     },
     Atmosphere(Option<crate::look::Atmosphere>),
     Frames(FrameSpec),
@@ -1827,6 +1828,22 @@ impl Op {
                     None => None,
                     Some(Value::Bool(wrap)) => Some(wrap),
                     Some(other) => bail!("wrap takes true or false, not {other}"),
+                },
+                tile: match map.remove("tile") {
+                    None => None,
+                    Some(Value::Null) | Some(Value::Bool(false)) => Some(None),
+                    Some(Value::Number(side)) => {
+                        let side = side
+                            .as_u64()
+                            .ok_or_else(|| anyhow!("tile takes a whole number of pixels, [width, height] or null"))?
+                            as u32;
+                        Some(Some([side, side]))
+                    }
+                    Some(other) => {
+                        Some(Some(serde_json::from_value(other).map_err(|_| {
+                            anyhow!("tile takes a whole number of pixels, [width, height] or null")
+                        })?))
+                    }
                 },
             },
             "timeline" => Op::Timeline {
@@ -4205,11 +4222,21 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
             doc.atmosphere = air.clone();
             out.changed.push("atmosphere".into());
         }
-        Op::Canvas { wrap } => {
-            let Some(wrap) = wrap else {
-                bail!("canvas needs \"wrap\": true or false (a tile that repeats at its edges)");
-            };
-            doc.canvas.wrap = *wrap;
+        Op::Canvas { wrap, tile } => {
+            if wrap.is_none() && tile.is_none() {
+                bail!(
+                    "canvas needs \"wrap\": true or false (a drawing that repeats at its edges), or \"tile\": the size of its tiles as 16 or [16, 16], null for none"
+                );
+            }
+            if let Some(wrap) = wrap {
+                doc.canvas.wrap = *wrap;
+            }
+            if let Some(tile) = tile {
+                if let Some(size) = tile {
+                    doc.canvas.cut(*size)?;
+                }
+                doc.canvas.tile = *tile;
+            }
             out.changed.push("canvas".into());
         }
         Op::Timeline { fps, frames, origin } => {
@@ -5049,6 +5076,51 @@ mod tests {
                 .samples
                 .len(),
             2
+        );
+    }
+
+    #[test]
+    fn a_canvas_is_cut_into_tiles_that_fit_it_whole() {
+        let mut doc = Document::new(48, 32);
+        let run = |doc: &mut Document, value: Value| apply(doc, &Op::parse(value).unwrap(), &mut Applied::default());
+        run(&mut doc, json!({"op":"canvas","tile":16})).unwrap();
+        assert_eq!((doc.canvas.tile, doc.canvas.tiles()), (Some([16, 16]), Some((3, 2))));
+        assert_eq!(doc.canvas.tile_at(2, 1).unwrap(), [32, 16, 16, 16]);
+        assert!(
+            doc.canvas
+                .tile_at(3, 0)
+                .unwrap_err()
+                .to_string()
+                .contains("3 by 2 tiles")
+        );
+        run(&mut doc, json!({"op":"canvas","tile":[24, 8],"wrap":true})).unwrap();
+        assert_eq!((doc.canvas.tile, doc.canvas.wrap), (Some([24, 8]), true));
+        let odd = format!("{:#}", run(&mut doc, json!({"op":"canvas","tile":10})).unwrap_err());
+        assert!(odd.contains("does not cut into tiles of 10x10"), "{odd}");
+        assert!(run(&mut doc, json!({"op":"canvas","tile":[64, 8]})).is_err());
+        assert_eq!(
+            doc.canvas.tile,
+            Some([24, 8]),
+            "a size that does not fit changes nothing"
+        );
+        run(&mut doc, json!({"op":"canvas","tile":null})).unwrap();
+        assert_eq!(
+            (doc.canvas.tile, doc.canvas.wrap),
+            (None, true),
+            "taking the tiles away leaves the rest"
+        );
+        assert!(
+            doc.canvas
+                .tile_at(0, 0)
+                .unwrap_err()
+                .to_string()
+                .contains("not cut into tiles")
+        );
+        assert!(run(&mut doc, json!({"op":"canvas"})).is_err());
+        doc.canvas.tile = Some([7, 7]);
+        assert!(
+            doc.validate().is_err(),
+            "a drawing whose tiles do not fit is not opened"
         );
     }
 

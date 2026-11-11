@@ -1031,6 +1031,17 @@ impl Editor {
             );
             self.windows.pixels &= open;
         }
+        if self.windows.tiles {
+            let mut open = true;
+            Self::window(
+                ctx,
+                "tiles",
+                (format!("{} Tileset", icon::PIXELS), near_timeline),
+                &mut open,
+                |ui| self.check(|e| e.tiles_window(ui)),
+            );
+            self.windows.tiles &= open;
+        }
         if self.windows.paintover {
             let mut open = true;
             Self::window(

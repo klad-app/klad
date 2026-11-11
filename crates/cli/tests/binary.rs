@@ -1809,6 +1809,102 @@ fn pictures_and_painted_layers_become_pixels_on_the_palette() {
 }
 
 #[test]
+fn a_drawing_cut_into_tiles_is_read_drawn_and_exported_tile_by_tile() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-tiles-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("game")).unwrap();
+    let bundle = dir.join("ground.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let both = |args: &[&str]| {
+        let out = run(args);
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        (
+            String::from_utf8_lossy(&out.stdout).to_string(),
+            String::from_utf8_lossy(&out.stderr).to_string(),
+        )
+    };
+    let draw = |args: &[&str]| both(args).0;
+    let refused = |args: &[&str]| {
+        let out = run(args);
+        assert!(!out.status.success(), "{args:?} went through");
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    let odd = dir.join("odd.klad");
+    assert!(
+        refused(&["new", odd.to_str().unwrap(), "--pixel", "50x32", "--tile", "16"])
+            .contains("does not cut into tiles")
+    );
+    assert!(!odd.exists(), "a drawing that cannot be cut is not left behind");
+    draw(&["new", path, "--pixel", "48x32", "--tile", "16"]);
+    assert!(draw(&["canvas", path]).contains("tiles of 16x16, 3 across and 2 down"));
+    draw(&["palette", path, "--add", "#3a5a40", "--name", "grass"]);
+    draw(&["palette", path, "--add", "#8b5a2b", "--name", "dirt"]);
+    draw(&[
+        "pixel",
+        path,
+        "l1",
+        "--color",
+        "grass",
+        "--rect",
+        "0,0,16,16",
+        "--filled",
+    ]);
+    let grid = dir.join("tile.txt");
+    std::fs::write(&grid, "d = dirt\n\ndddd\nd..d\ndddd\n").unwrap();
+    draw(&["pixel", path, "l1", "--grid", grid.to_str().unwrap(), "--tile", "2,1"]);
+    let whole = draw(&["pixels", path, "l1", "--plain"]);
+    let rows: Vec<&str> = whole.lines().skip_while(|l| !l.is_empty()).skip(1).collect();
+    assert_eq!(
+        &rows[16][32..36],
+        "dddd",
+        "the grid went to the tile's own corner, canvas pixel 32,16"
+    );
+    assert_eq!(&rows[17][32..36], "d..d");
+    let tile = draw(&["pixels", path, "l1", "--tile", "2,1", "--plain"]);
+    let cut: Vec<&str> = tile.lines().skip_while(|l| !l.is_empty()).skip(1).collect();
+    assert_eq!(cut.len(), 16, "one tile is 16 rows");
+    assert_eq!(
+        (cut[0], cut[1], cut[3]),
+        ("dddd............", "d..d............", "................")
+    );
+    assert!(draw(&["pixels", path, "l1", "--tile", "2,1"]).contains("tile 2,1 (its top left is canvas pixel 32,16)"));
+    assert!(refused(&["pixels", path, "l1", "--tile", "3,0"]).contains("3 by 2 tiles"));
+
+    let art = dir.join("game").join("art");
+    let (named, told) = both(&["export", path, "--tileset", art.to_str().unwrap()]);
+    assert!(
+        named.contains("ground-tiles.png") && named.contains("ground-tiles.tres"),
+        "{named}"
+    );
+    assert!(
+        told.contains("2 tiles of 16x16 (3 across, 2 down, 4 empty left out)"),
+        "{told}"
+    );
+    assert!(told.contains("texture filter to Nearest"), "{told}");
+    let tres = std::fs::read_to_string(art.join("ground-tiles.tres")).unwrap();
+    assert!(
+        tres.contains("tile_size = Vector2i(16, 16)") && tres.contains("0:0/0 = 0") && tres.contains("2:1/0 = 0"),
+        "{tres}"
+    );
+    let png = std::fs::read(art.join("ground-tiles.png")).unwrap();
+    assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 48);
+    draw(&["export", path, "--tileset"]);
+
+    draw(&["canvas", path, "--tile", "off"]);
+    assert!(!draw(&["canvas", path]).contains("tiles of"));
+    assert!(refused(&["export", path, "--tileset"]).contains("not cut into tiles"));
+    assert!(refused(&["pixels", path, "l1", "--tile", "0,0"]).contains("not cut into tiles"));
+    draw(&["canvas", path, "--tile", "24x16", "--wrap", "on"]);
+    assert!(draw(&["canvas", path]).contains("wraps at its edges  tiles of 24x16, 2 across and 2 down"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn recolour_moves_strokes_together_and_keeps_their_shades() {
     let dir = std::env::temp_dir().join(format!("draw-binary-recolour-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

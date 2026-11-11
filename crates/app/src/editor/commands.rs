@@ -494,6 +494,7 @@ impl Editor {
             Cmd::ReportProblem => self.windows.report,
             Cmd::Export => self.windows.export,
             Cmd::Pixelize => self.windows.pixels,
+            Cmd::TileSize => self.windows.tiles,
             Cmd::AddFont => self.windows.font,
             Cmd::PaintOver => self.windows.paintover,
             Cmd::CompareReference => self.windows.compare,
@@ -605,6 +606,12 @@ impl Editor {
             Cmd::Unwrap => self.unwrap()?,
             Cmd::ImportPicture => self.windows.import = !self.windows.import,
             Cmd::Pixelize => self.windows.pixels = !self.windows.pixels,
+            Cmd::TileSize => {
+                self.windows.tiles = !self.windows.tiles;
+                if let Some(tile) = self.scene.bundle.doc.canvas.tile {
+                    self.tile_size = tile;
+                }
+            }
             Cmd::LoadPalette => self.windows.palettes = !self.windows.palettes,
             Cmd::NewVariant => {
                 let typed = self.swatch_name.trim().to_string();
@@ -1064,7 +1071,10 @@ impl Editor {
             }
             Cmd::WrapCanvas => {
                 let wrap = !self.scene.bundle.doc.canvas.wrap;
-                self.apply(vec![Op::Canvas { wrap: Some(wrap) }])?;
+                self.apply(vec![Op::Canvas {
+                    wrap: Some(wrap),
+                    tile: None,
+                }])?;
                 self.dirty.extend(self.scene.all_tiles());
             }
             Cmd::Timeline => {

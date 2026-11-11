@@ -142,6 +142,7 @@ pub enum Cmd {
     PreviewPane,
     PixelGrid,
     WrapCanvas,
+    TileSize,
     Timeline,
     Numbers,
     Settings,
@@ -522,7 +523,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 195] = [
+    pub const ALL: [Cmd; 196] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -661,6 +662,7 @@ impl Cmd {
         Cmd::PreviewPane,
         Cmd::PixelGrid,
         Cmd::WrapCanvas,
+        Cmd::TileSize,
         Cmd::Timeline,
         Cmd::Numbers,
         Cmd::Settings,
@@ -2036,6 +2038,15 @@ impl Cmd {
                 R::No,
                 "the drawing is a tile: pixels drawn past an edge come back in on the other side, and the canvas shows its repeats around it",
             ),
+            Cmd::TileSize => spec(
+                "view.tiles",
+                "cut into tiles",
+                icon::PIXELS,
+                G::View,
+                T::None,
+                R::No,
+                "cut the drawing into tiles of one size, a tileset: the canvas shows the tile lines, and it exports as a Godot TileSet",
+            ),
             Cmd::FlipView => spec(
                 "view.flip",
                 "flip the view left-right",
@@ -2614,6 +2625,7 @@ impl Cmd {
             Cmd::PreviewPane => "Real size",
             Cmd::PixelGrid => "Pixel grid",
             Cmd::WrapCanvas => "Tile: wrap at the edges",
+            Cmd::TileSize => "Tileset: cut into tiles…",
             Cmd::Timeline => "Timeline",
             Cmd::Numbers => "Show numbers",
             Cmd::Settings => "Settings…",
@@ -2969,6 +2981,7 @@ pub const MENUS: [Menu; 9] = [
             Run(Cmd::FlipView),
             Run(Cmd::PixelGrid),
             Run(Cmd::WrapCanvas),
+            Run(Cmd::TileSize),
             Line,
             Run(Cmd::CompareReference),
         ],

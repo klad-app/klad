@@ -106,6 +106,57 @@ impl Editor {
         Ok(())
     }
 
+    pub(super) fn tiles_window(&mut self, ui: &mut egui::Ui) -> Result<()> {
+        let canvas = self.scene.bundle.doc.canvas.clone();
+        ui.label(match (canvas.tile, canvas.tiles()) {
+            (Some([w, h]), Some((columns, rows))) => {
+                format!("cut into tiles of {w} x {h} px: {columns} across, {rows} down")
+            }
+            _ => format!(
+                "not cut into tiles; the canvas is {} x {} px",
+                canvas.width, canvas.height
+            ),
+        });
+        ui.horizontal(|ui| {
+            let label = ui.label("tile");
+            ui.add(egui::DragValue::new(&mut self.tile_size[0]).range(1..=canvas.width))
+                .labelled_by(label.id)
+                .hint("the width of a tile in pixels");
+            ui.label("x");
+            ui.add(egui::DragValue::new(&mut self.tile_size[1]).range(1..=canvas.height))
+                .hint("the height of a tile in pixels");
+            ui.label("px");
+        });
+        let fits = canvas.cut(self.tile_size);
+        if let Err(why) = &fits {
+            ui.weak(format!("{why:#}"));
+        }
+        let (mut cut, mut clear) = (false, false);
+        ui.horizontal(|ui| {
+            cut = ui
+                .add_enabled(fits.is_ok(), egui::Button::new("cut into tiles"))
+                .hint("the canvas shows the tile lines, and the drawing exports as a Godot TileSet (as klad canvas --tile does)")
+                .clicked();
+            clear = ui
+                .add_enabled(canvas.tile.is_some(), egui::Button::new("no tiles"))
+                .hint("the drawing is one picture again")
+                .clicked();
+        });
+        if cut {
+            self.apply(vec![klad_core::ops::Op::Canvas {
+                wrap: None,
+                tile: Some(Some(self.tile_size)),
+            }])?;
+        }
+        if clear {
+            self.apply(vec![klad_core::ops::Op::Canvas {
+                wrap: None,
+                tile: Some(None),
+            }])?;
+        }
+        Ok(())
+    }
+
     pub(super) fn pixels_window(&mut self, ui: &mut egui::Ui) -> Result<()> {
         let on_pixels = self.scene.active_layer().is_some_and(|l| l.pixel());
         let form = &mut self.pixels;

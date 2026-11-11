@@ -11,7 +11,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad import`](#klad-import): Open an Aseprite file or a picture as a klad pixel drawing
 - [`klad pixelize`](#klad-pixelize): Make pixels of a picture or of a painted or vector layer
 - [`klad new`](#klad-new): Create an empty bundle with paint layers
-- [`klad canvas`](#klad-canvas): The canvas: its size and background, and whether it wraps at its edges
+- [`klad canvas`](#klad-canvas): The canvas: its size and background, whether it wraps at its edges, and the size of its tiles
 - [`klad frames`](#klad-frames): Exposure sheet: a row per frame, a column per layer (top first)
 - [`klad frame`](#klad-frame): Insert or remove frames in every layer or the listed ones
 - [`klad arcs`](#klad-arcs): Track marks, parts or points across frames: positions, spacing, ground contacts, feet crossing
@@ -242,6 +242,9 @@ Options:
       --wrap
           A tile: what is drawn past an edge comes back in on the other side
 
+      --tile <SIZE>
+          Cut the drawing into tiles of this size, 16 or 16x24: a tileset (the canvas has to be a whole number of tiles each way)
+
   -h, --help
           Print help
 ```
@@ -254,7 +257,13 @@ The canvas: its size and background, and whether it wraps at its edges. On a can
   klad canvas tile.klad
   klad canvas tile.klad --wrap on
 
-As an op: {"op":"canvas","wrap":true}.
+A drawing can also be cut into tiles of one size, a tileset: --tile 16 (or 16x24) sets the size, which the canvas has to be a whole number of each way, and --tile off takes it away. klad pixels and klad pixel --grid then take --tile column,row to read and draw one tile at a time, the editor shows the tile lines, and klad export --tileset writes a Godot TileSet.
+
+  klad canvas tiles.klad --tile 16
+  klad pixels tiles.klad l1 --tile 2,0 --plain
+  klad export tiles.klad --tileset ../game/art
+
+As an op: {"op":"canvas","wrap":true}, {"op":"canvas","tile":16}, {"op":"canvas","tile":[16,24]}, {"op":"canvas","tile":null}.
 
 Usage: klad canvas [OPTIONS] <BUNDLE>
 
@@ -267,6 +276,9 @@ Options:
           Turn wrapping at the edges on or off
 
           [possible values: on, off]
+
+      --tile <SIZE>
+          Cut the drawing into tiles of this size, 16 or 16x24 (off: no tiles); the canvas has to be a whole number of tiles each way
 
       --render
           Render a preview after the edit and print its path
@@ -1920,6 +1932,9 @@ Options:
 
           [default: 0,0]
 
+      --tile <COLUMN,ROW>
+          With --grid, in a drawing cut into tiles: put the grid's top left on that tile's (0,0 is the first tile)
+
       --path <PATH>
           SVG path data drawn as a line of pixels, one pixel wide with no doubled corners on curves: 'M3.5 20.5 C 10 4 22 4 28.5 20.5'
 
@@ -3451,6 +3466,9 @@ Options:
       --json
 
 
+      --tile <COLUMN,ROW>
+          In a drawing cut into tiles: only that tile (0,0 is the first), with pixels counted from its own top left
+
   -h, --help
           Print help (see a summary with '-h')
 ```
@@ -3487,6 +3505,7 @@ Animations (each clip, or the whole timeline when there are no clips):
   klad export art.klad --frames run           numbered full-size PNGs, one per frame (run-0000.png ...) in art-run/
   klad export art.klad --gif [run] [--scale 8]  an animated GIF with each frame's own duration: one per clip (art-run.gif; clips that loop, loop), or art.gif of the whole timeline; up to 255 colours kept exactly, more are reduced to the nearest of 255, in flat areas of one colour or, with --dither, mixed in a fine even pattern that keeps gradients smooth; transparent unless --background
   klad export art.klad --aseprite             art.aseprite: the pixel layers and groups, the drawing of every frame (holds and links as linked cels), the palette and clips as tags, in RGBA; frames that show the same drawings are one frame with their time added up. Paint and vector layers are left out and named. klad import opens such a file
+  klad export art.klad --tileset ../game/art  a drawing cut into tiles (klad canvas --tile 16) as a Godot TileSet: art-tiles.png and art-tiles.tres with one atlas source and a tile for every cell that is not empty; --frame, --scale and --variant choose what is shown
   klad export art.klad --godot ../game/art    the sheet, art.tres (SpriteFrames: one animation per clip with its fps, loop and per-frame durations) and art.tscn (an AnimatedSprite2D placed so the timeline's origin sits on the node's position). For a pixel drawing the scenes set texture_filter to nearest, so the sprite stays sharp in the game. The first folder given is kept in the document (export.godot); later exports and the editor's button write there, and Godot uids are kept so scenes using them keep working. --store replaces a kept folder.
 
 Usage: klad export [OPTIONS] <BUNDLE>
@@ -3533,6 +3552,9 @@ Options:
 
       --aseprite
           An Aseprite file of the drawing's pixel layers: groups, the drawing of every frame, the palette and clips as tags
+
+      --tileset [<TILESET>]
+          A Godot TileSet of a drawing cut into tiles (klad canvas --tile): the picture and a .tres with a tile for every cell that is not empty, into this folder (default: the document's export.godot)
 
       --godot [<GODOT>]
           Godot SpriteFrames and AnimatedSprite2D scene into this folder (default: the document's export.godot)

@@ -74,6 +74,40 @@ pub struct Canvas {
     pub background: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub wrap: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tile: Option<[u32; 2]>,
+}
+
+impl Canvas {
+    pub fn cut(&self, tile: [u32; 2]) -> Result<()> {
+        let [tw, th] = tile;
+        if tw == 0 || th == 0 || tw > self.width || th > self.height {
+            bail!("tiles of {tw}x{th} do not fit a {}x{} canvas", self.width, self.height);
+        }
+        if !self.width.is_multiple_of(tw) || !self.height.is_multiple_of(th) {
+            bail!(
+                "a {}x{} canvas does not cut into tiles of {tw}x{th}: each side has to be a whole number of tiles",
+                self.width,
+                self.height
+            );
+        }
+        Ok(())
+    }
+
+    pub fn tiles(&self) -> Option<(u32, u32)> {
+        self.tile
+            .map(|[tw, th]| (self.width / tw.max(1), self.height / th.max(1)))
+    }
+
+    pub fn tile_at(&self, column: u32, row: u32) -> Result<[u32; 4]> {
+        let (Some([tw, th]), Some((columns, rows))) = (self.tile, self.tiles()) else {
+            bail!("this drawing is not cut into tiles: klad canvas <bundle> --tile 16 sets the tile size");
+        };
+        if column >= columns || row >= rows {
+            bail!("tile {column},{row} is past the drawing's {columns} by {rows} tiles (the first is 0,0)");
+        }
+        Ok([column * tw, row * th, tw, th])
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1099,6 +1133,7 @@ impl Document {
                 height,
                 background: None,
                 wrap: false,
+                tile: None,
             },
             timeline: Timeline::default(),
             palette: Vec::new(),
@@ -1459,6 +1494,9 @@ impl Document {
         }
         if let Some(bg) = &self.canvas.background {
             check_color(bg).context("canvas background")?;
+        }
+        if let Some(tile) = self.canvas.tile {
+            self.canvas.cut(tile)?;
         }
         let mut swatch_names = BTreeSet::new();
         let mut swatch_ids = BTreeSet::new();
