@@ -1744,7 +1744,7 @@ dependencies = [
 
 [[package]]
 name = "klad-app"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "block2 0.6.2",
@@ -1773,7 +1773,7 @@ dependencies = [
 
 [[package]]
 name = "klad-brush"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -1789,7 +1789,7 @@ dependencies = [
 
 [[package]]
 name = "klad-cli"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "clap",
@@ -1815,7 +1815,7 @@ dependencies = [
 
 [[package]]
 name = "klad-core"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "half",
@@ -1827,7 +1827,7 @@ dependencies = [
 
 [[package]]
 name = "klad-render"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "bytemuck",
