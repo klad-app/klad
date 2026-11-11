@@ -3340,7 +3340,7 @@ Options:
 ## klad export
 
 ```text
-Export a transparent PNG of the whole image or one layer or group, at a frame, at any scale from 1/16 to 8 (vectors stay sharp; paint layers are resampled). 8-bit PNGs are dithered from the 16-bit float pixels so gradients do not band; --depth 16 writes 16-bit PNGs. --background keeps the canvas background colour.
+Export a transparent PNG of the whole image or one layer or group, at a frame, at any scale from 1/16 to 8 (vectors stay sharp; paint layers are resampled). A pixel drawing exports at whole-number scales only, up to 64 (or 16384 px a side), enlarged pixel for pixel so it stays sharp: --scale 8 turns a 32 px sprite into 256 px. 8-bit PNGs are dithered from the 16-bit float pixels so gradients do not band; --depth 16 writes 16-bit PNGs. --background keeps the canvas background colour.
 
   klad export art.klad
   klad export art.klad --scale 2
@@ -3352,7 +3352,8 @@ Animations (each clip, or the whole timeline when there are no clips):
       a PNG holding each distinct picture once, trimmed to its pixels (more pages, art-sheet-2.png ..., when it does not fit --max), plus art-sheet.json in Aseprite's array layout: one entry per exposure with its duration in ms, frameTags for clips
   klad export art.klad --sheet run            one clip; --sheet 0-11 a range
   klad export art.klad --frames run           numbered full-size PNGs, one per frame (run-0000.png ...) in art-run/
-  klad export art.klad --godot ../game/art    the sheet, art.tres (SpriteFrames: one animation per clip with its fps, loop and per-frame durations) and art.tscn (an AnimatedSprite2D placed so the timeline's origin sits on the node's position). The first folder given is kept in the document (export.godot); later exports and the editor's button write there, and Godot uids are kept so scenes using them keep working. --store replaces a kept folder.
+  klad export art.klad --gif [run] [--scale 8]  an animated GIF with each frame's own duration: one per clip (art-run.gif; clips that loop, loop), or art.gif of the whole timeline; up to 255 colours kept exactly, more are reduced to the nearest of 255; transparent unless --background
+  klad export art.klad --godot ../game/art    the sheet, art.tres (SpriteFrames: one animation per clip with its fps, loop and per-frame durations) and art.tscn (an AnimatedSprite2D placed so the timeline's origin sits on the node's position). For a pixel drawing the scenes set texture_filter to nearest, so the sprite stays sharp in the game. The first folder given is kept in the document (export.godot); later exports and the editor's button write there, and Godot uids are kept so scenes using them keep working. --store replaces a kept folder.
 
 Usage: klad export [OPTIONS] <BUNDLE>
 
@@ -3389,6 +3390,9 @@ Options:
 
       --frames <FRAMES>
           Numbered PNGs, one per frame: all, a clip or a range
+
+      --gif [<GIF>]
+          An animated GIF: all (a GIF for each clip, or one of the whole timeline), a clip or a range like 0-11
 
       --godot [<GODOT>]
           Godot SpriteFrames and AnimatedSprite2D scene into this folder (default: the document's export.godot)

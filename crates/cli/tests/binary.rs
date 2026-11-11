@@ -1129,6 +1129,127 @@ fn a_pixel_layer_animates_frame_by_frame_moves_by_whole_pixels_and_refuses_in_be
 }
 
 #[test]
+fn a_pixel_drawing_exports_sharp_at_whole_number_scales_as_png_gif_sheet_and_godot_scene() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-pixel-export-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("hop.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let refused = |args: &[&str]| {
+        let out = run(args);
+        assert!(!out.status.success(), "{args:?} went through");
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    draw(&["new", path, "--pixel", "16x12", "--frames", "4", "--fps", "8"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&["palette", path, "--add", "#ef233c", "--name", "red"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--rect", "2,6,4,4", "--filled"]);
+    draw(&["pixel", path, "l1", "--color", "red", "--cells", "3,7 4,7"]);
+    draw(&["add", path, "cel", "--in", "l1", "frame=2"]);
+    draw(&[
+        "pixel", path, "l1", "--frame", "2", "--color", "ink", "--rect", "2,2,4,4", "--filled",
+    ]);
+    draw(&["clip", path, "--add", "hop", "--from", "0", "--to", "3", "--loop"]);
+
+    let between = refused(&["export", path, "--scale", "2.5"]);
+    assert!(
+        between.contains("whole-number scales") && between.contains("not 2.5"),
+        "{between}"
+    );
+    assert!(refused(&["export", path, "--scale", "0.5"]).contains("whole-number scales"));
+    assert!(refused(&["export", path, "--scale", "65"]).contains("past 64"));
+    assert!(refused(&["export", path, "--gif", "--scale", "1.5"]).contains("whole-number scales"));
+    let size = |file: &std::path::Path| {
+        let png = std::fs::read(file).unwrap();
+        (
+            u32::from_be_bytes(png[16..20].try_into().unwrap()),
+            u32::from_be_bytes(png[20..24].try_into().unwrap()),
+        )
+    };
+    let big = dir.join("big.png");
+    draw(&["export", path, "--scale", "32", "-o", big.to_str().unwrap()]);
+    assert_eq!(size(&big), (512, 384), "past the old limit of 8");
+
+    let named = draw(&["export", path, "--gif", "--scale", "8"]);
+    let gif_path = std::path::PathBuf::from(named.trim());
+    assert_eq!(
+        gif_path.file_name().unwrap(),
+        "hop-hop@8x.gif",
+        "one GIF per clip, named for it"
+    );
+    let gif = std::fs::read(&gif_path).unwrap();
+    assert_eq!(&gif[..6], b"GIF89a");
+    assert_eq!(
+        (
+            u16::from_le_bytes([gif[6], gif[7]]),
+            u16::from_le_bytes([gif[8], gif[9]])
+        ),
+        (128, 96)
+    );
+    assert_eq!(
+        &gif[13..19],
+        [0x22, 0x22, 0x3b, 0xef, 0x23, 0x3c],
+        "the drawing's two colours, exactly"
+    );
+    let delays: Vec<u16> = gif
+        .windows(8)
+        .filter(|w| w[0] == 0x21 && w[1] == 0xf9 && w[2] == 4 && w[7] == 0)
+        .map(|w| u16::from_le_bytes([w[4], w[5]]))
+        .collect();
+    assert_eq!(delays, [25, 25], "two drawings, each held two frames at 8 a second");
+    assert!(
+        gif.windows(11).any(|w| w == b"NETSCAPE2.0"),
+        "the clip loops, so the GIF does"
+    );
+    let range = dir.join("first.gif");
+    draw(&["export", path, "--gif", "0-1", "-o", range.to_str().unwrap()]);
+    assert_eq!(u16::from_le_bytes([std::fs::read(&range).unwrap()[6], 0]), 16);
+
+    let sheet = dir.join("sheet.png");
+    draw(&[
+        "export",
+        path,
+        "--sheet",
+        "all",
+        "--scale",
+        "3",
+        "-o",
+        sheet.to_str().unwrap(),
+    ]);
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("sheet.json")).unwrap()).unwrap();
+    let first = &json["frames"][0];
+    assert_eq!(
+        (
+            first["sourceSize"]["w"].as_u64(),
+            first["frame"]["w"].as_u64(),
+            first["frame"]["h"].as_u64()
+        ),
+        (Some(48), Some(12), Some(12)),
+        "the sheet's cells are the drawing three times over: {first}"
+    );
+
+    let game = dir.join("game");
+    draw(&["export", path, "--godot", game.to_str().unwrap(), "--scale", "2"]);
+    let scene = std::fs::read_to_string(game.join("hop.tscn")).unwrap();
+    assert!(
+        scene.contains("type=\"AnimatedSprite2D\"") && scene.contains("texture_filter = 1\n"),
+        "{scene}"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn recolour_moves_strokes_together_and_keeps_their_shades() {
     let dir = std::env::temp_dir().join(format!("draw-binary-recolour-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

@@ -5,7 +5,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use klad_brush::BrushSet;
 use klad_core::bundle::{Bundle, write_atomic};
 use klad_core::ops::Op;
-use klad_render::export::{Options, Target, detail_for, render};
+use klad_render::export::{Options, Target, detail_of, render};
 use klad_render::sprites::{self, Animation, Pixels, Placed, Rect, Run, Scene, Sheet, SpriteFrames, Texture};
 use rayon::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -86,7 +86,7 @@ pub fn pictures(bundle: &Bundle, animations: Vec<Animation>, look: &Look) -> Res
         scale: look.scale,
         background: look.background,
         references: false,
-        detail: detail_for(look.scale),
+        detail: detail_of(doc, look.scale),
     };
     let frames: BTreeSet<u32> = animations.iter().flat_map(|a| a.from..=a.to).collect();
     let mut firsts: BTreeMap<Vec<String>, u32> = BTreeMap::new();
@@ -377,6 +377,78 @@ pub fn frames(path: &Path, spec: &str, look: &Look, out: Option<PathBuf>) -> Res
     Ok(())
 }
 
+pub fn gif(path: &Path, spec: &str, look: &Look, out: Option<PathBuf>) -> Result<()> {
+    let start = Instant::now();
+    let bundle = Bundle::open(path)?;
+    let animations = sprites::animations(&bundle.doc, spec)?;
+    let stem = bundle_stem(&bundle);
+    let look = Look {
+        layer: look.layer.clone(),
+        scale: look.scale,
+        depth: 8,
+        background: look.background,
+    };
+    let pics = pictures(&bundle, animations, &look)?;
+    let (sw, sh) = pics.source;
+    let full: Vec<Vec<u8>> = pics
+        .cut
+        .par_iter()
+        .zip(&pics.trims)
+        .map(|(cut, trim)| {
+            let mut whole = Pixels::blank(sw, sh, 8);
+            let all = Rect {
+                x: 0,
+                y: 0,
+                w: cut.width,
+                h: cut.height,
+            };
+            whole.blit(cut, all, trim.x, trim.y);
+            whole.bytes().to_vec()
+        })
+        .collect();
+    let alone = pics.animations.len() == 1;
+    let folder = out.as_ref().filter(|_| !alone);
+    if let Some(dir) = folder {
+        fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
+    }
+    pics.animations.iter().try_for_each(|(animation, runs)| {
+        let shots: Vec<klad_render::gif::Shot> = runs
+            .iter()
+            .map(|r| klad_render::gif::Shot {
+                rgba: full[r.picture].clone(),
+                ms: r.ms,
+            })
+            .collect();
+        let bytes = klad_render::gif::encode(sw, sh, &shots, animation.looping)?;
+        let name = match animation.clip {
+            true => format!("{stem}-{}{}.gif", file_safe(&animation.name), scale_tag(look.scale)),
+            false => format!("{stem}{}.gif", scale_tag(look.scale)),
+        };
+        let file = match (&out, folder) {
+            (_, Some(dir)) => dir.join(name),
+            (Some(given), None) => given.clone(),
+            (None, None) => bundle_dir(&bundle).join(name),
+        };
+        write_atomic(&file, &bytes)?;
+        println!("{}", file.display());
+        eprintln!(
+            "{sw}x{sh}  {} frames ({} pictures), {} ms, {}  {:.1} KB",
+            runs.iter().map(|r| r.frames).sum::<u32>(),
+            shots.len(),
+            shots.iter().map(|s| s.ms).sum::<u32>(),
+            match (shots.len(), animation.looping) {
+                (1, _) => "one still picture",
+                (_, true) => "loops",
+                (_, false) => "plays once",
+            },
+            bytes.len() as f64 / 1024.0
+        );
+        Ok::<_, anyhow::Error>(())
+    })?;
+    eprintln!("{:.0} ms", start.elapsed().as_secs_f64() * 1000.0);
+    Ok(())
+}
+
 pub fn relative(from: &Path, to: &Path) -> PathBuf {
     let a: Vec<Component> = from.components().collect();
     let b: Vec<Component> = to.components().collect();
@@ -479,6 +551,7 @@ pub fn godot(path: &Path, dir: Option<PathBuf>, store: bool, look: &Look, packin
         frames_uid: &frames_uid,
         animation: &first,
         origin: [ox * sx, oy * sy],
+        pixel: bundle.doc.pixel_art(),
     });
     write_atomic(&tres, frames_text.as_bytes())?;
     write_atomic(&tscn, scene_text.as_bytes())?;

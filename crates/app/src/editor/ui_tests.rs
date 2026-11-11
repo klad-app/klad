@@ -2184,6 +2184,25 @@ fn the_pixel_pencil_mirrors_across_a_line_and_wraps_on_a_tile() {
             .is_some_and(|why| why.contains("pixel layer") && why.contains("Draw the frames")),
         "in-betweens say why they do not apply to pixels"
     );
+    {
+        let ed = h.state_mut();
+        ed.windows.export = true;
+        ed.export.what = super::export::What::Gif;
+        ed.export.scale = 2.6;
+    }
+    h.run_steps(3);
+    assert!(
+        h.query_all(By::new().label("times real size")).count() > 0,
+        "a pixel drawing exports at whole-number sizes"
+    );
+    assert_eq!(h.state().export.scale, 3.0, "a size in between lands on a whole number");
+    assert_eq!(
+        h.query_all(By::new().label("16 bits per channel")).count(),
+        0,
+        "a GIF has no 16-bit form"
+    );
+    h.state_mut().windows.export = false;
+    h.run_steps(2);
     assert_eq!(h.state().is_on(Cmd::Symmetry), Some(false));
     h.state_mut().invoke(Cmd::Symmetry).unwrap();
     h.run_steps(2);

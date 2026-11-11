@@ -11,6 +11,7 @@ pub(super) enum What {
     Image,
     Frames,
     Sheet,
+    Gif,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -52,6 +53,7 @@ pub(super) fn args(bundle: &Path, home: &Path, frame: u32, form: &Form) -> Vec<S
         What::Image => push("--frame", Some(frame.to_string())),
         What::Frames => push("--frames", Some(form.range.trim().to_string())),
         What::Sheet => push("--sheet", Some(form.range.trim().to_string())),
+        What::Gif => push("--gif", Some(form.range.trim().to_string())),
     }
     if let Some(layer) = form.layer.as_ref().filter(|_| form.what != What::Frames) {
         push("--layer", Some(layer.clone()));
@@ -59,10 +61,10 @@ pub(super) fn args(bundle: &Path, home: &Path, frame: u32, form: &Form) -> Vec<S
     if form.scale != 1.0 {
         push("--scale", Some(form.scale.to_string()));
     }
-    if form.deep && form.what != What::Frames {
+    if form.deep && matches!(form.what, What::Image | What::Sheet) {
         push("--depth", Some("16".into()));
     }
-    if form.background && form.what == What::Image {
+    if form.background && matches!(form.what, What::Image | What::Gif) {
         push("--background", None);
     }
     if form.what == What::Sheet {
@@ -79,7 +81,7 @@ fn written(out: &str, err: &str) -> String {
     out.lines()
         .chain(err.lines())
         .map(str::trim)
-        .filter(|l| l.ends_with(".png") || l.ends_with(".json") || l.contains(" in all"))
+        .filter(|l| l.ends_with(".png") || l.ends_with(".json") || l.ends_with(".gif") || l.contains(" in all"))
         .take(3)
         .collect::<Vec<_>>()
         .join("; ")
@@ -96,6 +98,7 @@ impl Editor {
             What::Image => format!("export frame {}", self.scene.frame),
             What::Frames => format!("export frames {}", form.range.trim()),
             What::Sheet => format!("export the sheet of {}", form.range.trim()),
+            What::Gif => format!("export a GIF of {}", form.range.trim()),
         };
         self.start_job(Spec {
             tag: Tag::Export,
@@ -129,6 +132,9 @@ impl Editor {
             .iter()
             .map(|c| c.name.clone())
             .collect();
+        let doc = &self.scene.bundle.doc;
+        let (pixel, most) = (doc.pixel_art(), klad_render::export::pixel_most(doc));
+        let (width, height) = (doc.canvas.width, doc.canvas.height);
         let form = &mut self.export;
         ui.horizontal(|ui| {
             ui.selectable_value(&mut form.what, What::Image, "image")
@@ -137,6 +143,8 @@ impl Editor {
                 .hint("numbered PNGs, one per frame");
             ui.selectable_value(&mut form.what, What::Sheet, "sprite sheet")
                 .hint("sheet pages and Aseprite JSON");
+            ui.selectable_value(&mut form.what, What::Gif, "GIF")
+                .hint("an animated GIF: one for each clip, or one of the whole timeline");
         });
         if form.what != What::Frames {
             let shown = form
@@ -172,19 +180,38 @@ impl Editor {
                 });
             });
         }
-        ui.add(
-            egui::Slider::new(&mut form.scale, 0.125..=4.0)
-                .logarithmic(true)
-                .text("scale"),
-        )
-        .hint("the size of the export against the canvas");
-        if form.what != What::Frames {
+        match pixel {
+            true => {
+                form.scale = form.scale.round().clamp(1.0, most);
+                ui.add(
+                    egui::Slider::new(&mut form.scale, 1.0..=most.min(32.0))
+                        .step_by(1.0)
+                        .fixed_decimals(0)
+                        .text("times real size"),
+                )
+                .hint("pixel art is enlarged by whole numbers only, so every pixel stays a sharp square");
+                ui.weak(format!(
+                    "{} x {} px",
+                    width * form.scale as u32,
+                    height * form.scale as u32
+                ));
+            }
+            false => {
+                ui.add(
+                    egui::Slider::new(&mut form.scale, 0.125..=4.0)
+                        .logarithmic(true)
+                        .text("scale"),
+                )
+                .hint("the size of the export against the canvas");
+            }
+        }
+        if matches!(form.what, What::Image | What::Sheet) {
             ui.checkbox(&mut form.deep, "16 bits per channel")
                 .hint("16-bit PNGs; 8-bit ones are dithered so gradients do not band");
         }
-        if form.what == What::Image {
+        if matches!(form.what, What::Image | What::Gif) {
             ui.checkbox(&mut form.background, "keep the background colour")
-                .hint("off: a transparent PNG");
+                .hint("off: a transparent picture");
         }
         if form.what == What::Sheet {
             ui.add(egui::Slider::new(&mut form.padding, 0..=16).text("padding px"))
@@ -277,6 +304,25 @@ mod tests {
         assert_eq!(
             args(bundle, home, 0, &frames).join(" "),
             "export /w/art.klad --frames 0-11 --scale 0.5"
+        );
+        let gif = Form {
+            what: What::Gif,
+            range: "hop".into(),
+            scale: 8.0,
+            deep: true,
+            background: true,
+            ..Form::default()
+        };
+        assert_eq!(
+            args(bundle, home, 0, &gif).join(" "),
+            "export /w/art.klad --gif hop --scale 8 --background"
+        );
+        assert_eq!(
+            written(
+                "/w/art-hop@8x.gif\n",
+                "128x96  4 frames (2 pictures), 500 ms, loops  0.5 KB\n"
+            ),
+            "/w/art-hop@8x.gif"
         );
     }
 }

@@ -136,7 +136,7 @@ impl Pixels {
         }
     }
 
-    fn bytes(&self) -> &[u8] {
+    pub fn bytes(&self) -> &[u8] {
         match &self.data {
             Data::Rgba8(d) => d,
             Data::Rgba16(d) => bytemuck::cast_slice(d),
@@ -438,6 +438,7 @@ pub struct Scene<'a> {
     pub frames_uid: &'a str,
     pub animation: &'a str,
     pub origin: [f32; 2],
+    pub pixel: bool,
 }
 
 pub fn node_name(stem: &str) -> String {
@@ -465,7 +466,10 @@ pub fn scene(s: &Scene) -> String {
         quoted(s.animation),
         number(-s.origin[0]),
         number(-s.origin[1])
-    )
+    ) + match s.pixel {
+        true => "texture_filter = 1\n",
+        false => "",
+    }
 }
 
 pub fn uid_text(mut id: u64) -> String {
@@ -751,6 +755,7 @@ mod tests {
             frames_uid: "uid://frames",
             animation: "idle",
             origin: [16.0, 30.5],
+            pixel: false,
         });
         assert!(tscn.contains("[node name=\"ball_v2\" type=\"AnimatedSprite2D\"]"));
         assert!(tscn.contains("offset = Vector2(-16, -30.5)\n"));

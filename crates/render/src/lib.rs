@@ -4,6 +4,7 @@ pub mod effects;
 pub mod export;
 pub mod fonts;
 pub mod form;
+pub mod gif;
 pub mod onion;
 pub mod overlay;
 pub mod pngwrite;
@@ -1059,7 +1060,7 @@ pub fn compose_image(doc: &Document, frame: u32, rasters: &Rasters) -> Result<Im
     Ok(surface.image_snapshot())
 }
 
-fn resample(image: &Image, scale: f32) -> Result<Image> {
+pub(crate) fn resample(image: &Image, scale: f32) -> Result<Image> {
     let (w, h) = (
         ((image.width() as f32 * scale).round() as u32).max(1),
         ((image.height() as f32 * scale).round() as u32).max(1),
