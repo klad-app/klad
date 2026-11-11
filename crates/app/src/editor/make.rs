@@ -81,6 +81,12 @@ impl Editor {
     }
 
     pub(super) fn shape_down(&mut self, c: Vec2) {
+        if self.scene.on_grid() {
+            if self.scene.can_paint() {
+                self.shapes.drag = Some((c, c));
+            }
+            return;
+        }
         if on_vector(self).is_none() {
             self.say(
                 Tone::Refused,
@@ -98,6 +104,19 @@ impl Editor {
     }
 
     pub(super) fn shape_up(&mut self) -> Result<()> {
+        if self.scene.on_grid() {
+            let spec = self.pixel_shape_spec();
+            self.shapes.drag = None;
+            let Some(spec) = spec else {
+                return Ok(());
+            };
+            let erase = spec.erase;
+            self.apply(vec![Op::Pixel(spec)])?;
+            if !erase {
+                self.used_colour();
+            }
+            return Ok(());
+        }
         let made = self.shape_now();
         self.shapes.drag = None;
         let (Some([x, y, w, h]), Some(layer)) = (made, on_vector(self)) else {
@@ -144,6 +163,9 @@ impl Editor {
         to_screen: &dyn Fn(f32, f32) -> Pos2,
         accent: Color32,
     ) {
+        if self.scene.on_grid() {
+            return;
+        }
         let Some([x, y, w, h]) = self.shape_now() else {
             return;
         };

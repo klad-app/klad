@@ -1659,6 +1659,12 @@ Put whole pixels of one palette colour on a pixel layer, or erase them. A pixel 
   klad pixel sprite.klad l1 --color skin --cells '4-11,5-9'
   klad pixel sprite.klad l1 --erase --cells '7,7 8,7'
 
+Shapes on the grid, each one mark: --line x0,y0,x1,y1 is a straight line between two pixels, --rect x,y,w,h and --ellipse x,y,w,h the outline of a rectangle or of the ellipse that fits that box (--filled for all of it), with --size for a thicker outline. --fill x,y is a flood fill: every pixel joined to that one that has exactly its colour, or is empty like it (--diagonal also crosses corners; --ref all reads every visible pixel layer, --ref <layer> another one, so flat colour can go on a layer under the lines).
+
+  klad pixel sprite.klad l1 --color ink --ellipse 4,4,16,12
+  klad pixel sprite.klad l1 --color body --fill 12,10
+  klad pixel sprite.klad colour --color body --fill 12,10 --ref lines
+
 --grid draws a whole sprite from text, the way klad pixels --plain prints one: legend lines (one character, =, a palette name, a colour, erase or empty), a blank line, then a row of characters per row of pixels. . is empty unless the legend says otherwise. Each character becomes one mark bound to its colour; --at x,y moves the grid's top left.
 
   klad pixel sprite.klad l1 --grid - <<'GRID'
@@ -1671,7 +1677,7 @@ Put whole pixels of one palette colour on a pixel layer, or erase them. A pixel 
   ..iiii..
   GRID
 
-Also a pixel op in klad apply: {"op":"pixel","layer":"l1","color":"skin","cells":[[4,5],[5,5]]}, with "path":"M3.5 3.5 L9.5 3.5" in place of cells, "size":2, or "erase":true; and as a grid {"op":"pixel","layer":"l1","rows":["..ii..",".ibbi."],"legend":{"i":"ink","b":"body"},"at":[0,0]}.
+Also a pixel op in klad apply: {"op":"pixel","layer":"l1","color":"skin","cells":[[4,5],[5,5]]}, with "path":"M3.5 3.5 L9.5 3.5" in place of cells, "size":2, or "erase":true; "line":[x0,y0,x1,y1], "rect":[x,y,w,h] or "ellipse":[x,y,w,h] with "filled":true; "fill":[x,y] with "diagonal" and "ref"; and as a grid {"op":"pixel","layer":"l1","rows":["..ii..",".ibbi."],"legend":{"i":"ink","b":"body"},"at":[0,0]}.
 
 Usage: klad pixel [OPTIONS] <BUNDLE> <LAYER>
 
@@ -1685,6 +1691,27 @@ Arguments:
 Options:
       --cells <CELLS>
           The pixels: x,y, a row run x0-x1,y, a column run x,y0-y1 or a block x0-x1,y0-y1, separated by spaces
+
+      --line <X0,Y0,X1,Y1>
+          A straight line of pixels from one pixel to another
+
+      --rect <X,Y,W,H>
+          The outline of a rectangle, its top left pixel and its size in pixels (--filled: all of it)
+
+      --ellipse <X,Y,W,H>
+          The outline of the ellipse that fits that box of pixels (--filled: all of it)
+
+      --filled
+          With --rect or --ellipse: every pixel inside, not only the outline
+
+      --fill <X,Y>
+          Flood fill from that pixel: every pixel joined to it that has exactly its colour (or is empty like it)
+
+      --diagonal
+          A fill also spreads across corners (eight neighbours, not four)
+
+      --ref <REFERENCE>
+          What a fill reads: this layer (default), all (every visible pixel layer) or a pixel layer's id or name
 
       --grid <FILE>
           Draw a grid of characters from a file (- reads stdin): a legend (i = ink), a blank line, then one row of characters per row of pixels

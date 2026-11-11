@@ -144,6 +144,123 @@ pub fn drawn(runs: &[Run], size: u32) -> Vec<Cell> {
         .collect()
 }
 
+pub fn rect(at: Cell, size: [i64; 2], filled: bool) -> Vec<Cell> {
+    let (w, h) = (size[0].max(0), size[1].max(0));
+    (0..h)
+        .flat_map(|j| (0..w).map(move |i| (i, j)))
+        .filter(|&(i, j)| filled || i == 0 || j == 0 || i == w - 1 || j == h - 1)
+        .map(|(i, j)| [at[0] + i, at[1] + j])
+        .collect()
+}
+
+fn ellipse_outline(at: Cell, size: [i64; 2]) -> Vec<Cell> {
+    let (mut x0, mut y0, mut x1, mut y1) = (at[0], at[1], at[0] + size[0] - 1, at[1] + size[1] - 1);
+    let (mut a, b) = ((x1 - x0).abs(), (y1 - y0).abs());
+    let mut b1 = b & 1;
+    let (mut dx, mut dy) = (4 * (1 - a) * b * b, 4 * (b1 + 1) * a * a);
+    let mut err = dx + dy + b1 * a * a;
+    if x0 > x1 {
+        x0 = x1;
+        x1 += a;
+    }
+    if y0 > y1 {
+        y0 = y1;
+    }
+    y0 += (b + 1) / 2;
+    y1 = y0 - b1;
+    a = 8 * a * a;
+    b1 = 8 * b * b;
+    let mut out = Vec::new();
+    loop {
+        out.extend([[x1, y0], [x0, y0], [x0, y1], [x1, y1]]);
+        let e2 = 2 * err;
+        if e2 <= dy {
+            y0 += 1;
+            y1 -= 1;
+            dy += a;
+            err += dy;
+        }
+        if e2 >= dx || 2 * err > dy {
+            x0 += 1;
+            x1 -= 1;
+            dx += b1;
+            err += dx;
+        }
+        if x0 > x1 {
+            break;
+        }
+    }
+    while y0 - y1 <= b {
+        out.extend([[x0 - 1, y0], [x1 + 1, y0], [x0 - 1, y1], [x1 + 1, y1]]);
+        y0 += 1;
+        y1 -= 1;
+    }
+    out
+}
+
+pub fn ellipse(at: Cell, size: [i64; 2], filled: bool) -> Vec<Cell> {
+    if size[0] <= 0 || size[1] <= 0 {
+        return Vec::new();
+    }
+    let outline: BTreeSet<Cell> = ellipse_outline(at, size).into_iter().collect();
+    if !filled {
+        return outline.into_iter().collect();
+    }
+    let mut rows: BTreeMap<i64, (i64, i64)> = BTreeMap::new();
+    outline.iter().for_each(|c| {
+        let span = rows.entry(c[1]).or_insert((c[0], c[0]));
+        *span = (span.0.min(c[0]), span.1.max(c[0]));
+    });
+    rows.into_iter()
+        .flat_map(|(y, (x0, x1))| (x0..=x1).map(move |x| [x, y]))
+        .collect()
+}
+
+pub fn flood(grid: &Grid, at: Cell, diagonal: bool) -> Vec<Cell> {
+    let (w, h) = (grid.width as i64, grid.height as i64);
+    if at[0] < 0 || at[1] < 0 || at[0] >= w || at[1] >= h {
+        return Vec::new();
+    }
+    let key = |c: Cell| grid.at(c[0] as u32, c[1] as u32);
+    let wanted = key(at);
+    let mut seen = vec![false; (w * h) as usize];
+    let mut queue = vec![at];
+    seen[(at[1] * w + at[0]) as usize] = true;
+    let mut out = Vec::new();
+    while let Some(c) = queue.pop() {
+        out.push(c);
+        let steps: &[(i64, i64)] = match diagonal {
+            true => &[(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)],
+            false => &[(1, 0), (-1, 0), (0, 1), (0, -1)],
+        };
+        steps
+            .iter()
+            .map(|(dx, dy)| [c[0] + dx, c[1] + dy])
+            .filter(|n| n[0] >= 0 && n[1] >= 0 && n[0] < w && n[1] < h)
+            .for_each(|n| {
+                let i = (n[1] * w + n[0]) as usize;
+                if !seen[i] && key(n) == wanted {
+                    seen[i] = true;
+                    queue.push(n);
+                }
+            });
+    }
+    out.sort_by_key(|c| (c[1], c[0]));
+    out
+}
+
+pub fn merged(grids: &[Grid]) -> Option<Grid> {
+    let first = grids.first()?;
+    let cells = (0..first.cells.len())
+        .map(|i| grids.iter().rev().find_map(|g| g.cells.get(i).cloned().flatten()))
+        .collect();
+    Some(Grid {
+        width: first.width,
+        height: first.height,
+        cells,
+    })
+}
+
 pub const EMPTY: char = '.';
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -575,5 +692,78 @@ mod tests {
                 .contains("not a legend line")
         );
         assert!(parse_text("i = ink\n\n\n").unwrap_err().to_string().contains("no rows"));
+    }
+
+    #[test]
+    fn rectangles_ellipses_and_floods_are_whole_pixels() {
+        assert_eq!(rect([2, 3], [4, 3], false).len(), 10);
+        assert_eq!(rect([2, 3], [4, 3], true).len(), 12);
+        assert_eq!(rect([0, 0], [1, 1], false), [[0, 0]]);
+        assert!(rect([0, 0], [0, 5], true).is_empty());
+        let ring = ellipse([0, 0], [7, 7], false);
+        let has = |cells: &[Cell], x: i64, y: i64| cells.contains(&[x, y]);
+        assert!(has(&ring, 3, 0) && has(&ring, 0, 3) && has(&ring, 6, 3) && has(&ring, 3, 6));
+        assert!(
+            !has(&ring, 0, 0) && !has(&ring, 3, 3),
+            "no corners of the box, nothing inside"
+        );
+        assert!(
+            ring.iter()
+                .all(|c| ring.contains(&[6 - c[0], c[1]]) && ring.contains(&[c[0], 6 - c[1]]))
+        );
+        let even = ellipse([10, 20], [8, 4], false);
+        assert!(
+            even.iter()
+                .all(|c| (10..18).contains(&c[0]) && (20..24).contains(&c[1])),
+            "{even:?}"
+        );
+        assert!(
+            even.iter()
+                .all(|c| even.contains(&[27 - c[0], c[1]]) && even.contains(&[c[0], 43 - c[1]]))
+        );
+        let disc = ellipse([0, 0], [7, 7], true);
+        assert!(has(&disc, 3, 3) && disc.len() > ring.len());
+        assert!(ring.iter().all(|c| disc.contains(c)));
+        assert_eq!(ellipse([5, 5], [1, 1], true), [[5, 5]]);
+        assert_eq!(ellipse([5, 5], [3, 1], false).len(), 3);
+        let grid = |rows: &[&str]| Grid {
+            width: rows[0].len() as u32,
+            height: rows.len() as u32,
+            cells: rows
+                .iter()
+                .flat_map(|row| row.chars())
+                .map(|c| (c != '.').then(|| c.to_string()))
+                .collect(),
+        };
+        let walls = grid(&["..a..", ".a.a.", "..a..", "....."]);
+        assert_eq!(
+            flood(&walls, [2, 1], false),
+            [[2, 1]],
+            "four neighbours stop at a diamond"
+        );
+        assert_eq!(
+            flood(&walls, [2, 1], true).len(),
+            20 - 4,
+            "eight slip out between its corners"
+        );
+        assert_eq!(
+            flood(&walls, [2, 0], false),
+            [[2, 0]],
+            "a fill takes pixels of exactly the seed's colour"
+        );
+        assert_eq!(
+            flood(&walls, [2, 0], true).len(),
+            4,
+            "and the diamond is joined across its corners"
+        );
+        assert_eq!(flood(&walls, [0, 0], false).len(), 15);
+        assert!(flood(&walls, [9, 9], false).is_empty());
+        let under = grid(&["bb...", ".....", ".....", "....."]);
+        let both = merged(&[under, walls.clone()]).unwrap();
+        assert_eq!(
+            (both.at(0, 0), both.at(2, 0), both.at(4, 3)),
+            (Some("b"), Some("a"), None)
+        );
+        assert!(merged(&[]).is_none());
     }
 }

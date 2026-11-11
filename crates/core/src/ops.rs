@@ -293,6 +293,20 @@ pub struct PixelSpec {
     pub cells: Vec<[i64; 2]>,
     #[serde(default)]
     pub path: Option<String>,
+    #[serde(default)]
+    pub line: Option<[i64; 4]>,
+    #[serde(default)]
+    pub rect: Option<[i64; 4]>,
+    #[serde(default)]
+    pub ellipse: Option<[i64; 4]>,
+    #[serde(default)]
+    pub filled: bool,
+    #[serde(default)]
+    pub fill: Option<[i64; 2]>,
+    #[serde(default)]
+    pub diagonal: bool,
+    #[serde(default, rename = "ref")]
+    pub reference: Option<String>,
     #[serde(default = "one_pixel")]
     pub size: u32,
     #[serde(default)]
@@ -303,6 +317,29 @@ pub struct PixelSpec {
 
 fn one_pixel() -> u32 {
     1
+}
+
+impl Default for PixelSpec {
+    fn default() -> Self {
+        Self {
+            layer: String::new(),
+            frame: 0,
+            color: None,
+            erase: false,
+            cells: Vec::new(),
+            path: None,
+            line: None,
+            rect: None,
+            ellipse: None,
+            filled: false,
+            fill: None,
+            diagonal: false,
+            reference: None,
+            size: 1,
+            part: None,
+            by_hand: false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -348,10 +385,8 @@ impl GridSpec {
                 },
                 erase: matches!(meaning, crate::pixel::Sign::Erase),
                 cells,
-                path: None,
-                size: 1,
                 part: self.part.clone(),
-                by_hand: false,
+                ..PixelSpec::default()
             })
             .collect())
     }
@@ -364,12 +399,33 @@ impl PixelSpec {
             (None, false) => bail!("pixel needs a color (a palette name or #rrggbb) or \"erase\":true"),
             _ => {}
         }
-        match (self.cells.is_empty(), &self.path) {
-            (true, None) => bail!(
-                "pixel needs cells (a list of [x, y] in canvas pixels) or a path (SVG path data, drawn as a line of pixels)"
+        let sources = [
+            !self.cells.is_empty(),
+            self.path.is_some(),
+            self.line.is_some(),
+            self.rect.is_some(),
+            self.ellipse.is_some(),
+            self.fill.is_some(),
+        ]
+        .iter()
+        .filter(|given| **given)
+        .count();
+        match sources {
+            0 => bail!(
+                "pixel needs one of: cells (a list of [x, y]), path (SVG path data), line ([x0, y0, x1, y1]), rect or ellipse ([x, y, w, h]) or fill ([x, y], a flood fill)"
             ),
-            (false, Some(_)) => bail!("pixel takes cells or a path, not both"),
-            _ => {}
+            1 => {}
+            _ => bail!("pixel takes one of cells, path, line, rect, ellipse and fill, not several"),
+        }
+        if [self.rect, self.ellipse]
+            .iter()
+            .flatten()
+            .any(|b| b[2] <= 0 || b[3] <= 0)
+        {
+            bail!("a rect or ellipse is [x, y, w, h] with a width and height of at least 1 pixel");
+        }
+        if self.filled && self.rect.is_none() && self.ellipse.is_none() {
+            bail!("filled goes with rect or ellipse");
         }
         if !(1..=crate::pixel::MAX_SIZE).contains(&self.size) {
             bail!(
@@ -382,10 +438,22 @@ impl PixelSpec {
     }
 
     pub fn drawn(&self) -> Result<Vec<[i64; 2]>> {
-        match &self.path {
-            Some(d) => Ok(crate::pixel::drawn(&crate::pixel::of_path(d)?, self.size)),
-            None => Ok(crate::pixel::stamp(&self.cells, self.size)),
+        use crate::pixel;
+        if let Some(d) = &self.path {
+            return Ok(pixel::drawn(&pixel::of_path(d)?, self.size));
         }
+        if self.fill.is_some() {
+            bail!(
+                "a flood fill of pixels is worked out from the drawing by klad pixel --fill, klad apply or the editor"
+            );
+        }
+        let cells = match (self.line, self.rect, self.ellipse) {
+            (Some([x0, y0, x1, y1]), _, _) => pixel::line([x0, y0], [x1, y1]),
+            (_, Some([x, y, w, h]), _) => pixel::rect([x, y], [w, h], self.filled),
+            (_, _, Some([x, y, w, h])) => pixel::ellipse([x, y], [w, h], self.filled),
+            _ => self.cells.clone(),
+        };
+        Ok(pixel::stamp(&cells, self.size))
     }
 
     pub fn coverage(&self, doc: &Document) -> Result<Coverage> {

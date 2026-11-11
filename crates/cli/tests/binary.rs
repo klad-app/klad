@@ -775,6 +775,71 @@ fn a_sprite_is_written_as_a_grid_of_characters_and_read_back_the_same() {
 }
 
 #[test]
+fn lines_rectangles_ellipses_and_fills_go_on_the_grid_from_the_command_line() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-shapes-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("sprite.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    draw(&["new", path, "--pixel", "16x12"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&["palette", path, "--add", "#f2c14e", "--name", "body"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--ellipse", "1,1,9,7"]);
+    draw(&["pixel", path, "l1", "--color", "body", "--fill", "5,4"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--rect", "11,1,4,4"]);
+    draw(&["pixel", path, "l1", "--color", "body", "--rect", "11,6,4,3", "--filled"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--line", "0,11,15,9"]);
+    let rows: Vec<String> = draw(&["pixels", path, "l1", "--plain"])
+        .lines()
+        .skip_while(|line| !line.is_empty())
+        .skip(1)
+        .map(String::from)
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            "................",
+            "...iiiii...iiii.",
+            "..ibbbbbi..i..i.",
+            ".ibbbbbbbi.i..i.",
+            ".ibbbbbbbi.iiii.",
+            ".ibbbbbbbi......",
+            "..ibbbbbi..bbbb.",
+            "...iiiii...bbbb.",
+            "...........bbbb.",
+            "............iiii",
+            "....iiiiiiii....",
+            "iiii............",
+        ]
+    );
+    draw(&["add", path, "layer", "pixel", "name=under", "--below", "l1"]);
+    draw(&[
+        "pixel", path, "under", "--color", "#8ecae6", "--fill", "12,2", "--ref", "l1",
+    ]);
+    let under: serde_json::Value = serde_json::from_str(&draw(&["pixels", path, "under", "--json"])).unwrap();
+    assert_eq!(
+        under["rows"][2], "............aa..",
+        "a fill on another layer stops at the lines it reads"
+    );
+    assert_eq!(under["rows"][5], "................");
+    let both = run(&[
+        "pixel", path, "l1", "--color", "ink", "--rect", "0,0,2,2", "--line", "0,0,3,3",
+    ]);
+    assert!(!both.status.success());
+    let flat = run(&["pixel", path, "l1", "--color", "ink", "--rect", "0,0,0,2"]);
+    assert!(String::from_utf8_lossy(&flat.stderr).contains("at least 1 pixel"));
+    let off = run(&["pixel", path, "l1", "--color", "ink", "--fill", "40,40"]);
+    assert!(String::from_utf8_lossy(&off.stderr).contains("off the 16x12 canvas"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn recolour_moves_strokes_together_and_keeps_their_shades() {
     let dir = std::env::temp_dir().join(format!("draw-binary-recolour-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

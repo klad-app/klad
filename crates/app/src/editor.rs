@@ -486,6 +486,13 @@ impl PreviewState {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PixelShape {
+    Rect,
+    Ellipse,
+    Line,
+}
+
 struct PixelLive {
     run: Vec<klad_core::pixel::Cell>,
     erase: bool,
@@ -715,6 +722,10 @@ pub(crate) struct Editor {
     zoom_wanted: Option<f32>,
     pub(crate) pixel_size: u32,
     pub(crate) pixel_perfect: bool,
+    pub(crate) pixel_shape: PixelShape,
+    pub(crate) pixel_filled: bool,
+    pub(crate) pixel_diagonal: bool,
+    pub(crate) pixel_fill_all: bool,
     pixel_live: Option<PixelLive>,
     pixel_last: Option<klad_core::pixel::Cell>,
     hover_cell: Option<[i32; 2]>,
@@ -908,6 +919,10 @@ impl Editor {
             zoom_wanted: None,
             pixel_size: 1,
             pixel_perfect: true,
+            pixel_shape: PixelShape::Rect,
+            pixel_filled: false,
+            pixel_diagonal: false,
+            pixel_fill_all: false,
             pixel_live: None,
             pixel_last: None,
             hover_cell: None,
@@ -2964,10 +2979,12 @@ impl Editor {
         match (self.tool, e.phase) {
             (_, Phase::Down) if !was_focused || !on_canvas || self.navigating => {}
             (_, Phase::Down) if picking => self.pick_colour(c, self.modifiers.shift)?,
-            (Tool::Fill, Phase::Down) if self.scene.on_grid() => self.say(
-                Tone::Refused,
-                "this is a pixel layer: it takes whole pixels (the pencil, B), not flood or lasso fills",
-            ),
+            (Tool::Fill, Phase::Down) if self.scene.on_grid() => {
+                if self.scene.can_paint() {
+                    self.fill_pixels(klad_core::pixel::cell_at(c.x, c.y))?;
+                }
+            }
+            (Tool::Fill, Phase::Move | Phase::Up) if self.scene.on_grid() => {}
             (Tool::Brush, Phase::Down) if self.scene.on_grid() => {
                 if self.pixel_live.is_none() && self.scene.can_paint() {
                     let at = klad_core::pixel::cell_at(c.x, c.y);
@@ -3338,6 +3355,78 @@ impl Editor {
         klad_core::pixel::stamp(&run, self.pixel_size)
     }
 
+    fn pixel_spec(&self, erase: bool) -> Option<klad_core::ops::PixelSpec> {
+        Some(klad_core::ops::PixelSpec {
+            layer: self.scene.active_id()?,
+            frame: self.scene.frame,
+            color: (!erase).then(|| color::hex(self.color)),
+            erase,
+            by_hand: true,
+            ..klad_core::ops::PixelSpec::default()
+        })
+    }
+
+    fn fill_pixels(&mut self, at: klad_core::pixel::Cell) -> Result<()> {
+        let (w, h) = self.scene.size();
+        if at[0] < 0 || at[1] < 0 || at[0] >= w as i64 || at[1] >= h as i64 {
+            return Ok(());
+        }
+        let erase = self.brush == "eraser";
+        let Some(spec) = self.pixel_spec(erase) else {
+            return Ok(());
+        };
+        let spec = klad_core::ops::PixelSpec {
+            fill: Some(at),
+            diagonal: self.pixel_diagonal,
+            reference: self.pixel_fill_all.then(|| "all".to_string()),
+            ..spec
+        };
+        self.apply(vec![Op::Pixel(spec)])?;
+        if !erase {
+            self.used_colour();
+        }
+        Ok(())
+    }
+
+    pub(super) fn pixel_shape_spec(&self) -> Option<klad_core::ops::PixelSpec> {
+        let (a, b) = self.shapes.drag?;
+        let (a, b) = (klad_core::pixel::cell_at(a.x, a.y), klad_core::pixel::cell_at(b.x, b.y));
+        let b = match (self.modifiers.shift, self.pixel_shape) {
+            (true, PixelShape::Rect | PixelShape::Ellipse) => {
+                let side = (b[0] - a[0]).abs().max((b[1] - a[1]).abs());
+                let sign = |v: i64| if v < 0 { -1 } else { 1 };
+                [a[0] + side * sign(b[0] - a[0]), a[1] + side * sign(b[1] - a[1])]
+            }
+            _ => b,
+        };
+        let bounds = [
+            a[0].min(b[0]),
+            a[1].min(b[1]),
+            (b[0] - a[0]).abs() + 1,
+            (b[1] - a[1]).abs() + 1,
+        ];
+        let spec = self.pixel_spec(self.brush == "eraser")?;
+        Some(match self.pixel_shape {
+            PixelShape::Rect => klad_core::ops::PixelSpec {
+                rect: Some(bounds),
+                filled: self.pixel_filled,
+                size: self.pixel_size,
+                ..spec
+            },
+            PixelShape::Ellipse => klad_core::ops::PixelSpec {
+                ellipse: Some(bounds),
+                filled: self.pixel_filled,
+                size: self.pixel_size,
+                ..spec
+            },
+            PixelShape::Line => klad_core::ops::PixelSpec {
+                line: Some([a[0], a[1], b[0], b[1]]),
+                size: self.pixel_size,
+                ..spec
+            },
+        })
+    }
+
     fn finish_pixels(&mut self) -> Result<()> {
         let Some(live) = self.pixel_live.take() else {
             return Ok(());
@@ -3361,10 +3450,8 @@ impl Editor {
             color: (!live.erase).then(|| color::hex(self.color)),
             erase: live.erase,
             cells,
-            path: None,
-            size: 1,
-            part: None,
             by_hand: true,
+            ..klad_core::ops::PixelSpec::default()
         };
         self.apply(vec![Op::Pixel(spec)])?;
         if !live.erase {
@@ -3661,12 +3748,21 @@ impl Editor {
                 .map(|y| y as f32)
                 .for_each(|y| rule(to_screen(x0, y), to_screen(x1, y)));
         }
-        if let Some(live) = self.pixel_live.as_ref() {
-            let fill = match live.erase {
+        let shaped = self
+            .pixel_shape_spec()
+            .filter(|_| self.tool == Tool::Shape && self.scene.on_grid())
+            .and_then(|spec| spec.drawn().ok().map(|cells| (cells, spec.erase)));
+        let drawing = self
+            .pixel_live
+            .as_ref()
+            .map(|live| (self.pixel_cells(live), live.erase))
+            .or(shaped);
+        if let Some((cells, erase)) = drawing {
+            let fill = match erase {
                 true => Color32::from_rgba_unmultiplied(255, 255, 255, 120),
                 false => color::color32(self.color),
             };
-            self.pixel_cells(live).iter().for_each(|c| {
+            cells.iter().for_each(|c| {
                 let (x, y) = (c[0] as f32, c[1] as f32);
                 let corners = [(x, y), (x + 1.0, y), (x + 1.0, y + 1.0), (x, y + 1.0)]
                     .map(|(x, y)| self.screen(view, rect, vec2(x, y)))

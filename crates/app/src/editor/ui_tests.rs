@@ -1469,17 +1469,8 @@ fn a_pixel_layer_is_added_shows_its_marks_hard_and_keeps_brush_strokes_out() {
         h.query_by_label("pixel layer").is_some(),
         "layer settings say what kind of layer it is"
     );
-    h.state_mut().tool = Tool::Fill;
     let rect = h.state().canvas_rect;
     let (a, b) = (rect.center() + vec2(-60.0, -20.0), rect.center() + vec2(40.0, 30.0));
-    drag(&mut h, a, b);
-    h.run_steps(2);
-    assert!(
-        h.state().scene.active_marks().is_empty(),
-        "no fill lands on a pixel layer"
-    );
-    let refused = h.state().messages.latest().map(|m| m.text.clone()).unwrap_or_default();
-    assert!(refused.contains("pixel layer"), "{refused}");
     h.state_mut().tool = Tool::Brush;
     drag(&mut h, a, b);
     h.run_steps(3);
@@ -1832,6 +1823,88 @@ fn the_brush_tool_is_a_pixel_pencil_and_eraser_on_a_pixel_layer() {
         "undo takes the eraser mark back"
     );
     assert_eq!(h.state().scene.bundle.doc.palette.len(), palette);
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn the_fill_and_shape_tools_draw_whole_pixels_on_a_pixel_layer() {
+    let path = pixel_sample("fill-shape");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    h.state_mut()
+        .set_colour(klad_core::color::parse_hex("#f2c14e").unwrap());
+    let cells_of = |h: &Harness<'static, Editor>, at: usize| -> Vec<[u32; 2]> {
+        h.state().scene.active_marks()[at]
+            .as_fill()
+            .unwrap()
+            .coverage
+            .cells()
+            .collect()
+    };
+    let before = h.state().scene.active_marks().len();
+    h.state_mut().tool = Tool::Fill;
+    h.run_steps(2);
+    assert!(
+        h.query_by_label("across corners").is_some(),
+        "the fill tool shows its pixel options"
+    );
+    let centre = on_screen(&h, 5.5, 5.5);
+    click_with(&mut h, centre, Modifiers::NONE);
+    h.run_steps(3);
+    ready(&mut h);
+    assert_eq!(
+        cells_of(&h, before),
+        [[5, 5]],
+        "the fill takes the one red pixel inside the ring"
+    );
+    let mark = h.state().scene.active_marks()[before].as_fill().unwrap().clone();
+    assert!(mark.on_grid() && mark.author == klad_core::stroke::Author::Human);
+    assert_eq!(klad_core::color::to_hex(mark.color()), "#f2c14e");
+    let outside = on_screen(&h, 20.5, 20.5);
+    click_with(&mut h, outside, Modifiers::NONE);
+    h.run_steps(3);
+    ready(&mut h);
+    assert_eq!(
+        cells_of(&h, before + 1).len(),
+        32 * 24 - 9,
+        "outside the ring the fill takes every empty pixel and stops at the ring"
+    );
+    h.state_mut().invoke(Cmd::Undo).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    h.state_mut().tool = Tool::Shape;
+    h.run_steps(2);
+    assert!(
+        h.query_by_label("filled").is_some(),
+        "the shape tool shows its pixel options"
+    );
+    let (a, b) = (on_screen(&h, 10.5, 10.5), on_screen(&h, 17.5, 15.5));
+    drag(&mut h, a, b);
+    h.run_steps(3);
+    ready(&mut h);
+    let outline = cells_of(&h, before + 1);
+    assert_eq!(
+        outline.len(),
+        2 * 8 + 2 * 4,
+        "an 8 by 6 rectangle's outline: {outline:?}"
+    );
+    assert!(outline.contains(&[10, 10]) && outline.contains(&[17, 15]) && !outline.contains(&[12, 12]));
+    h.state_mut().pixel_shape = super::PixelShape::Ellipse;
+    h.state_mut().pixel_filled = true;
+    let (a, b) = (on_screen(&h, 20.5, 2.5), on_screen(&h, 26.5, 8.5));
+    drag(&mut h, a, b);
+    h.run_steps(3);
+    ready(&mut h);
+    let disc = cells_of(&h, before + 2);
+    assert!(
+        disc.contains(&[23, 5]) && !disc.contains(&[20, 2]),
+        "a filled circle, without its box's corners"
+    );
+    assert!(disc.len() > 25 && disc.len() < 49, "{}", disc.len());
+    h.state_mut().pixel_shape = super::PixelShape::Line;
+    let (a, b) = (on_screen(&h, 2.5, 20.5), on_screen(&h, 9.5, 20.5));
+    drag(&mut h, a, b);
+    h.run_steps(3);
+    assert_eq!(cells_of(&h, before + 3), (2..=9).map(|x| [x, 20]).collect::<Vec<_>>());
     let _ = std::fs::remove_dir_all(&path);
 }
 

@@ -9,7 +9,7 @@ use crate::ops::{Applied, ClipEdit, FillSpec, Op, PendingMarks, apply_all};
 use crate::repair;
 use crate::stroke::{Mark, Stroke, decode_cel, encode_cel, strokes_of};
 use crate::timing::{CelAction, FrameSpec};
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -407,7 +407,93 @@ impl Bundle {
         self.apply_as(ops, "cli")
     }
 
+    fn flooded(
+        &self,
+        doc: &Document,
+        plan: &[PendingMarks],
+        spec: &crate::ops::PixelSpec,
+    ) -> Result<crate::ops::PixelSpec> {
+        use crate::pixel;
+        let Some(seed) = spec.fill else {
+            return Ok(spec.clone());
+        };
+        let own = doc
+            .layer(&spec.layer)
+            .ok_or_else(|| anyhow!("no layer {}", spec.layer))?;
+        let layers: Vec<&Layer> = match spec.reference.as_deref().map(str::trim) {
+            None | Some("this") => vec![own],
+            Some("all") => doc
+                .all_layers()
+                .into_iter()
+                .filter(|l| l.pixel() && l.visible)
+                .collect(),
+            Some(key) => vec![
+                doc.find_layer(key)
+                    .map_err(|e| anyhow!("fill reference: {e}; or use this or all"))?,
+            ],
+        };
+        if let Some(other) = layers.iter().find(|l| !l.pixel()) {
+            bail!(
+                "{} is a {} layer: a pixel fill reads pixel layers",
+                other.id,
+                other.kind_name()
+            );
+        }
+        let (w, h) = (doc.canvas.width, doc.canvas.height);
+        let grids = layers
+            .iter()
+            .map(|layer| {
+                let marks = match layer.content_at(spec.frame) {
+                    Some(cel) => self.marks_after(doc, plan, &layer.id, &cel.id, usize::MAX)?,
+                    None => Vec::new(),
+                };
+                Ok(pixel::grid_of(&marks, w, h))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let grid = pixel::merged(&grids).unwrap_or_else(|| pixel::grid_of(&[], w, h));
+        let cells = pixel::flood(&grid, seed, spec.diagonal);
+        if cells.is_empty() {
+            bail!(
+                "the fill starts at {},{}, which is off the {w}x{h} canvas",
+                seed[0],
+                seed[1]
+            );
+        }
+        Ok(crate::ops::PixelSpec {
+            cells,
+            fill: None,
+            ..spec.clone()
+        })
+    }
+
+    pub fn settle_pixels(&self, ops: &[Op]) -> Result<Vec<Op>> {
+        if !ops
+            .iter()
+            .any(|op| matches!(op, Op::Pixel(spec) if spec.fill.is_some()))
+        {
+            return Ok(ops.to_vec());
+        }
+        let mut doc = self.doc.clone();
+        let mut applied = Applied::default();
+        ops.iter()
+            .enumerate()
+            .map(|(i, op)| {
+                let op = match op {
+                    Op::Pixel(spec) if spec.fill.is_some() => Op::Pixel(
+                        self.flooded(&doc, &applied.marks, spec)
+                            .with_context(|| format!("op {}: pixel fill on {}", i + 1, spec.layer))?,
+                    ),
+                    other => other.clone(),
+                };
+                crate::ops::apply(&mut doc, &op, &mut applied).with_context(|| format!("op {}", i + 1))?;
+                crate::timing::grow(&mut doc);
+                Ok(op)
+            })
+            .collect()
+    }
+
     pub fn apply_as(&mut self, ops: &[Op], author: &str) -> Result<Applied> {
+        let ops = &self.settle_pixels(ops)?[..];
         let (mut doc, mut applied) = apply_all(&self.doc, ops)?;
         self.embed_library(
             applied
@@ -1725,6 +1811,87 @@ mod tests {
                 parse_lines(r##"{"op":"palette","recolour":"skin"}"##).unwrap_err()
             )
             .contains("\"to\"")
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_pixel_fill_reads_the_drawing_as_the_batch_leaves_it() {
+        use crate::ops::parse_lines;
+        let dir = scratch("pixel-fill");
+        let mut bundle = Bundle::blank(
+            &dir,
+            &Blank {
+                width: 12,
+                height: 10,
+                pixel: true,
+                layers: 2,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let (colour, lines) = (bundle.doc.layers[0].id.clone(), bundle.doc.layers[1].id.clone());
+        let cel = |bundle: &Bundle, layer: &str| bundle.doc.layer(layer).unwrap().cels()[0].id.clone();
+        bundle
+            .apply(
+                &parse_lines(&format!(
+                    "{}\n{}\n{}\n{}",
+                    format_args!(r##"{{"op":"pixel","layer":"{lines}","color":"#22223b","rect":[2,2,6,5]}}"##),
+                    format_args!(r##"{{"op":"pixel","layer":"{lines}","color":"#f2c14e","fill":[4,4]}}"##),
+                    format_args!(
+                        r##"{{"op":"pixel","layer":"{colour}","color":"#ef233c","fill":[4,4],"ref":"{lines}"}}"##
+                    ),
+                    format_args!(r##"{{"op":"pixel","layer":"{colour}","color":"#8ecae6","fill":[0,0],"ref":"all"}}"##),
+                ))
+                .unwrap(),
+            )
+            .unwrap();
+        let cells = |bundle: &Bundle, layer: &str, at: usize| -> Vec<[u32; 2]> {
+            crate::stroke::fills_of(&bundle.read_marks(layer, &cel(bundle, layer)).unwrap())
+                .nth(at)
+                .unwrap()
+                .coverage
+                .cells()
+                .collect()
+        };
+        assert_eq!(cells(&bundle, &lines, 0).len(), 18, "the outline of a 6 by 5 rectangle");
+        assert_eq!(
+            cells(&bundle, &lines, 1).len(),
+            12,
+            "a fill in the same batch sees the rectangle drawn just before it"
+        );
+        assert_eq!(
+            cells(&bundle, &colour, 0).len(),
+            12,
+            "a fill on another layer reads the layer it is pointed at: the inside again, now one colour"
+        );
+        assert_eq!(
+            cells(&bundle, &colour, 1).len(),
+            120 - 30,
+            "reading every layer, the outside stops at the rectangle"
+        );
+        let fill = crate::stroke::fills_of(&bundle.read_marks(&lines, &cel(&bundle, &lines)).unwrap())
+            .nth(1)
+            .unwrap()
+            .clone();
+        assert!(fill.on_grid() && fill.entry().is_some());
+        let refuse = |line: String| format!("{:#}", bundle.settle_pixels(&parse_lines(&line).unwrap()).unwrap_err());
+        assert!(
+            refuse(format!(
+                r##"{{"op":"pixel","layer":"{lines}","color":"#000000","fill":[40,4]}}"##
+            ))
+            .contains("off the 12x10 canvas")
+        );
+        assert!(
+            format!(
+                "{:#}",
+                parse_lines(&format!(
+                    r##"{{"op":"pixel","layer":"{lines}","color":"#000000","fill":[4,4],"rect":[0,0,2,2]}}"##
+                ))
+                .unwrap_err()
+            )
+            .contains("not several")
         );
         fs::remove_dir_all(&dir).unwrap();
     }

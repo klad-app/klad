@@ -869,17 +869,67 @@ enum Command {
     },
     #[command(
         about = "Put whole pixels of one palette colour on a pixel layer, or erase them",
-        long_about = "Put whole pixels of one palette colour on a pixel layer, or erase them. A pixel layer is a grid with no anti-aliasing where one pixel is one canvas pixel; make a pixel drawing with klad new --pixel 64x64, or add a layer with klad add <bundle> layer pixel.\n\n--cells lists them: x,y for one pixel, x0-x1,y for a run along a row, x,y0-y1 for a run down a column and x0-x1,y0-y1 for a block. --color is a palette name, a palette index or #rrggbb; a colour the palette does not have yet is added to it. The pixels become one mark bound to that palette entry, so it can be recoloured (klad set <cel>:s<id> color=...), moved (klad transform) or removed (klad rm) later, and klad strokes lists it. --erase clears the pixels under it instead.\n\n--path draws SVG path data as a line of pixels: a pixel is the square from x,y to x+1,y+1, so aim at pixel middles (3.5, not 3). Straight segments keep the corners they are given; curves are cleaned so no corner is doubled. --size makes the pencil a square of that many pixels, for --cells and --path alike.\n\n  klad pixel sprite.klad l1 --color '#2b2d42' --cells '3-12,4 3,5-9 12,5-9 3-12,10'\n  klad pixel sprite.klad l1 --color '#2b2d42' --path 'M3.5 20.5 C 10 4 22 4 28.5 20.5'\n  klad pixel sprite.klad l1 --erase --size 3 --path 'M4.5 4.5 L12.5 12.5'\n  klad pixel sprite.klad l1 --color skin --cells '4-11,5-9'\n  klad pixel sprite.klad l1 --erase --cells '7,7 8,7'\n\n--grid draws a whole sprite from text, the way klad pixels --plain prints one: legend lines (one character, =, a palette name, a colour, erase or empty), a blank line, then a row of characters per row of pixels. . is empty unless the legend says otherwise. Each character becomes one mark bound to its colour; --at x,y moves the grid's top left.\n\n  klad pixel sprite.klad l1 --grid - <<'GRID'\n  i = ink\n  b = body\n\n  ..iiii..\n  .ibbbbi.\n  .ibbbbi.\n  ..iiii..\n  GRID\n\nAlso a pixel op in klad apply: {\"op\":\"pixel\",\"layer\":\"l1\",\"color\":\"skin\",\"cells\":[[4,5],[5,5]]}, with \"path\":\"M3.5 3.5 L9.5 3.5\" in place of cells, \"size\":2, or \"erase\":true; and as a grid {\"op\":\"pixel\",\"layer\":\"l1\",\"rows\":[\"..ii..\",\".ibbi.\"],\"legend\":{\"i\":\"ink\",\"b\":\"body\"},\"at\":[0,0]}."
+        long_about = "Put whole pixels of one palette colour on a pixel layer, or erase them. A pixel layer is a grid with no anti-aliasing where one pixel is one canvas pixel; make a pixel drawing with klad new --pixel 64x64, or add a layer with klad add <bundle> layer pixel.\n\n--cells lists them: x,y for one pixel, x0-x1,y for a run along a row, x,y0-y1 for a run down a column and x0-x1,y0-y1 for a block. --color is a palette name, a palette index or #rrggbb; a colour the palette does not have yet is added to it. The pixels become one mark bound to that palette entry, so it can be recoloured (klad set <cel>:s<id> color=...), moved (klad transform) or removed (klad rm) later, and klad strokes lists it. --erase clears the pixels under it instead.\n\n--path draws SVG path data as a line of pixels: a pixel is the square from x,y to x+1,y+1, so aim at pixel middles (3.5, not 3). Straight segments keep the corners they are given; curves are cleaned so no corner is doubled. --size makes the pencil a square of that many pixels, for --cells and --path alike.\n\n  klad pixel sprite.klad l1 --color '#2b2d42' --cells '3-12,4 3,5-9 12,5-9 3-12,10'\n  klad pixel sprite.klad l1 --color '#2b2d42' --path 'M3.5 20.5 C 10 4 22 4 28.5 20.5'\n  klad pixel sprite.klad l1 --erase --size 3 --path 'M4.5 4.5 L12.5 12.5'\n  klad pixel sprite.klad l1 --color skin --cells '4-11,5-9'\n  klad pixel sprite.klad l1 --erase --cells '7,7 8,7'\n\nShapes on the grid, each one mark: --line x0,y0,x1,y1 is a straight line between two pixels, --rect x,y,w,h and --ellipse x,y,w,h the outline of a rectangle or of the ellipse that fits that box (--filled for all of it), with --size for a thicker outline. --fill x,y is a flood fill: every pixel joined to that one that has exactly its colour, or is empty like it (--diagonal also crosses corners; --ref all reads every visible pixel layer, --ref <layer> another one, so flat colour can go on a layer under the lines).\n\n  klad pixel sprite.klad l1 --color ink --ellipse 4,4,16,12\n  klad pixel sprite.klad l1 --color body --fill 12,10\n  klad pixel sprite.klad colour --color body --fill 12,10 --ref lines\n\n--grid draws a whole sprite from text, the way klad pixels --plain prints one: legend lines (one character, =, a palette name, a colour, erase or empty), a blank line, then a row of characters per row of pixels. . is empty unless the legend says otherwise. Each character becomes one mark bound to its colour; --at x,y moves the grid's top left.\n\n  klad pixel sprite.klad l1 --grid - <<'GRID'\n  i = ink\n  b = body\n\n  ..iiii..\n  .ibbbbi.\n  .ibbbbi.\n  ..iiii..\n  GRID\n\nAlso a pixel op in klad apply: {\"op\":\"pixel\",\"layer\":\"l1\",\"color\":\"skin\",\"cells\":[[4,5],[5,5]]}, with \"path\":\"M3.5 3.5 L9.5 3.5\" in place of cells, \"size\":2, or \"erase\":true; \"line\":[x0,y0,x1,y1], \"rect\":[x,y,w,h] or \"ellipse\":[x,y,w,h] with \"filled\":true; \"fill\":[x,y] with \"diagonal\" and \"ref\"; and as a grid {\"op\":\"pixel\",\"layer\":\"l1\",\"rows\":[\"..ii..\",\".ibbi.\"],\"legend\":{\"i\":\"ink\",\"b\":\"body\"},\"at\":[0,0]}."
     )]
     Pixel {
         bundle: PathBuf,
         layer: String,
         #[arg(
             long,
-            required_unless_present_any = ["path", "grid"],
+            required_unless_present_any = ["path", "grid", "line", "rect", "ellipse", "fill"],
             help = "The pixels: x,y, a row run x0-x1,y, a column run x,y0-y1 or a block x0-x1,y0-y1, separated by spaces"
         )]
         cells: Option<String>,
+        #[arg(
+            long,
+            value_name = "X0,Y0,X1,Y1",
+            value_parser = parse_box,
+            allow_hyphen_values = true,
+            conflicts_with_all = ["cells", "path", "grid"],
+            help = "A straight line of pixels from one pixel to another"
+        )]
+        line: Option<[i64; 4]>,
+        #[arg(
+            long,
+            value_name = "X,Y,W,H",
+            value_parser = parse_box,
+            allow_hyphen_values = true,
+            conflicts_with_all = ["cells", "path", "grid", "line"],
+            help = "The outline of a rectangle, its top left pixel and its size in pixels (--filled: all of it)"
+        )]
+        rect: Option<[i64; 4]>,
+        #[arg(
+            long,
+            value_name = "X,Y,W,H",
+            value_parser = parse_box,
+            allow_hyphen_values = true,
+            conflicts_with_all = ["cells", "path", "grid", "line", "rect"],
+            help = "The outline of the ellipse that fits that box of pixels (--filled: all of it)"
+        )]
+        ellipse: Option<[i64; 4]>,
+        #[arg(long, help = "With --rect or --ellipse: every pixel inside, not only the outline")]
+        filled: bool,
+        #[arg(
+            long,
+            value_name = "X,Y",
+            value_parser = parse_cell,
+            allow_hyphen_values = true,
+            conflicts_with_all = ["cells", "path", "grid", "line", "rect", "ellipse", "size"],
+            help = "Flood fill from that pixel: every pixel joined to it that has exactly its colour (or is empty like it)"
+        )]
+        fill: Option<[i64; 2]>,
+        #[arg(
+            long,
+            requires = "fill",
+            help = "A fill also spreads across corners (eight neighbours, not four)"
+        )]
+        diagonal: bool,
+        #[arg(
+            long = "ref",
+            requires = "fill",
+            help = "What a fill reads: this layer (default), all (every visible pixel layer) or a pixel layer's id or name"
+        )]
+        reference: Option<String>,
         #[arg(
             long,
             value_name = "FILE",
@@ -2145,6 +2195,17 @@ fn parse_cells(text: &str) -> Result<Vec<[i64; 2]>> {
     Ok(cells)
 }
 
+fn parse_box(text: &str) -> Result<[i64; 4]> {
+    let parts: Vec<i64> = text
+        .split(',')
+        .map(|part| part.trim().parse::<i64>())
+        .collect::<std::result::Result<_, _>>()
+        .map_err(|_| anyhow!("{text:?} is not four whole numbers like 2,3,10,8"))?;
+    parts
+        .try_into()
+        .map_err(|_| anyhow!("{text:?} is not four whole numbers like 2,3,10,8"))
+}
+
 fn parse_cell(text: &str) -> Result<[i64; 2]> {
     let parts: Vec<i64> = text
         .split(',')
@@ -2878,6 +2939,13 @@ fn run() -> Result<()> {
             grid,
             at,
             path,
+            line,
+            rect,
+            ellipse,
+            filled,
+            fill,
+            diagonal,
+            reference,
             size,
             color,
             erase,
@@ -2910,10 +2978,18 @@ fn run() -> Result<()> {
                 erase,
                 cells: cells.as_deref().map(parse_cells).transpose()?.unwrap_or_default(),
                 path,
+                line,
+                rect,
+                ellipse,
+                filled,
+                fill,
+                diagonal,
+                reference,
                 size,
                 part,
                 by_hand: false,
             };
+            spec.check()?;
             agent::edit(&bundle, &[Op::Pixel(spec)], &output(&flags, frame))?;
         }
         Command::Fill {

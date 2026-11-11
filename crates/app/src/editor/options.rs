@@ -367,6 +367,19 @@ impl Editor {
                         ui.colored_label(theme::REFUSED, "pick a paint layer to draw on");
                     }
                 }
+                Tool::Fill if self.scene.on_grid() => {
+                    ui.checkbox(&mut self.pixel_diagonal, "across corners")
+                        .hint("the fill also spreads to pixels that only touch at a corner");
+                    ui.checkbox(&mut self.pixel_fill_all, "read all pixel layers")
+                        .hint("the fill stops at the pixels of every visible pixel layer, not only this one's: colour on a layer under the lines");
+                    ui.label(
+                        RichText::new("click a pixel: every pixel joined to it with exactly its colour takes the current colour")
+                            .color(theme::WEAK),
+                    );
+                    if !self.scene.can_paint() {
+                        ui.colored_label(theme::REFUSED, "this layer is locked: unlock it to fill on it");
+                    }
+                }
                 Tool::Fill => self.fill_panel(ui),
                 Tool::Strokes => {
                     self.pick_scope(ui);
@@ -395,6 +408,38 @@ impl Editor {
                     .hint("how far simplified points may stray from the outline");
                     self.command_button(ui, Cmd::Simplify, Some("simplify"));
                     self.command_button(ui, Cmd::MakePath, Some("make it a path"));
+                }
+                Tool::Shape if self.scene.on_grid() => {
+                    [
+                        (super::PixelShape::Rect, "rectangle"),
+                        (super::PixelShape::Ellipse, "ellipse"),
+                        (super::PixelShape::Line, "line"),
+                    ]
+                    .iter()
+                    .for_each(|(kind, label)| {
+                        if ui
+                            .selectable_label(self.pixel_shape == *kind, *label)
+                            .hint(format!("draw {label}s of whole pixels"))
+                            .clicked()
+                        {
+                            self.pixel_shape = *kind;
+                        }
+                    });
+                    if self.pixel_shape != super::PixelShape::Line {
+                        ui.checkbox(&mut self.pixel_filled, "filled")
+                            .hint("every pixel inside, not only the outline");
+                    }
+                    let label = ui.label("size");
+                    ui.add(
+                        egui::DragValue::new(&mut self.pixel_size)
+                            .range(1..=klad_core::pixel::MAX_SIZE)
+                            .suffix(" px"),
+                    )
+                    .labelled_by(label.id)
+                    .hint("how thick the line or outline is, in whole pixels");
+                    ui.label(
+                        RichText::new("drag on the pixel layer; shift for a square or circle").color(theme::WEAK),
+                    );
                 }
                 Tool::Shape => {
                     [(super::make::ShapeKind::Rect, "rectangle"), (super::make::ShapeKind::Ellipse, "ellipse")]
