@@ -142,6 +142,9 @@ pub enum Op {
         frames: Option<u32>,
         origin: Option<Option<[f32; 2]>>,
     },
+    Canvas {
+        wrap: Option<bool>,
+    },
     Atmosphere(Option<crate::look::Atmosphere>),
     Frames(FrameSpec),
     Cel(CelSpec),
@@ -317,6 +320,10 @@ pub struct PixelSpec {
     pub dither: Option<u32>,
     #[serde(default)]
     pub second: Option<String>,
+    #[serde(default, rename = "mirrorX")]
+    pub mirror_x: Option<f32>,
+    #[serde(default, rename = "mirrorY")]
+    pub mirror_y: Option<f32>,
     #[serde(default = "one_pixel")]
     pub size: u32,
     #[serde(default)]
@@ -350,6 +357,8 @@ impl Default for PixelSpec {
             shade: None,
             dither: None,
             second: None,
+            mirror_x: None,
+            mirror_y: None,
             size: 1,
             part: None,
             by_hand: false,
@@ -485,7 +494,7 @@ impl PixelSpec {
     pub fn drawn(&self) -> Result<Vec<[i64; 2]>> {
         use crate::pixel;
         if let Some(d) = &self.path {
-            return Ok(pixel::drawn(&pixel::of_path(d)?, self.size));
+            return Ok(self.twinned(pixel::drawn(&pixel::of_path(d)?, self.size)));
         }
         if !self.settled() {
             bail!(
@@ -498,12 +507,22 @@ impl PixelSpec {
             (_, _, Some([x, y, w, h])) => pixel::ellipse([x, y], [w, h], self.filled),
             _ => self.cells.clone(),
         };
-        Ok(pixel::stamp(&cells, self.size))
+        Ok(self.twinned(pixel::stamp(&cells, self.size)))
+    }
+
+    pub fn twinned(&self, cells: Vec<[i64; 2]>) -> Vec<[i64; 2]> {
+        match self.mirror_x.is_some() || self.mirror_y.is_some() {
+            true => crate::pixel::mirrored(&cells, self.mirror_x, self.mirror_y),
+            false => cells,
+        }
     }
 
     pub fn coverage(&self, doc: &Document) -> Result<Coverage> {
         let (w, h) = (doc.canvas.width as i64, doc.canvas.height as i64);
-        let drawn = self.drawn()?;
+        let drawn = match doc.canvas.wrap {
+            true => crate::pixel::wrapped(&self.drawn()?, doc.canvas.width, doc.canvas.height),
+            false => self.drawn()?,
+        };
         let inside: Vec<[u32; 2]> = drawn
             .iter()
             .filter(|c| c[0] >= 0 && c[1] >= 0 && c[0] < w && c[1] < h)
@@ -1781,6 +1800,13 @@ impl Op {
                 Some(other) if other != Value::Bool(false) => bail!("atmosphere: off takes true or false"),
                 _ => Op::Atmosphere(Some(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?)),
             },
+            "canvas" => Op::Canvas {
+                wrap: match map.remove("wrap") {
+                    None => None,
+                    Some(Value::Bool(wrap)) => Some(wrap),
+                    Some(other) => bail!("wrap takes true or false, not {other}"),
+                },
+            },
             "timeline" => Op::Timeline {
                 fps: whole(&mut map, "fps")?,
                 frames: whole(&mut map, "frames")?,
@@ -1873,7 +1899,7 @@ impl Op {
             },
             other => {
                 bail!(
-                    "unknown op {other:?}: use add, set, rm, mv, stroke, fill, pixel, palette, transform, path, lasso, copy, timeline, frames, cel, clip, retime, inbetween, duplicate, ink, light, hatch, scatter, paint, foliage, grass, paintover, part, key, bone, ik, weights, pose or export"
+                    "unknown op {other:?}: use add, set, rm, mv, stroke, fill, pixel, palette, canvas, transform, path, lasso, copy, timeline, frames, cel, clip, retime, inbetween, duplicate, ink, light, hatch, scatter, paint, foliage, grass, paintover, part, key, bone, ik, weights, pose or export"
                 )
             }
         };
@@ -4011,6 +4037,13 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
             }
             doc.atmosphere = air.clone();
             out.changed.push("atmosphere".into());
+        }
+        Op::Canvas { wrap } => {
+            let Some(wrap) = wrap else {
+                bail!("canvas needs \"wrap\": true or false (a tile that repeats at its edges)");
+            };
+            doc.canvas.wrap = *wrap;
+            out.changed.push("canvas".into());
         }
         Op::Timeline { fps, frames, origin } => {
             timing::timeline(doc, *fps, *frames)?;

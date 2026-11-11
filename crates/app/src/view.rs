@@ -84,7 +84,7 @@ impl View {
         self.keep(anchor, at, area);
     }
 
-    pub fn uniform(self, area: Vec2, pixels_per_point: f32, canvas: Vec2) -> [f32; 12] {
+    pub fn uniform(self, area: Vec2, pixels_per_point: f32, canvas: Vec2, repeat: bool) -> [f32; 12] {
         let (s, c) = self.angle.sin_cos();
         let k = pixels_per_point * self.zoom;
         let f = if self.flip { -1.0 } else { 1.0 };
@@ -105,7 +105,7 @@ impl View {
             area.y * pixels_per_point,
             canvas.x,
             canvas.y,
-            pixels_per_point,
+            if repeat { 1.0 } else { 0.0 },
             8.0 * pixels_per_point,
         ]
     }
@@ -171,7 +171,7 @@ mod tests {
         let area = Vec2::new(900.0, 600.0);
         let mut view = View::fit(Vec2::new(1024.0, 1024.0), area);
         view.angle = -0.3;
-        let u = view.uniform(area, 2.0, Vec2::new(1024.0, 1024.0));
+        let u = view.uniform(area, 2.0, Vec2::new(1024.0, 1024.0), false);
         let p = Vec2::new(100.0, 700.0);
         let px = Vec2::new(u[0] * p.x + u[1] * p.y + u[4], u[2] * p.x + u[3] * p.y + u[5]);
         assert!(close(px, view.to_screen(p, area) * 2.0));
@@ -192,7 +192,7 @@ mod tests {
         view.zoom_at(1.7, Vec2::new(200.0, 100.0), area);
         let p = Vec2::new(321.0, 654.0);
         assert!(close(view.to_canvas(view.to_screen(p, area), area), p));
-        let u = view.uniform(area, 2.0, Vec2::new(1000.0, 800.0));
+        let u = view.uniform(area, 2.0, Vec2::new(1000.0, 800.0), false);
         let px = Vec2::new(u[0] * p.x + u[1] * p.y + u[4], u[2] * p.x + u[3] * p.y + u[5]);
         assert!(close(px, view.to_screen(p, area) * 2.0));
         let before = view.to_screen(p, area);

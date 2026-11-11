@@ -1000,6 +1000,63 @@ fn pixels_are_shaded_dithered_outlined_and_replaced_from_the_command_line() {
 }
 
 #[test]
+fn a_tile_wraps_at_its_edges_mirrors_and_renders_repeated_from_the_command_line() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-tile-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("tile.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let rows = || -> Vec<String> {
+        draw(&["pixels", path, "l1", "--plain"])
+            .lines()
+            .skip_while(|line| !line.is_empty())
+            .skip(1)
+            .map(String::from)
+            .collect()
+    };
+    draw(&["new", path, "--pixel", "8x4", "--wrap"]);
+    assert!(draw(&["canvas", path]).contains("wraps at its edges"));
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--rect", "6,3,4,2", "--filled"]);
+    assert_eq!(
+        rows(),
+        ["ii....ii", "........", "........", "ii....ii"],
+        "a block over the corner shows in all four corners"
+    );
+    draw(&[
+        "pixel",
+        path,
+        "l1",
+        "--color",
+        "ink",
+        "--cells",
+        "1,1",
+        "--mirror-x",
+        "4",
+        "--mirror-y",
+        "2",
+    ]);
+    assert_eq!(rows()[1..3], [".i....i.", ".i....i."]);
+    let shown = run(&["render", path, "--repeat", "3", "--scale", "4"]);
+    assert!(
+        String::from_utf8_lossy(&shown.stderr).contains("96x48"),
+        "three tiles across and down at 4x: {}",
+        String::from_utf8_lossy(&shown.stderr)
+    );
+    draw(&["canvas", path, "--wrap", "off"]);
+    assert!(draw(&["canvas", path]).contains("stops at its edges"));
+    let json: serde_json::Value = serde_json::from_str(&draw(&["canvas", path, "--json"])).unwrap();
+    assert_eq!((json["width"].as_u64(), json.get("wrap")), (Some(8), None));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn recolour_moves_strokes_together_and_keeps_their_shades() {
     let dir = std::env::temp_dir().join(format!("draw-binary-recolour-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

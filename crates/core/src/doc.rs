@@ -69,6 +69,8 @@ pub struct Canvas {
     pub height: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub wrap: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1046,6 +1048,7 @@ impl Document {
                 width,
                 height,
                 background: None,
+                wrap: false,
             },
             timeline: Timeline::default(),
             palette: Vec::new(),

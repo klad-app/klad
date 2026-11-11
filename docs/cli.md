@@ -9,6 +9,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 ## Commands
 
 - [`klad new`](#klad-new): Create an empty bundle with paint layers
+- [`klad canvas`](#klad-canvas): The canvas: its size and background, and whether it wraps at its edges
 - [`klad frames`](#klad-frames): Exposure sheet: a row per frame, a column per layer (top first)
 - [`klad frame`](#klad-frame): Insert or remove frames in every layer or the listed ones
 - [`klad arcs`](#klad-arcs): Track marks, parts or points across frames: positions, spacing, ground contacts, feet crossing
@@ -127,8 +128,49 @@ Options:
       --pixel <WxH>
           A pixel art drawing of that many pixels, for example 64x64: its layers are pixel layers
 
+      --wrap
+          A tile: what is drawn past an edge comes back in on the other side
+
   -h, --help
           Print help
+```
+
+## klad canvas
+
+```text
+The canvas: its size and background, and whether it wraps at its edges. On a canvas that wraps, a tile, pixels drawn past an edge come back in on the other side, and fills and outlines go round the edges, so the drawing repeats without a seam. klad render --repeat 3 shows it repeated.
+
+  klad canvas tile.klad
+  klad canvas tile.klad --wrap on
+
+As an op: {"op":"canvas","wrap":true}.
+
+Usage: klad canvas [OPTIONS] <BUNDLE>
+
+Arguments:
+  <BUNDLE>
+
+
+Options:
+      --wrap <WRAP>
+          Turn wrapping at the edges on or off
+
+          [possible values: on, off]
+
+      --render
+          Render a preview after the edit and print its path
+
+      --scale <SCALE>
+          Preview scale (default: longest side 1024 px)
+
+      --json
+          Print the result as JSON
+
+      --overlay <OVERLAY>
+          Draw on the preview: ids, bbox, grid or all (comma separated)
+
+  -h, --help
+          Print help (see a summary with '-h')
 ```
 
 ## klad frames
@@ -1465,6 +1507,11 @@ Options:
       --no-cache
           Replay every stroke instead of using cached tiles
 
+      --repeat <REPEAT>
+          Show the picture this many times across and down (up to 9), to check a tile's seams
+
+          [default: 1]
+
       --references
           Show reference layers (photos to trace over), which renders leave out
 
@@ -1764,6 +1811,12 @@ Options:
 
       --path <PATH>
           SVG path data drawn as a line of pixels, one pixel wide with no doubled corners on curves: 'M3.5 20.5 C 10 4 22 4 28.5 20.5'
+
+      --mirror-x <X>
+          Also draw the mirror image across the upright line at this x: a whole number is the line between two pixels, .5 runs through a column
+
+      --mirror-y <Y>
+          Also draw the mirror image across the level line at this y
 
       --size <SIZE>
           The pencil's size: a square of this many pixels a side (1 to 64)

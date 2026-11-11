@@ -713,6 +713,16 @@ impl Editor {
     }
 
     fn pixel_inks(&mut self, ui: &mut egui::Ui) {
+        self.command_check(ui, Cmd::Symmetry, "mirror");
+        if let Some(axis) = self.mirror.as_mut() {
+            ui.add(
+                egui::DragValue::new(axis)
+                    .speed(0.5)
+                    .prefix("at x ")
+                    .custom_formatter(|v, _| format!("{:.1}", (v * 2.0).round() / 2.0)),
+            )
+            .hint("where the mirror line stands: a whole number is between two pixels, .5 runs through a column");
+        }
         ui.separator();
         [
             (super::PixelMode::Draw, "colour", "draw in the current colour"),

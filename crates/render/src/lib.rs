@@ -46,6 +46,22 @@ impl Frame {
         fnv(FNV_OFFSET, &self.rgba)
     }
 
+    pub fn tiled(&self, times: u32) -> Frame {
+        let times = times.max(1) as usize;
+        let row = self.width as usize * 4;
+        let rgba = (0..self.height as usize * times)
+            .flat_map(|y| {
+                let line = &self.rgba[(y % self.height as usize) * row..][..row];
+                (0..times).flat_map(move |_| line.iter().copied())
+            })
+            .collect();
+        Frame {
+            width: self.width * times as u32,
+            height: self.height * times as u32,
+            rgba,
+        }
+    }
+
     pub fn png(&mut self) -> Result<Vec<u8>> {
         let info = rgba8_info(self.width, self.height);
         let pixmap =

@@ -2162,6 +2162,60 @@ fn the_pencil_shades_and_dithers_and_a_selection_steps_along_its_ramp_and_takes_
 }
 
 #[test]
+fn the_pixel_pencil_mirrors_across_a_line_and_wraps_on_a_tile() {
+    let path = pixel_sample("pixel-mirror");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    h.state_mut().tool = Tool::Brush;
+    h.state_mut()
+        .set_colour(klad_core::color::parse_hex("#2a9d8f").unwrap());
+    h.run_steps(2);
+    let last = |h: &Harness<'static, Editor>| -> Vec<[u32; 2]> {
+        h.state()
+            .scene
+            .active_marks()
+            .last()
+            .and_then(|m| m.as_fill())
+            .map(|f| f.coverage.cells().collect())
+            .unwrap_or_default()
+    };
+    assert_eq!(h.state().is_on(Cmd::Symmetry), Some(false));
+    h.state_mut().invoke(Cmd::Symmetry).unwrap();
+    h.run_steps(2);
+    assert_eq!(
+        h.state().mirror,
+        Some(16.0),
+        "the mirror line starts in the middle of the 32 pixel canvas"
+    );
+    let at = on_screen(&h, 10.5, 12.5);
+    click_with(&mut h, at, Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!(
+        last(&h),
+        [[10, 12], [21, 12]],
+        "a pixel and its twin across the line between 15 and 16"
+    );
+    h.state_mut().invoke(Cmd::Symmetry).unwrap();
+    assert_eq!(h.state().is_on(Cmd::WrapCanvas), Some(false));
+    h.state_mut().invoke(Cmd::WrapCanvas).unwrap();
+    h.run_steps(3);
+    assert!(h.state().scene.bundle.doc.canvas.wrap && h.state().is_on(Cmd::WrapCanvas) == Some(true));
+    let (a, b) = (on_screen(&h, 29.5, 20.5), on_screen(&h, 33.5, 20.5));
+    drag(&mut h, a, b);
+    h.run_steps(3);
+    ready(&mut h);
+    assert_eq!(
+        last(&h),
+        [[0, 20], [1, 20], [29, 20], [30, 20], [31, 20]],
+        "a line drawn past the right edge comes back in on the left"
+    );
+    h.state_mut().invoke(Cmd::Undo).unwrap();
+    h.state_mut().invoke(Cmd::WrapCanvas).unwrap();
+    h.run_steps(3);
+    assert!(!h.state().scene.bundle.doc.canvas.wrap);
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn a_tap_that_wobbles_selects_and_a_drag_past_three_points_moves() {
     let path = sample("tap");
     let mut h = harness(editor(&path), vec2(1440.0, 900.0));

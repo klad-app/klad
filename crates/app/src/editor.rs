@@ -1787,6 +1787,9 @@ impl Editor {
     }
 
     fn visible_tiles(&self, view: View, rect: Rect) -> BTreeSet<usize> {
+        if self.scene.bundle.doc.canvas.wrap {
+            return self.scene.all_tiles().into_iter().collect();
+        }
         let size = rect.size();
         let corners = [vec2(0.0, 0.0), vec2(size.x, 0.0), vec2(0.0, size.y), size].map(|p| view.to_canvas(p, size));
         let range = |lo: f32, hi: f32, count: usize| {
@@ -3431,9 +3434,22 @@ impl Editor {
             shade,
             dither,
             second: dither.filter(|_| self.pixel_two).map(|_| color::hex(self.second)),
+            mirror_x: self.mirror.map(|axis| (axis * 2.0).round() / 2.0),
             by_hand: true,
             ..klad_core::ops::PixelSpec::default()
         })
+    }
+
+    fn pixel_preview(&self, cells: Vec<klad_core::pixel::Cell>) -> Vec<klad_core::pixel::Cell> {
+        let twinned = match self.mirror {
+            Some(axis) => klad_core::pixel::mirrored(&cells, Some((axis * 2.0).round() / 2.0), None),
+            None => cells,
+        };
+        let canvas = &self.scene.bundle.doc.canvas;
+        match canvas.wrap {
+            true => klad_core::pixel::wrapped(&twinned, canvas.width, canvas.height),
+            false => twinned,
+        }
     }
 
     pub(super) fn apply_pixels(&mut self, spec: klad_core::ops::PixelSpec) -> Result<()> {
@@ -3543,12 +3559,7 @@ impl Editor {
             return Ok(());
         };
         self.pixel_last = live.run.last().copied();
-        let (w, h) = self.scene.size();
-        let cells: Vec<klad_core::pixel::Cell> = self
-            .pixel_cells(&live)
-            .into_iter()
-            .filter(|c| c[0] >= 0 && c[1] >= 0 && c[0] < w as i64 && c[1] < h as i64)
-            .collect();
+        let cells = self.pixel_cells(&live);
         let Some(spec) = self.pixel_spec(live.erase).filter(|_| !cells.is_empty()) else {
             return Ok(());
         };
@@ -3710,7 +3721,7 @@ impl Editor {
         };
         self.frames.set_level(level);
         let show = self.tend_frames()?;
-        let view_uniform = view.uniform(area, ctx.pixels_per_point(), canvas);
+        let view_uniform = view.uniform(area, ctx.pixels_per_point(), canvas, self.scene.bundle.doc.canvas.wrap);
         let (w, h) = self.scene.size();
         let visible = self.visible_tiles(view, rect);
         let previewed = self.tend_preview(visible)?;
@@ -3854,12 +3865,12 @@ impl Editor {
                 }
                 .drawn()
                 .ok()
-                .map(|cells| (cells, spec.erase))
+                .map(|cells| (self.pixel_preview(cells), spec.erase))
             });
         let drawing = self
             .pixel_live
             .as_ref()
-            .map(|live| (self.pixel_cells(live), live.erase))
+            .map(|live| (self.pixel_preview(self.pixel_cells(live)), live.erase))
             .or(shaped);
         if let Some((cells, erase)) = drawing {
             let shading = !erase && self.pixel_mode != PixelMode::Draw;
@@ -3949,7 +3960,9 @@ impl Editor {
         }
         self.decorate_shape(&painter, &|x, y| self.screen(view, rect, vec2(x, y)), accent);
         self.decorate_typing(&painter, view, rect, accent);
-        if let Some(axis) = self.mirror.filter(|_| self.tool == Tool::Brush) {
+        let mirrors =
+            self.tool == Tool::Brush || (self.scene.on_grid() && matches!(self.tool, Tool::Shape | Tool::Fill));
+        if let Some(axis) = self.mirror.filter(|_| mirrors) {
             let h = self.scene.size().1 as f32;
             painter.add(egui::Shape::dashed_line(
                 &[

@@ -193,6 +193,7 @@ impl Editor {
                     Some(_) => editing,
                 }
             }
+            Cmd::WrapCanvas => editing,
             Cmd::PixelGrid => (!self.scene.bundle.doc.pixel_art())
                 .then(|| "this drawing has no pixel layer: Layer > New pixel layer adds one".to_string()),
             Cmd::Corner | Cmd::Smooth => direct
@@ -415,6 +416,7 @@ impl Editor {
             Cmd::Eraser => self.tool == Tool::Brush && erasing,
             Cmd::FlipView => self.view.is_some_and(|v| v.flip),
             Cmd::PixelGrid => self.settings.pixel_grid,
+            Cmd::WrapCanvas => self.scene.bundle.doc.canvas.wrap,
             Cmd::PreviewPane => layout.dock && layout.is_open(Pane::Preview),
             Cmd::Fill => self.tool == Tool::Fill,
             Cmd::Shapes => self.tool == Tool::Select,
@@ -997,6 +999,11 @@ impl Editor {
             Cmd::PixelGrid => {
                 self.settings.pixel_grid = !self.settings.pixel_grid;
                 self.settings_dirty = true;
+            }
+            Cmd::WrapCanvas => {
+                let wrap = !self.scene.bundle.doc.canvas.wrap;
+                self.apply(vec![Op::Canvas { wrap: Some(wrap) }])?;
+                self.dirty.extend(self.scene.all_tiles());
             }
             Cmd::Timeline => {
                 self.settings.layout.timeline = !self.settings.layout.timeline;

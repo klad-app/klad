@@ -136,6 +136,7 @@ pub enum Cmd {
     HistoryPane,
     PreviewPane,
     PixelGrid,
+    WrapCanvas,
     Timeline,
     Numbers,
     Settings,
@@ -516,7 +517,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 189] = [
+    pub const ALL: [Cmd; 190] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -649,6 +650,7 @@ impl Cmd {
         Cmd::HistoryPane,
         Cmd::PreviewPane,
         Cmd::PixelGrid,
+        Cmd::WrapCanvas,
         Cmd::Timeline,
         Cmd::Numbers,
         Cmd::Settings,
@@ -1970,6 +1972,15 @@ impl Cmd {
                 R::No,
                 "lines between the pixels of a pixel drawing once it is zoomed in far enough to tell them apart",
             ),
+            Cmd::WrapCanvas => spec(
+                "view.wrap",
+                "tile: wrap at the edges",
+                icon::REPEAT,
+                G::View,
+                T::None,
+                R::No,
+                "the drawing is a tile: pixels drawn past an edge come back in on the other side, and the canvas shows its repeats around it",
+            ),
             Cmd::FlipView => spec(
                 "view.flip",
                 "flip the view left-right",
@@ -2542,6 +2553,7 @@ impl Cmd {
             Cmd::HistoryPane => "History",
             Cmd::PreviewPane => "Real size",
             Cmd::PixelGrid => "Pixel grid",
+            Cmd::WrapCanvas => "Tile: wrap at the edges",
             Cmd::Timeline => "Timeline",
             Cmd::Numbers => "Show numbers",
             Cmd::Settings => "Settings…",
@@ -2890,6 +2902,7 @@ pub const MENUS: [Menu; 9] = [
             Run(Cmd::ResetRotation),
             Run(Cmd::FlipView),
             Run(Cmd::PixelGrid),
+            Run(Cmd::WrapCanvas),
             Line,
             Run(Cmd::CompareReference),
         ],

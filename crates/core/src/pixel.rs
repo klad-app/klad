@@ -216,8 +216,49 @@ pub fn ellipse(at: Cell, size: [i64; 2], filled: bool) -> Vec<Cell> {
         .collect()
 }
 
-pub fn flood(grid: &Grid, at: Cell, diagonal: bool) -> Vec<Cell> {
+pub fn mirrored(cells: &[Cell], x: Option<f32>, y: Option<f32>) -> Vec<Cell> {
+    let across = |v: i64, axis: f32| (2.0 * axis).round() as i64 - 1 - v;
+    let mut seen = BTreeSet::new();
+    cells
+        .iter()
+        .flat_map(|c| {
+            let over = x.map(|axis| [across(c[0], axis), c[1]]);
+            let under = y.map(|axis| [c[0], across(c[1], axis)]);
+            let both = x.zip(y).map(|(ax, ay)| [across(c[0], ax), across(c[1], ay)]);
+            [Some(*c), over, under, both].into_iter().flatten()
+        })
+        .filter(|c| seen.insert(*c))
+        .collect()
+}
+
+pub fn wrapped(cells: &[Cell], width: u32, height: u32) -> Vec<Cell> {
+    let (w, h) = (width.max(1) as i64, height.max(1) as i64);
+    let mut seen = BTreeSet::new();
+    cells
+        .iter()
+        .map(|c| [c[0].rem_euclid(w), c[1].rem_euclid(h)])
+        .filter(|c| seen.insert(*c))
+        .collect()
+}
+
+fn neighbours(c: Cell, diagonal: bool, (w, h): (i64, i64), wrap: bool) -> impl Iterator<Item = Cell> {
+    const STEPS: [(i64, i64); 8] = [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)];
+    STEPS
+        .into_iter()
+        .take(if diagonal { 8 } else { 4 })
+        .map(move |(dx, dy)| [c[0] + dx, c[1] + dy])
+        .filter_map(move |n| match wrap {
+            true => Some([n[0].rem_euclid(w), n[1].rem_euclid(h)]),
+            false => (n[0] >= 0 && n[1] >= 0 && n[0] < w && n[1] < h).then_some(n),
+        })
+}
+
+pub fn flood(grid: &Grid, at: Cell, diagonal: bool, wrap: bool) -> Vec<Cell> {
     let (w, h) = (grid.width as i64, grid.height as i64);
+    let at = match wrap && w > 0 && h > 0 {
+        true => [at[0].rem_euclid(w), at[1].rem_euclid(h)],
+        false => at,
+    };
     if at[0] < 0 || at[1] < 0 || at[0] >= w || at[1] >= h {
         return Vec::new();
     }
@@ -229,21 +270,13 @@ pub fn flood(grid: &Grid, at: Cell, diagonal: bool) -> Vec<Cell> {
     let mut out = Vec::new();
     while let Some(c) = queue.pop() {
         out.push(c);
-        let steps: &[(i64, i64)] = match diagonal {
-            true => &[(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)],
-            false => &[(1, 0), (-1, 0), (0, 1), (0, -1)],
-        };
-        steps
-            .iter()
-            .map(|(dx, dy)| [c[0] + dx, c[1] + dy])
-            .filter(|n| n[0] >= 0 && n[1] >= 0 && n[0] < w && n[1] < h)
-            .for_each(|n| {
-                let i = (n[1] * w + n[0]) as usize;
-                if !seen[i] && key(n) == wanted {
-                    seen[i] = true;
-                    queue.push(n);
-                }
-            });
+        neighbours(c, diagonal, (w, h), wrap).for_each(|n| {
+            let i = (n[1] * w + n[0]) as usize;
+            if !seen[i] && key(n) == wanted {
+                seen[i] = true;
+                queue.push(n);
+            }
+        });
     }
     out.sort_by_key(|c| (c[1], c[0]));
     out
@@ -256,18 +289,17 @@ pub fn dithered(cell: Cell, percent: u32) -> bool {
     BAYER[cell[1].rem_euclid(4) as usize][cell[0].rem_euclid(4) as usize] < level
 }
 
-pub fn outline(grid: &Grid, inside: bool, diagonal: bool) -> Vec<Cell> {
+pub fn outline(grid: &Grid, inside: bool, diagonal: bool, wrap: bool) -> Vec<Cell> {
     let (w, h) = (grid.width as i64, grid.height as i64);
-    let filled =
-        |c: Cell| c[0] >= 0 && c[1] >= 0 && c[0] < w && c[1] < h && grid.at(c[0] as u32, c[1] as u32).is_some();
-    let steps: &[(i64, i64)] = match diagonal {
-        true => &[(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)],
-        false => &[(1, 0), (-1, 0), (0, 1), (0, -1)],
-    };
+    let filled = |c: Cell| grid.at(c[0] as u32, c[1] as u32).is_some();
     (0..h)
         .flat_map(|y| (0..w).map(move |x| [x, y]))
         .filter(|c| filled(*c) == inside)
-        .filter(|c| steps.iter().any(|(dx, dy)| filled([c[0] + dx, c[1] + dy]) != inside))
+        .filter(|c| {
+            let around: Vec<Cell> = neighbours(*c, diagonal, (w, h), wrap).collect();
+            let edge = inside && !wrap && around.len() < if diagonal { 8 } else { 4 };
+            edge || around.iter().any(|n| filled(*n) != inside)
+        })
         .collect()
 }
 
@@ -757,27 +789,70 @@ mod tests {
         };
         let walls = grid(&["..a..", ".a.a.", "..a..", "....."]);
         assert_eq!(
-            flood(&walls, [2, 1], false),
+            flood(&walls, [2, 1], false, false),
             [[2, 1]],
             "four neighbours stop at a diamond"
         );
         assert_eq!(
-            flood(&walls, [2, 1], true).len(),
+            flood(&walls, [2, 1], true, false).len(),
             20 - 4,
             "eight slip out between its corners"
         );
         assert_eq!(
-            flood(&walls, [2, 0], false),
+            flood(&walls, [2, 0], false, false),
             [[2, 0]],
             "a fill takes pixels of exactly the seed's colour"
         );
         assert_eq!(
-            flood(&walls, [2, 0], true).len(),
+            flood(&walls, [2, 0], true, false).len(),
             4,
             "and the diamond is joined across its corners"
         );
-        assert_eq!(flood(&walls, [0, 0], false).len(), 15);
-        assert!(flood(&walls, [9, 9], false).is_empty());
+        assert_eq!(flood(&walls, [0, 0], false, false).len(), 15);
+        assert!(flood(&walls, [9, 9], false, false).is_empty());
+        let bar = grid(&["..a..", "..a..", "..a..", "..a.."]);
+        assert_eq!(
+            flood(&bar, [0, 0], false, false).len(),
+            8,
+            "a wall across the canvas stops a fill"
+        );
+        assert_eq!(
+            flood(&bar, [0, 0], false, true).len(),
+            16,
+            "unless the canvas wraps: the fill goes round the edge"
+        );
+        assert_eq!(
+            flood(&bar, [-5, 4], false, true).len(),
+            16,
+            "and a seed off the canvas wraps onto it"
+        );
+        assert_eq!(outline(&bar, false, false, false).len(), 8);
+        let dot = grid(&["a....", ".....", "....."]);
+        assert_eq!(outline(&dot, false, false, false), [[1, 0], [0, 1]]);
+        assert_eq!(
+            outline(&dot, false, false, true),
+            [[1, 0], [4, 0], [0, 1], [0, 2]],
+            "on a wrapping canvas the outline comes back in on the other side"
+        );
+        assert_eq!(outline(&dot, true, false, false), [[0, 0]]);
+        assert_eq!(
+            mirrored(&[[2, 3], [5, 3]], Some(8.0), None),
+            [[2, 3], [13, 3], [5, 3], [10, 3]],
+            "across the line between pixels 7 and 8"
+        );
+        assert_eq!(
+            mirrored(&[[7, 0]], Some(7.5), None),
+            [[7, 0]],
+            "a pixel on the mirror line is its own twin"
+        );
+        assert_eq!(
+            mirrored(&[[1, 1]], Some(4.0), Some(4.0)),
+            [[1, 1], [6, 1], [1, 6], [6, 6]]
+        );
+        assert_eq!(
+            wrapped(&[[-1, 0], [8, 9], [3, 3], [11, 3]], 8, 8),
+            [[7, 0], [0, 1], [3, 3]]
+        );
         let under = grid(&["bb...", ".....", ".....", "....."]);
         let both = merged(&[under, walls.clone()]).unwrap();
         assert_eq!(

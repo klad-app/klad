@@ -464,7 +464,7 @@ impl Bundle {
         let placed = match (spec.fill, spec.outline) {
             (Some(seed), _) => {
                 let grid = self.shown(doc, plan, spec, spec.reference.as_deref())?;
-                let cells = pixel::flood(&grid, seed, spec.diagonal);
+                let cells = spec.twinned(pixel::flood(&grid, seed, spec.diagonal, doc.canvas.wrap));
                 if cells.is_empty() {
                     bail!(
                         "the fill starts at {},{}, which is off the {w}x{h} canvas",
@@ -476,7 +476,7 @@ impl Bundle {
             }
             (None, true) => {
                 let grid = self.shown(doc, plan, spec, spec.reference.as_deref())?;
-                let cells = pixel::outline(&grid, spec.inside, spec.diagonal);
+                let cells = pixel::outline(&grid, spec.inside, spec.diagonal, doc.canvas.wrap);
                 if cells.is_empty() {
                     bail!("there are no pixels to outline at frame {}", spec.frame);
                 }
@@ -504,8 +504,14 @@ impl Bundle {
             shade: None,
             dither: None,
             second: None,
+            mirror_x: None,
+            mirror_y: None,
             size: 1,
             ..spec.clone()
+        };
+        let placed = match doc.canvas.wrap {
+            true => pixel::wrapped(&placed, w, h),
+            false => placed,
         };
         if let Some(by) = spec.shade {
             let grid = self.shown(doc, plan, spec, None)?;
@@ -858,6 +864,8 @@ pub fn summarize(ops: &[Op]) -> String {
             ),
             Op::Timeline { origin: Some(_), .. } => "timeline origin".to_string(),
             Op::Timeline { .. } => "timeline".to_string(),
+            Op::Canvas { wrap: Some(true) } => "the canvas wraps".to_string(),
+            Op::Canvas { .. } => "the canvas stops at its edges".to_string(),
             Op::Atmosphere(Some(_)) => "atmosphere".to_string(),
             Op::Atmosphere(None) => "atmosphere off".to_string(),
             Op::Clip(edit) => match edit {
@@ -2154,6 +2162,83 @@ mod tests {
         assert!(
             wrong(r##"{"op":"pixel","layer":"lb","color":"ink","dither":140,"cells":[[1,1]]}"##).contains("0 to 100")
         );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_wrapping_canvas_brings_pixels_fills_and_outlines_round_its_edges_and_a_mirror_twins_them() {
+        use crate::ops::parse_lines;
+        let dir = scratch("pixel-wrap");
+        let mut bundle = Bundle::blank(
+            &dir,
+            &Blank {
+                width: 8,
+                height: 6,
+                pixel: true,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let layer = bundle.doc.layers[0].id.clone();
+        let rows = |bundle: &Bundle| -> Vec<String> {
+            let cel = bundle.doc.layers[0].cels()[0].id.clone();
+            let grid = crate::pixel::grid_of(&bundle.read_marks(&layer, &cel).unwrap(), 8, 6);
+            crate::pixel::rows(&grid, &crate::pixel::legend(&bundle.doc, &grid))
+        };
+        let run = |bundle: &mut Bundle, lines: String| bundle.apply(&parse_lines(&lines).unwrap()).unwrap();
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}",
+                r##"{"op":"palette","add":"#22223b","name":"ink"}"##,
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"ink","line":[6,1,9,1]}}"##),
+            ),
+        );
+        assert_eq!(
+            rows(&bundle)[1],
+            "......ii",
+            "without wrap the pixels past the edge are dropped"
+        );
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}\n{}\n{}",
+                r##"{"op":"canvas","wrap":true}"##,
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"ink","line":[6,3,9,3]}}"##),
+                format_args!(
+                    r##"{{"op":"pixel","layer":"{layer}","color":"ink","cells":[[1,-1],[2,5]],"mirrorX":4}}"##
+                ),
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"ink","line":[0,4,7,4]}}"##),
+            ),
+        );
+        assert!(bundle.doc.canvas.wrap);
+        assert_eq!(
+            rows(&bundle),
+            ["........", "......ii", "........", "ii....ii", "iiiiiiii", ".ii..ii."],
+            "the line comes back in on the left; the pixel above the top lands on the bottom row; both have a twin across x 4"
+        );
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}",
+                r##"{"op":"palette","add":"#8ecae6","name":"sky"}"##,
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"sky","fill":[3,0]}}"##),
+            ),
+        );
+        assert_eq!(
+            rows(&bundle),
+            ["ssssssss", "ssssssii", "ssssssss", "iissssii", "iiiiiiii", "siissiis"],
+            "the fill goes over the top edge into the bottom row, and stops at the wall of row 4"
+        );
+        run(&mut bundle, r##"{"op":"canvas","wrap":false}"##.to_string());
+        assert!(!bundle.doc.canvas.wrap);
+        assert!(
+            !fs::read_to_string(dir.join("doc.json")).unwrap().contains("wrap"),
+            "wrap off is not written"
+        );
+        let wrong = format!("{:#}", parse_lines(r##"{"op":"canvas","wrap":"yes"}"##).unwrap_err());
+        assert!(wrong.contains("true or false"), "{wrong}");
         fs::remove_dir_all(&dir).unwrap();
     }
 }

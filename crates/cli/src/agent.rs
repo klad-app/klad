@@ -33,6 +33,7 @@ pub struct Look {
     pub onion_layers: Option<Vec<String>>,
     pub tracks: Vec<String>,
     pub references: bool,
+    pub repeat: u32,
 }
 
 impl Look {
@@ -45,6 +46,7 @@ impl Look {
             onion_layers: None,
             tracks: Vec::new(),
             references: false,
+            repeat: 1,
         }
     }
 
@@ -440,14 +442,22 @@ pub fn render_look(
         .then(|| onions(bundle, frame, &onion_layers(bundle, look)?, look, &brushes))
         .transpose()?;
     let rasters: &Rasters = &loaded.rasters;
-    let mut image = compose_view(&bundle.doc, frame, rasters, view, overlay.as_ref(), onions.as_ref())?;
+    let image = compose_view(&bundle.doc, frame, rasters, view, overlay.as_ref(), onions.as_ref())?;
     let tag = match (overlay.is_some(), onions.is_some()) {
         (true, true) => "-overlay-onion",
         (true, false) => "-overlay",
         (false, true) => "-onion",
         (false, false) => "",
     };
-    let path = out.unwrap_or_else(|| render_path(bundle, frame, view, tag));
+    let tag = match look.repeat > 1 {
+        true => format!("{tag}-x{}", look.repeat),
+        false => tag.to_string(),
+    };
+    let mut image = match look.repeat > 1 {
+        true => image.tiled(look.repeat),
+        false => image,
+    };
+    let path = out.unwrap_or_else(|| render_path(bundle, frame, view, &tag));
     write_atomic(&path, &image.png()?)?;
     let note = match loaded.updated {
         0 => format!(

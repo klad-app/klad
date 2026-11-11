@@ -1,4 +1,4 @@
-_Last updated: 2026-11-11 17:20 (format `klad/7`, stroke files `KLST` version 3, brushes `klad-brush/1`)_
+_Last updated: 2026-11-12 04:00 (format `klad/7`, stroke files `KLST` version 3, brushes `klad-brush/1`)_
 
 # The klad drawing format
 
@@ -61,7 +61,7 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `format` | string | | `"klad/7"` |
-| `canvas` | object | | `width`, `height` (px), `background` (a colour; none is transparent) |
+| `canvas` | object | | `width`, `height` (px), `background` (a colour; none is transparent), `wrap` (bool, default false: the drawing is a tile, and klad brings pixel marks drawn past an edge back in on the other side; it changes nothing about how the drawing renders) |
 | `timeline` | object | 12 fps, 1 frame | see below |
 | `palette` | array | `[]` | swatches: `color`, optional `name` (unique, not starting with `#`), optional `id` (unique; set once a pixel mark uses the swatch), optional `ramp` (the name of the ramp it belongs to) |
 | `layers` | array | | the layers, **bottom first** |
