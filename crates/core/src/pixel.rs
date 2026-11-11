@@ -249,6 +249,28 @@ pub fn flood(grid: &Grid, at: Cell, diagonal: bool) -> Vec<Cell> {
     out
 }
 
+const BAYER: [[u32; 4]; 4] = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
+
+pub fn dithered(cell: Cell, percent: u32) -> bool {
+    let level = (percent.min(100) * 16 + 50) / 100;
+    BAYER[cell[1].rem_euclid(4) as usize][cell[0].rem_euclid(4) as usize] < level
+}
+
+pub fn outline(grid: &Grid, inside: bool, diagonal: bool) -> Vec<Cell> {
+    let (w, h) = (grid.width as i64, grid.height as i64);
+    let filled =
+        |c: Cell| c[0] >= 0 && c[1] >= 0 && c[0] < w && c[1] < h && grid.at(c[0] as u32, c[1] as u32).is_some();
+    let steps: &[(i64, i64)] = match diagonal {
+        true => &[(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)],
+        false => &[(1, 0), (-1, 0), (0, 1), (0, -1)],
+    };
+    (0..h)
+        .flat_map(|y| (0..w).map(move |x| [x, y]))
+        .filter(|c| filled(*c) == inside)
+        .filter(|c| steps.iter().any(|(dx, dy)| filled([c[0] + dx, c[1] + dy]) != inside))
+        .collect()
+}
+
 pub fn merged(grids: &[Grid]) -> Option<Grid> {
     let first = grids.first()?;
     let cells = (0..first.cells.len())
@@ -321,21 +343,18 @@ const SIGNS: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456
 
 pub fn legend(doc: &Document, grid: &Grid) -> Vec<Named> {
     let used: BTreeSet<&str> = grid.keys().into_iter().collect();
-    let entries: Vec<(String, String, String)> = doc
+    let entries = doc
         .palette
         .iter()
-        .filter(|s| !s.id.is_empty() && used.contains(s.id.as_str()))
         .map(|s| (s.id.clone(), s.name.clone(), s.color.clone()))
         .chain(
             grid.keys()
                 .into_iter()
                 .filter(|k| doc.entry(k).is_none())
                 .map(|k| (k.to_string(), String::new(), k.to_string())),
-        )
-        .collect();
+        );
     let mut taken: BTreeSet<char> = BTreeSet::new();
     entries
-        .into_iter()
         .map(|(key, name, color)| {
             let wished = name.chars().find(|c| c.is_ascii_alphanumeric());
             let sign = wished
@@ -347,6 +366,7 @@ pub fn legend(doc: &Document, grid: &Grid) -> Vec<Named> {
             taken.insert(sign);
             Named { sign, key, name, color }
         })
+        .filter(|n| used.contains(n.key.as_str()))
         .collect()
 }
 

@@ -509,6 +509,13 @@ impl PreviewState {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PixelMode {
+    Draw,
+    Lighter,
+    Darker,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PixelShape {
     Rect,
     Ellipse,
@@ -749,6 +756,9 @@ pub(crate) struct Editor {
     pub(crate) pixel_diagonal: bool,
     pub(crate) pixel_fill_all: bool,
     pub(crate) pixel_box: bool,
+    pub(crate) pixel_mode: PixelMode,
+    pub(crate) pixel_dither: u32,
+    pub(crate) pixel_two: bool,
     pixel_live: Option<PixelLive>,
     pixel_last: Option<klad_core::pixel::Cell>,
     hover_cell: Option<[i32; 2]>,
@@ -947,6 +957,9 @@ impl Editor {
             pixel_diagonal: false,
             pixel_fill_all: false,
             pixel_box: true,
+            pixel_mode: PixelMode::Draw,
+            pixel_dither: 100,
+            pixel_two: false,
             pixel_live: None,
             pixel_last: None,
             hover_cell: None,
@@ -3403,15 +3416,70 @@ impl Editor {
         klad_core::pixel::stamp(&run, self.pixel_size)
     }
 
-    fn pixel_spec(&self, erase: bool) -> Option<klad_core::ops::PixelSpec> {
+    pub(super) fn pixel_spec(&self, erase: bool) -> Option<klad_core::ops::PixelSpec> {
+        let shade = match (erase, self.pixel_mode) {
+            (false, PixelMode::Lighter) => Some(1),
+            (false, PixelMode::Darker) => Some(-1),
+            _ => None,
+        };
+        let dither = (!erase && shade.is_none() && self.pixel_dither < 100).then_some(self.pixel_dither);
         Some(klad_core::ops::PixelSpec {
             layer: self.scene.active_id()?,
             frame: self.scene.frame,
-            color: (!erase).then(|| color::hex(self.color)),
+            color: (!erase && shade.is_none()).then(|| color::hex(self.color)),
             erase,
+            shade,
+            dither,
+            second: dither.filter(|_| self.pixel_two).map(|_| color::hex(self.second)),
             by_hand: true,
             ..klad_core::ops::PixelSpec::default()
         })
+    }
+
+    pub(super) fn apply_pixels(&mut self, spec: klad_core::ops::PixelSpec) -> Result<()> {
+        let drew = spec.color.is_some();
+        match self.scene.bundle.settle_pixels(&[Op::Pixel(spec)]) {
+            Ok(ops) => {
+                self.apply(ops)?;
+                if drew {
+                    self.used_colour();
+                }
+            }
+            Err(e) => {
+                let why = e.chain().last().map_or_else(|| format!("{e:#}"), ToString::to_string);
+                self.say(Tone::Refused, why);
+            }
+        }
+        Ok(())
+    }
+
+    fn step_picked(&mut self, by: i32) -> Result<()> {
+        let doc = &self.scene.bundle.doc;
+        let sets: Vec<(String, u32, &'static str, Value)> = self.chosen_marks().map_or(Vec::new(), |(_, chosen)| {
+            chosen
+                .iter()
+                .filter_map(|(cel, m)| {
+                    let fill = m.as_fill().filter(|f| f.on_grid() && !f.erases())?;
+                    let at = fill
+                        .entry()
+                        .and_then(|entry| doc.swatch(entry))
+                        .or_else(|| doc.swatch(&klad_core::color::to_hex(fill.color())))?;
+                    let to = doc.ramp_step(at, by)?;
+                    Some((cel.clone(), m.id(), "color", json!(to.to_string())))
+                })
+                .collect()
+        });
+        if sets.is_empty() {
+            self.say(
+                Tone::Refused,
+                match by > 0 {
+                    true => "nothing to step lighter: these colours are in no ramp, or at its light end (the ramp button makes one)",
+                    false => "nothing to step darker: these colours are in no ramp, or at its dark end (the ramp button makes one)",
+                },
+            );
+            return Ok(());
+        }
+        self.set_picked(sets)
     }
 
     fn fill_pixels(&mut self, at: klad_core::pixel::Cell) -> Result<()> {
@@ -3423,17 +3491,12 @@ impl Editor {
         let Some(spec) = self.pixel_spec(erase) else {
             return Ok(());
         };
-        let spec = klad_core::ops::PixelSpec {
+        self.apply_pixels(klad_core::ops::PixelSpec {
             fill: Some(at),
             diagonal: self.pixel_diagonal,
             reference: self.pixel_fill_all.then(|| "all".to_string()),
             ..spec
-        };
-        self.apply(vec![Op::Pixel(spec)])?;
-        if !erase {
-            self.used_colour();
-        }
-        Ok(())
+        })
     }
 
     pub(super) fn pixel_shape_spec(&self) -> Option<klad_core::ops::PixelSpec> {
@@ -3479,9 +3542,6 @@ impl Editor {
         let Some(live) = self.pixel_live.take() else {
             return Ok(());
         };
-        let Some(layer) = self.scene.active_id() else {
-            return Ok(());
-        };
         self.pixel_last = live.run.last().copied();
         let (w, h) = self.scene.size();
         let cells: Vec<klad_core::pixel::Cell> = self
@@ -3489,23 +3549,10 @@ impl Editor {
             .into_iter()
             .filter(|c| c[0] >= 0 && c[1] >= 0 && c[0] < w as i64 && c[1] < h as i64)
             .collect();
-        if cells.is_empty() {
+        let Some(spec) = self.pixel_spec(live.erase).filter(|_| !cells.is_empty()) else {
             return Ok(());
-        }
-        let spec = klad_core::ops::PixelSpec {
-            layer,
-            frame: self.scene.frame,
-            color: (!live.erase).then(|| color::hex(self.color)),
-            erase: live.erase,
-            cells,
-            by_hand: true,
-            ..klad_core::ops::PixelSpec::default()
         };
-        self.apply(vec![Op::Pixel(spec)])?;
-        if !live.erase {
-            self.used_colour();
-        }
-        Ok(())
+        self.apply_pixels(klad_core::ops::PixelSpec { cells, ..spec })
     }
 
     fn finish_fill(&mut self) -> Result<()> {
@@ -3799,18 +3846,37 @@ impl Editor {
         let shaped = self
             .pixel_shape_spec()
             .filter(|_| self.tool == Tool::Shape && self.scene.on_grid())
-            .and_then(|spec| spec.drawn().ok().map(|cells| (cells, spec.erase)));
+            .and_then(|spec| {
+                klad_core::ops::PixelSpec {
+                    shade: None,
+                    dither: None,
+                    ..spec.clone()
+                }
+                .drawn()
+                .ok()
+                .map(|cells| (cells, spec.erase))
+            });
         let drawing = self
             .pixel_live
             .as_ref()
             .map(|live| (self.pixel_cells(live), live.erase))
             .or(shaped);
         if let Some((cells, erase)) = drawing {
-            let fill = match erase {
-                true => Color32::from_rgba_unmultiplied(255, 255, 255, 120),
-                false => color::color32(self.color),
-            };
+            let shading = !erase && self.pixel_mode != PixelMode::Draw;
+            let dither = (!erase && !shading && self.pixel_dither < 100).then_some(self.pixel_dither);
             cells.iter().for_each(|c| {
+                let fill = match (erase, self.pixel_mode, dither) {
+                    (true, _, _) => Color32::from_rgba_unmultiplied(255, 255, 255, 120),
+                    (false, PixelMode::Lighter, _) => Color32::from_white_alpha(90),
+                    (false, PixelMode::Darker, _) => Color32::from_black_alpha(90),
+                    (false, PixelMode::Draw, Some(percent)) if !klad_core::pixel::dithered(*c, percent) => {
+                        match self.pixel_two {
+                            true => color::color32(self.second),
+                            false => Color32::TRANSPARENT,
+                        }
+                    }
+                    (false, PixelMode::Draw, _) => color::color32(self.color),
+                };
                 let (x, y) = (c[0] as f32, c[1] as f32);
                 let corners = [(x, y), (x + 1.0, y), (x + 1.0, y + 1.0), (x, y + 1.0)]
                     .map(|(x, y)| self.screen(view, rect, vec2(x, y)))

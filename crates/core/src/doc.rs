@@ -1244,6 +1244,19 @@ impl Document {
             .collect()
     }
 
+    pub fn ramp_step(&self, at: usize, by: i32) -> Option<usize> {
+        let ramp = &self.palette.get(at)?.ramp;
+        if ramp.is_empty() {
+            return None;
+        }
+        let members: Vec<usize> = (0..self.palette.len())
+            .filter(|i| &self.palette[*i].ramp == ramp)
+            .collect();
+        let here = members.iter().position(|i| *i == at)? as i64;
+        let there = (here + by as i64).clamp(0, members.len() as i64 - 1);
+        (there != here).then(|| members[there as usize])
+    }
+
     pub fn entry(&self, id: &str) -> Option<&Swatch> {
         self.palette.iter().find(|s| !s.id.is_empty() && s.id == id)
     }

@@ -350,6 +350,8 @@ impl Editor {
                 Cmd::TurnLeft90,
                 Cmd::TurnRight90,
                 Cmd::Recolour,
+                Cmd::ShadeLighter,
+                Cmd::ShadeDarker,
                 Cmd::SelectSameColour,
                 Cmd::Copy,
                 Cmd::Paste,

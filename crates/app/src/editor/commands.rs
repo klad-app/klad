@@ -118,6 +118,17 @@ impl Editor {
             Cmd::SelectAll => (!self.active_paint() || self.scene.active_marks().is_empty())
                 .then(|| "the active layer has no strokes on this frame".to_string()),
             Cmd::Recolour | Cmd::Thinner | Cmd::Thicker => need_strokes().or(editing),
+            Cmd::ShadeLighter | Cmd::ShadeDarker => match self.scene.on_grid() {
+                true => need_strokes().or(editing),
+                false => {
+                    Some("select pixel marks on a pixel layer first: they step along their colour's ramp".to_string())
+                }
+            },
+            Cmd::PixelOutline => match (self.scene.on_grid(), self.scene.active_marks().is_empty()) {
+                (false, _) => Some("make a pixel layer active first".to_string()),
+                (true, true) => Some("this drawing has no pixels to outline yet".to_string()),
+                (true, false) => editing,
+            },
             Cmd::AttachedOnly => need_strokes()
                 .or_else(|| {
                     (self.attached_count() == 0)
@@ -683,6 +694,20 @@ impl Editor {
             Cmd::PickAllLayers => {
                 self.settings.pick_all_layers = !self.settings.pick_all_layers;
                 self.settings_dirty = true;
+            }
+            Cmd::ShadeLighter => self.step_picked(1)?,
+            Cmd::ShadeDarker => self.step_picked(-1)?,
+            Cmd::PixelOutline => {
+                if let Some(spec) = self.pixel_spec(false) {
+                    self.apply_pixels(klad_core::ops::PixelSpec {
+                        outline: true,
+                        shade: None,
+                        dither: None,
+                        second: None,
+                        color: Some(crate::color::hex(self.color)),
+                        ..spec
+                    })?;
+                }
             }
             Cmd::Thinner => self.size_picked(0.8)?,
             Cmd::Thicker => self.size_picked(1.25)?,

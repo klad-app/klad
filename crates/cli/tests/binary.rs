@@ -932,6 +932,74 @@ fn pixel_marks_are_listed_by_colour_cut_by_a_box_and_recoloured_exactly() {
 }
 
 #[test]
+fn pixels_are_shaded_dithered_outlined_and_replaced_from_the_command_line() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-shade-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("sprite.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let rows = || -> Vec<String> {
+        draw(&["pixels", path, "l1", "--plain"])
+            .lines()
+            .skip_while(|line| !line.is_empty())
+            .skip(1)
+            .map(String::from)
+            .collect()
+    };
+    draw(&["new", path, "--pixel", "12x8"]);
+    draw(&["palette", path, "--ramp", "green", "--base", "#4c9a54", "--steps", "3"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&[
+        "pixel", path, "l1", "--color", "green-2", "--rect", "4,3,3,2", "--filled",
+    ]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--outline"]);
+    assert_eq!(
+        rows()[2..6],
+        ["....iii.....", "...iGGGi....", "...iGGGi....", "....iii....."],
+        "a one-pixel outline around the block"
+    );
+    draw(&["pixel", path, "l1", "--shade", "-1", "--rect", "4,4,3,1"]);
+    draw(&["pixel", path, "l1", "--shade", "1", "--cells", "4,3"]);
+    assert_eq!(
+        rows()[3..5],
+        ["...iaGGi....", "...igggi...."],
+        "a highlight and a darker foot"
+    );
+    let first = serde_json::from_str::<serde_json::Value>(&draw(&["strokes", path, "l1", "--json"])).unwrap()["fills"]
+        [0]["address"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    draw(&["recolour", path, &first, "--step", "1"]);
+    assert_eq!(
+        rows()[3],
+        "...iaaai....",
+        "the block itself stepped lighter along its ramp"
+    );
+    draw(&["recolour", path, "--from", "ink", "--to", "green-1"]);
+    assert_eq!(rows()[2], "....ggg.....", "every ink mark is the dark green now");
+    draw(&[
+        "pixel", path, "l1", "--color", "ink", "--second", "green-3", "--dither", "50", "--rect", "8,0,4,2", "--filled",
+    ]);
+    assert_eq!(
+        rows()[..2],
+        ["........iaia", "........aiai"],
+        "a checkerboard of two colours"
+    );
+    let none = run(&["recolour", path, &first, "--step", "5"]);
+    assert!(String::from_utf8_lossy(&none.stderr).contains("already at its end"));
+    let both = run(&["pixel", path, "l1", "--shade", "1", "--color", "ink", "--cells", "1,1"]);
+    assert!(!both.status.success());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn recolour_moves_strokes_together_and_keeps_their_shades() {
     let dir = std::env::temp_dir().join(format!("draw-binary-recolour-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

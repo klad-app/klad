@@ -407,20 +407,18 @@ impl Bundle {
         self.apply_as(ops, "cli")
     }
 
-    fn flooded(
+    fn shown(
         &self,
         doc: &Document,
         plan: &[PendingMarks],
         spec: &crate::ops::PixelSpec,
-    ) -> Result<crate::ops::PixelSpec> {
+        reference: Option<&str>,
+    ) -> Result<crate::pixel::Grid> {
         use crate::pixel;
-        let Some(seed) = spec.fill else {
-            return Ok(spec.clone());
-        };
         let own = doc
             .layer(&spec.layer)
             .ok_or_else(|| anyhow!("no layer {}", spec.layer))?;
-        let layers: Vec<&Layer> = match spec.reference.as_deref().map(str::trim) {
+        let layers: Vec<&Layer> = match reference.map(str::trim) {
             None | Some("this") => vec![own],
             Some("all") => doc
                 .all_layers()
@@ -429,12 +427,12 @@ impl Bundle {
                 .collect(),
             Some(key) => vec![
                 doc.find_layer(key)
-                    .map_err(|e| anyhow!("fill reference: {e}; or use this or all"))?,
+                    .map_err(|e| anyhow!("reference: {e}; or use this or all"))?,
             ],
         };
         if let Some(other) = layers.iter().find(|l| !l.pixel()) {
             bail!(
-                "{} is a {} layer: a pixel fill reads pixel layers",
+                "{} is a {} layer: a pixel fill, outline or shade reads pixel layers",
                 other.id,
                 other.kind_name()
             );
@@ -450,46 +448,146 @@ impl Bundle {
                 Ok(pixel::grid_of(&marks, w, h))
             })
             .collect::<Result<Vec<_>>>()?;
-        let grid = pixel::merged(&grids).unwrap_or_else(|| pixel::grid_of(&[], w, h));
-        let cells = pixel::flood(&grid, seed, spec.diagonal);
-        if cells.is_empty() {
-            bail!(
-                "the fill starts at {},{}, which is off the {w}x{h} canvas",
-                seed[0],
-                seed[1]
-            );
-        }
-        Ok(crate::ops::PixelSpec {
-            cells,
+        Ok(pixel::merged(&grids).unwrap_or_else(|| pixel::grid_of(&[], w, h)))
+    }
+
+    fn settled(
+        &self,
+        doc: &Document,
+        plan: &[PendingMarks],
+        spec: &crate::ops::PixelSpec,
+    ) -> Result<Vec<crate::ops::PixelSpec>> {
+        use crate::ops::PixelSpec;
+        use crate::pixel;
+        spec.check()?;
+        let (w, h) = (doc.canvas.width, doc.canvas.height);
+        let placed = match (spec.fill, spec.outline) {
+            (Some(seed), _) => {
+                let grid = self.shown(doc, plan, spec, spec.reference.as_deref())?;
+                let cells = pixel::flood(&grid, seed, spec.diagonal);
+                if cells.is_empty() {
+                    bail!(
+                        "the fill starts at {},{}, which is off the {w}x{h} canvas",
+                        seed[0],
+                        seed[1]
+                    );
+                }
+                cells
+            }
+            (None, true) => {
+                let grid = self.shown(doc, plan, spec, spec.reference.as_deref())?;
+                let cells = pixel::outline(&grid, spec.inside, spec.diagonal);
+                if cells.is_empty() {
+                    bail!("there are no pixels to outline at frame {}", spec.frame);
+                }
+                cells
+            }
+            (None, false) => PixelSpec {
+                shade: None,
+                dither: None,
+                ..spec.clone()
+            }
+            .drawn()?,
+        };
+        let plain = PixelSpec {
+            cells: Vec::new(),
+            path: None,
+            line: None,
+            rect: None,
+            ellipse: None,
+            filled: false,
             fill: None,
+            diagonal: false,
+            reference: None,
+            outline: false,
+            inside: false,
+            shade: None,
+            dither: None,
+            second: None,
+            size: 1,
             ..spec.clone()
-        })
+        };
+        if let Some(by) = spec.shade {
+            let grid = self.shown(doc, plan, spec, None)?;
+            let mut stepped: BTreeMap<usize, Vec<pixel::Cell>> = BTreeMap::new();
+            placed
+                .iter()
+                .filter(|c| c[0] >= 0 && c[1] >= 0 && c[0] < w as i64 && c[1] < h as i64)
+                .for_each(|c| {
+                    let to = grid
+                        .at(c[0] as u32, c[1] as u32)
+                        .and_then(|key| doc.swatch(key))
+                        .and_then(|at| doc.ramp_step(at, by));
+                    if let Some(to) = to {
+                        stepped.entry(to).or_default().push(*c);
+                    }
+                });
+            if stepped.is_empty() {
+                bail!(
+                    "none of these pixels can step {}: their colours are in no ramp, or already at its end (klad palette --ramp groups colours)",
+                    if by > 0 { "lighter" } else { "darker" }
+                );
+            }
+            return Ok(stepped
+                .into_iter()
+                .map(|(to, cells)| PixelSpec {
+                    color: Some(to.to_string()),
+                    cells,
+                    ..plain.clone()
+                })
+                .collect());
+        }
+        let Some(percent) = spec.dither else {
+            return Ok(vec![PixelSpec { cells: placed, ..plain }]);
+        };
+        let (on, off): (Vec<pixel::Cell>, Vec<pixel::Cell>) =
+            placed.into_iter().partition(|c| pixel::dithered(*c, percent));
+        let first = (!on.is_empty()).then(|| PixelSpec {
+            cells: on,
+            ..plain.clone()
+        });
+        let second = spec
+            .second
+            .as_ref()
+            .filter(|_| !off.is_empty())
+            .map(|colour| PixelSpec {
+                color: Some(colour.clone()),
+                cells: off,
+                ..plain.clone()
+            });
+        let both: Vec<PixelSpec> = first.into_iter().chain(second).collect();
+        if both.is_empty() {
+            bail!("a dither of {percent}% with no second colour leaves no pixel to draw");
+        }
+        Ok(both)
     }
 
     pub fn settle_pixels(&self, ops: &[Op]) -> Result<Vec<Op>> {
-        if !ops
-            .iter()
-            .any(|op| matches!(op, Op::Pixel(spec) if spec.fill.is_some()))
-        {
+        if !ops.iter().any(|op| matches!(op, Op::Pixel(spec) if !spec.settled())) {
             return Ok(ops.to_vec());
         }
         let mut doc = self.doc.clone();
         let mut applied = Applied::default();
-        ops.iter()
-            .enumerate()
-            .map(|(i, op)| {
-                let op = match op {
-                    Op::Pixel(spec) if spec.fill.is_some() => Op::Pixel(
-                        self.flooded(&doc, &applied.marks, spec)
-                            .with_context(|| format!("op {}: pixel fill on {}", i + 1, spec.layer))?,
-                    ),
-                    other => other.clone(),
-                };
-                crate::ops::apply(&mut doc, &op, &mut applied).with_context(|| format!("op {}", i + 1))?;
+        let mut out = Vec::with_capacity(ops.len());
+        ops.iter().enumerate().try_for_each(|(i, op)| {
+            let made = match op {
+                Op::Pixel(spec) if !spec.settled() => self
+                    .settled(&doc, &applied.marks, spec)
+                    .with_context(|| format!("op {}: pixels on {}", i + 1, spec.layer))?
+                    .into_iter()
+                    .map(Op::Pixel)
+                    .collect(),
+                other => vec![other.clone()],
+            };
+            made.iter().try_for_each(|op| {
+                crate::ops::apply(&mut doc, op, &mut applied).with_context(|| format!("op {}", i + 1))?;
                 crate::timing::grow(&mut doc);
-                Ok(op)
-            })
-            .collect()
+                Ok::<_, anyhow::Error>(())
+            })?;
+            out.extend(made);
+            Ok::<_, anyhow::Error>(())
+        })?;
+        Ok(out)
     }
 
     pub fn apply_as(&mut self, ops: &[Op], author: &str) -> Result<Applied> {
@@ -1892,6 +1990,169 @@ mod tests {
                 .unwrap_err()
             )
             .contains("not several")
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn pixels_shade_along_their_ramp_dither_between_two_colours_and_take_an_outline() {
+        use crate::ops::parse_lines;
+        let dir = scratch("pixel-shade");
+        let mut bundle = Bundle::blank(
+            &dir,
+            &Blank {
+                width: 12,
+                height: 8,
+                pixel: true,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let layer = bundle.doc.layers[0].id.clone();
+        let ramp = crate::palettes::ramp_swatches("green", "#4c9a54", 3).unwrap();
+        let keys: Vec<String> = ramp.iter().map(|s| format!("\"{}\"", s.color)).collect();
+        let run = |bundle: &mut Bundle, lines: String| bundle.apply(&parse_lines(&lines).unwrap()).unwrap();
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}\n{}\n{}\n{}",
+                format_args!(
+                    r##"{{"op":"palette","load":{}}}"##,
+                    serde_json::to_string(&ramp).unwrap()
+                ),
+                format_args!(r##"{{"op":"palette","ramp":"green","of":[{}]}}"##, keys.join(",")),
+                r##"{"op":"palette","add":"#22223b","name":"ink"}"##,
+                format_args!(
+                    r##"{{"op":"pixel","layer":"{layer}","color":"green-2","rect":[2,2,4,4],"filled":true}}"##
+                ),
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"ink","cells":[[9,2]]}}"##),
+            ),
+        );
+        let rows = |bundle: &Bundle| -> Vec<String> {
+            let cel = bundle.doc.layers[0].cels()[0].id.clone();
+            let grid = crate::pixel::grid_of(&bundle.read_marks(&layer, &cel).unwrap(), 12, 8);
+            let legend = crate::pixel::legend(&bundle.doc, &grid);
+            crate::pixel::rows(&grid, &legend)
+        };
+        assert_eq!(
+            rows(&bundle)[2],
+            "..GGGG...i..",
+            "green-1 is g, green-2 is G, green-3 is a"
+        );
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}",
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","shade":-1,"rect":[2,4,10,2],"filled":true}}"##),
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","shade":1,"cells":[[2,2],[3,2],[9,2],[0,0]]}}"##),
+            ),
+        );
+        assert_eq!(
+            rows(&bundle)[..6],
+            [
+                "............",
+                "............",
+                "..aaGG...i..",
+                "..GGGG......",
+                "..gggg......",
+                "..gggg......"
+            ],
+            "the lower half is a step darker and two pixels a step lighter; ink is in no ramp and the empty pixel stays empty"
+        );
+        let marks = |bundle: &Bundle| {
+            let cel = bundle.doc.layers[0].cels()[0].id.clone();
+            bundle.read_marks(&layer, &cel).unwrap().len()
+        };
+        assert_eq!(marks(&bundle), 4, "each shade is one mark per colour it makes");
+        run(
+            &mut bundle,
+            format!(r##"{{"op":"pixel","layer":"{layer}","shade":1,"rect":[2,4,4,2],"filled":true}}"##),
+        );
+        assert_eq!(rows(&bundle)[4], "..GGGG......", "and a step back up");
+        let stuck = bundle
+            .settle_pixels(
+                &parse_lines(&format!(
+                    r##"{{"op":"pixel","layer":"{layer}","shade":1,"cells":[[9,2]]}}"##
+                ))
+                .unwrap(),
+            )
+            .unwrap_err();
+        assert!(format!("{stuck:#}").contains("in no ramp"), "{stuck:#}");
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}",
+                format_args!(
+                    r##"{{"op":"pixel","layer":"{layer}","color":"ink","second":"green-3","dither":50,"rect":[7,4,4,4],"filled":true}}"##
+                ),
+                format_args!(
+                    r##"{{"op":"pixel","layer":"{layer}","color":"ink","dither":25,"rect":[0,6,4,2],"filled":true}}"##
+                ),
+            ),
+        );
+        let after = rows(&bundle);
+        assert_eq!(&after[4][7..11], "aiai", "a checkerboard of the two colours: {after:?}");
+        assert_eq!(&after[5][7..11], "iaia");
+        assert_eq!(
+            (&after[6][..4], &after[7][..4]),
+            ("i.i.", "...."),
+            "a quarter of the pixels, the rest left alone"
+        );
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}",
+                format_args!(r##"{{"op":"rm","ids":["{layer}"]}}"##),
+                r##"{"op":"add","layer":{"kind":"pixel","name":"blob","id":"lb"}}"##,
+            ),
+        );
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}",
+                r##"{"op":"pixel","layer":"lb","color":"green-2","rect":[4,3,3,2],"filled":true}"##,
+                r##"{"op":"pixel","layer":"lb","color":"ink","outline":true}"##,
+            ),
+        );
+        let blob = |bundle: &Bundle| -> Vec<String> {
+            let cel = bundle.doc.layer("lb").unwrap().cels()[0].id.clone();
+            let grid = crate::pixel::grid_of(&bundle.read_marks("lb", &cel).unwrap(), 12, 8);
+            crate::pixel::rows(&grid, &crate::pixel::legend(&bundle.doc, &grid))
+        };
+        assert_eq!(
+            blob(&bundle)[1..7],
+            [
+                "............",
+                "....iii.....",
+                "...iGGGi....",
+                "...iGGGi....",
+                "....iii.....",
+                "............"
+            ],
+            "one pixel around the block, corners left open"
+        );
+        run(
+            &mut bundle,
+            r##"{"op":"pixel","layer":"lb","color":"green-3","outline":true,"inside":true,"diagonal":true}"##
+                .to_string(),
+        );
+        assert_eq!(
+            blob(&bundle)[2],
+            "....aaa.....",
+            "an inside outline recolours the edge pixels: here the ink ring's own edge"
+        );
+        let wrong = |line: &str| format!("{:#}", parse_lines(line).unwrap_err());
+        assert!(
+            wrong(r##"{"op":"pixel","layer":"lb","color":"ink","shade":1,"cells":[[1,1]]}"##)
+                .contains("leave out color")
+        );
+        assert!(
+            wrong(r##"{"op":"pixel","layer":"lb","color":"ink","second":"ink","cells":[[1,1]]}"##)
+                .contains("give dither too")
+        );
+        assert!(
+            wrong(r##"{"op":"pixel","layer":"lb","color":"ink","dither":140,"cells":[[1,1]]}"##).contains("0 to 100")
         );
         fs::remove_dir_all(&dir).unwrap();
     }

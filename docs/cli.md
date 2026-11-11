@@ -946,7 +946,12 @@ Recolour strokes and fills together. The group's average colour moves to --to an
   klad recolour art.klad c9:s12 c9:s13 c9:s40 --to '#e3962f'
   klad recolour art.klad c9:s12 c9:s13 --to skin
 
-Usage: klad recolour [OPTIONS] --to <TO> <BUNDLE> [IDS]...
+Pixel marks take exactly the colour and its palette entry, with no shades kept. On pixel layers there are two more forms: --step moves each mark along its colour's ramp (1 one lighter, -1 one darker), and --from replaces a colour, taking every mark drawn in it (in one --layer or at one --frame, or everywhere).
+
+  klad recolour sprite.klad c2:s4 c2:s9 --step -1
+  klad recolour sprite.klad --from skin --to skin-dark --layer l1
+
+Usage: klad recolour [OPTIONS] <BUNDLE> [IDS]...
 
 Arguments:
   <BUNDLE>
@@ -958,6 +963,18 @@ Arguments:
 Options:
       --to <TO>
           The colour: #rrggbb or a palette name
+
+      --step <STEPS>
+          Pixel marks: step each along its colour's ramp instead, 1 one lighter, -1 one darker
+
+      --from <COLOUR>
+          Pixel layers: in place of marks, every mark of this palette colour (a name, a colour, an index or an id)
+
+      --layer <LAYER>
+          With --from: only this pixel layer (default: every pixel layer)
+
+      --frame <FRAME>
+          With --from: only the drawing at this frame (default: every drawing)
 
       --render
           Render a preview after the edit and print its path
@@ -1668,6 +1685,12 @@ Shapes on the grid, each one mark: --line x0,y0,x1,y1 is a straight line between
   klad pixel sprite.klad l1 --color body --fill 12,10
   klad pixel sprite.klad colour --color body --fill 12,10 --ref lines
 
+Shading: --shade 1 (or -1) draws no colour of its own: every pixel it covers takes the next lighter (or darker) colour of its own ramp, so one call shades a form made of several colours; pixels in no ramp, or at its end, stay. --dither 50 draws only that share of the pixels in an even pattern (50 a checkerboard, 25 one in four), and --second gives the others a second colour, for a blend between two ramp steps. --outline draws a one-pixel outline around what the layer shows (--inside on its own edge pixels, --diagonal with the corners, --ref another layer or all).
+
+  klad pixel sprite.klad l1 --shade -1 --rect 4,12,16,4 --filled
+  klad pixel sprite.klad l1 --color wood-2 --second wood-3 --dither 50 --rect 4,8,16,2 --filled
+  klad pixel sprite.klad l1 --color ink --outline
+
 --grid draws a whole sprite from text, the way klad pixels --plain prints one: legend lines (one character, =, a palette name, a colour, erase or empty), a blank line, then a row of characters per row of pixels. . is empty unless the legend says otherwise. Each character becomes one mark bound to its colour; --at x,y moves the grid's top left.
 
   klad pixel sprite.klad l1 --grid - <<'GRID'
@@ -1711,10 +1734,25 @@ Options:
           Flood fill from that pixel: every pixel joined to it that has exactly its colour (or is empty like it)
 
       --diagonal
-          A fill also spreads across corners (eight neighbours, not four)
+          A fill also spreads across corners (eight neighbours, not four); an outline also takes the corner pixels
 
       --ref <REFERENCE>
-          What a fill reads: this layer (default), all (every visible pixel layer) or a pixel layer's id or name
+          What a fill or an outline reads: this layer (default), all (every visible pixel layer) or a pixel layer's id or name
+
+      --outline
+          A one-pixel outline: every empty pixel that touches a drawn one (--inside: every drawn pixel that touches an empty one)
+
+      --inside
+          The outline goes on the drawing's own edge pixels, not around it
+
+      --shade <STEPS>
+          Step the colours that are there along their ramps instead of drawing a colour: 1 one lighter, -1 one darker
+
+      --dither <PERCENT>
+          Draw only this share of the pixels, in an even pattern: 50 is a checkerboard, 25 one pixel in four
+
+      --second <SECOND>
+          With --dither: the colour of the pixels the pattern leaves out
 
       --grid <FILE>
           Draw a grid of characters from a file (- reads stdin): a legend (i = ink), a blank line, then one row of characters per row of pixels

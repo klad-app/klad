@@ -307,6 +307,16 @@ pub struct PixelSpec {
     pub diagonal: bool,
     #[serde(default, rename = "ref")]
     pub reference: Option<String>,
+    #[serde(default)]
+    pub outline: bool,
+    #[serde(default)]
+    pub inside: bool,
+    #[serde(default)]
+    pub shade: Option<i32>,
+    #[serde(default)]
+    pub dither: Option<u32>,
+    #[serde(default)]
+    pub second: Option<String>,
     #[serde(default = "one_pixel")]
     pub size: u32,
     #[serde(default)]
@@ -335,6 +345,11 @@ impl Default for PixelSpec {
             fill: None,
             diagonal: false,
             reference: None,
+            outline: false,
+            inside: false,
+            shade: None,
+            dither: None,
+            second: None,
             size: 1,
             part: None,
             by_hand: false,
@@ -394,10 +409,35 @@ impl GridSpec {
 
 impl PixelSpec {
     pub fn check(&self) -> Result<()> {
-        match (&self.color, self.erase) {
-            (Some(_), true) => bail!("pixel takes a color or erase, not both"),
-            (None, false) => bail!("pixel needs a color (a palette name or #rrggbb) or \"erase\":true"),
+        match (&self.color, self.erase, self.shade) {
+            (Some(_), true, _) => bail!("pixel takes a color or erase, not both"),
+            (Some(_), _, Some(_)) | (_, true, Some(_)) => {
+                bail!("shade steps the colours that are there along their ramps: leave out color and erase")
+            }
+            (None, false, None) => {
+                bail!(
+                    "pixel needs a color (a palette name or #rrggbb), \"erase\":true or \"shade\" (steps along the ramp)"
+                )
+            }
             _ => {}
+        }
+        if self.shade == Some(0) {
+            bail!("shade takes a number of steps along the ramp: 1 is one lighter, -1 one darker");
+        }
+        if self.dither.is_some_and(|d| d > 100) {
+            bail!("dither is a share of the pixels in percent, 0 to 100");
+        }
+        if self.second.is_some() && self.dither.is_none() {
+            bail!("second is the other colour of a dither: give dither too");
+        }
+        if self.dither.is_some() && (self.erase || self.shade.is_some()) {
+            bail!("dither goes with a color (and a second one), not with erase or shade");
+        }
+        if self.inside && !self.outline {
+            bail!("inside goes with outline");
+        }
+        if self.diagonal && !self.outline && self.fill.is_none() {
+            bail!("diagonal goes with fill or outline");
         }
         let sources = [
             !self.cells.is_empty(),
@@ -406,16 +446,17 @@ impl PixelSpec {
             self.rect.is_some(),
             self.ellipse.is_some(),
             self.fill.is_some(),
+            self.outline,
         ]
         .iter()
         .filter(|given| **given)
         .count();
         match sources {
             0 => bail!(
-                "pixel needs one of: cells (a list of [x, y]), path (SVG path data), line ([x0, y0, x1, y1]), rect or ellipse ([x, y, w, h]) or fill ([x, y], a flood fill)"
+                "pixel needs one of: cells (a list of [x, y]), path (SVG path data), line ([x0, y0, x1, y1]), rect or ellipse ([x, y, w, h]), fill ([x, y], a flood fill) or outline"
             ),
             1 => {}
-            _ => bail!("pixel takes one of cells, path, line, rect, ellipse and fill, not several"),
+            _ => bail!("pixel takes one of cells, path, line, rect, ellipse, fill and outline, not several"),
         }
         if [self.rect, self.ellipse]
             .iter()
@@ -437,14 +478,18 @@ impl PixelSpec {
         Ok(())
     }
 
+    pub fn settled(&self) -> bool {
+        self.fill.is_none() && !self.outline && self.shade.is_none() && self.dither.is_none()
+    }
+
     pub fn drawn(&self) -> Result<Vec<[i64; 2]>> {
         use crate::pixel;
         if let Some(d) = &self.path {
             return Ok(pixel::drawn(&pixel::of_path(d)?, self.size));
         }
-        if self.fill.is_some() {
+        if !self.settled() {
             bail!(
-                "a flood fill of pixels is worked out from the drawing by klad pixel --fill, klad apply or the editor"
+                "a fill, an outline, a shade or a dither of pixels is worked out from the drawing by klad pixel, klad apply or the editor"
             );
         }
         let cells = match (self.line, self.rect, self.ellipse) {

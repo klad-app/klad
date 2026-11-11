@@ -327,6 +327,7 @@ impl Editor {
                     .hint("the pencil is a square of this many pixels a side; [ and ] change it");
                     ui.checkbox(&mut self.pixel_perfect, "pixel perfect")
                         .hint("a one-pixel line drops the corner pixels a hand leaves, so curves stay one pixel thin");
+                    self.pixel_inks(ui);
                     ui.label(
                         RichText::new("draws whole pixels in the palette colour; shift click: a straight line from the last pixel")
                             .color(theme::WEAK),
@@ -372,6 +373,7 @@ impl Editor {
                         .hint("the fill also spreads to pixels that only touch at a corner");
                     ui.checkbox(&mut self.pixel_fill_all, "read all pixel layers")
                         .hint("the fill stops at the pixels of every visible pixel layer, not only this one's: colour on a layer under the lines");
+                    self.pixel_inks(ui);
                     ui.label(
                         RichText::new("click a pixel: every pixel joined to it with exactly its colour takes the current colour")
                             .color(theme::WEAK),
@@ -450,6 +452,7 @@ impl Editor {
                         ui.checkbox(&mut self.pixel_filled, "filled")
                             .hint("every pixel inside, not only the outline");
                     }
+                    self.pixel_inks(ui);
                     let label = ui.label("size");
                     ui.add(
                         egui::DragValue::new(&mut self.pixel_size)
@@ -707,6 +710,60 @@ impl Editor {
             self.swatch_picked = None;
         }
         edit
+    }
+
+    fn pixel_inks(&mut self, ui: &mut egui::Ui) {
+        ui.separator();
+        [
+            (super::PixelMode::Draw, "colour", "draw in the current colour"),
+            (
+                super::PixelMode::Lighter,
+                "lighter",
+                "the pixels you go over take the next lighter colour of their ramp",
+            ),
+            (
+                super::PixelMode::Darker,
+                "darker",
+                "the pixels you go over take the next darker colour of their ramp",
+            ),
+        ]
+        .iter()
+        .for_each(|(mode, label, hint)| {
+            if ui
+                .selectable_label(self.pixel_mode == *mode, *label)
+                .hint(*hint)
+                .clicked()
+            {
+                self.pixel_mode = *mode;
+            }
+        });
+        if self.pixel_mode == super::PixelMode::Draw {
+            let shown = match self.pixel_dither {
+                100 => "solid".to_string(),
+                percent => format!("dither {percent}%"),
+            };
+            egui::ComboBox::from_id_salt("pixel dither")
+                .selected_text(shown)
+                .width(96.0)
+                .show_ui(ui, |ui| {
+                    [
+                        (100, "solid"),
+                        (75, "dither 75%"),
+                        (50, "dither 50%"),
+                        (25, "dither 25%"),
+                    ]
+                    .iter()
+                    .for_each(|(percent, label)| {
+                        ui.selectable_value(&mut self.pixel_dither, *percent, *label);
+                    });
+                })
+                .response
+                .hint("draw only a share of the pixels in an even pattern: 50% is a checkerboard");
+            if self.pixel_dither < 100 {
+                ui.checkbox(&mut self.pixel_two, "second colour")
+                    .hint("the pixels the pattern leaves out take the second colour (X swaps the two)");
+            }
+        }
     }
 
     pub(super) fn palettes_window(&mut self, ctx: &egui::Context) {

@@ -110,12 +110,7 @@ impl Editor {
             let Some(spec) = spec else {
                 return Ok(());
             };
-            let erase = spec.erase;
-            self.apply(vec![Op::Pixel(spec)])?;
-            if !erase {
-                self.used_colour();
-            }
-            return Ok(());
+            return self.apply_pixels(spec);
         }
         let made = self.shape_now();
         self.shapes.drag = None;

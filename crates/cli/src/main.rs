@@ -526,13 +526,44 @@ enum Command {
     },
     #[command(
         about = "Recolour strokes and fills together: the group moves to the colour and each keeps its own lighter or darker shade",
-        long_about = "Recolour strokes and fills together. The group's average colour moves to --to and every mark keeps its own difference from that average (in OKLab: lighter, darker, warmer, cooler), so painted strokes stay painted. One mark takes the colour as it is. One history step.\n\n  klad recolour art.klad c9:s12 c9:s13 c9:s40 --to '#e3962f'\n  klad recolour art.klad c9:s12 c9:s13 --to skin"
+        long_about = "Recolour strokes and fills together. The group's average colour moves to --to and every mark keeps its own difference from that average (in OKLab: lighter, darker, warmer, cooler), so painted strokes stay painted. One mark takes the colour as it is. One history step.\n\n  klad recolour art.klad c9:s12 c9:s13 c9:s40 --to '#e3962f'\n  klad recolour art.klad c9:s12 c9:s13 --to skin\n\nPixel marks take exactly the colour and its palette entry, with no shades kept. On pixel layers there are two more forms: --step moves each mark along its colour's ramp (1 one lighter, -1 one darker), and --from replaces a colour, taking every mark drawn in it (in one --layer or at one --frame, or everywhere).\n\n  klad recolour sprite.klad c2:s4 c2:s9 --step -1\n  klad recolour sprite.klad --from skin --to skin-dark --layer l1"
     )]
     Recolour {
         bundle: PathBuf,
         ids: Vec<String>,
-        #[arg(long, help = "The colour: #rrggbb or a palette name")]
-        to: String,
+        #[arg(
+            long,
+            required_unless_present = "step",
+            help = "The colour: #rrggbb or a palette name"
+        )]
+        to: Option<String>,
+        #[arg(
+            long,
+            value_name = "STEPS",
+            allow_hyphen_values = true,
+            conflicts_with_all = ["to", "from"],
+            help = "Pixel marks: step each along its colour's ramp instead, 1 one lighter, -1 one darker"
+        )]
+        step: Option<i32>,
+        #[arg(
+            long,
+            value_name = "COLOUR",
+            requires = "to",
+            help = "Pixel layers: in place of marks, every mark of this palette colour (a name, a colour, an index or an id)"
+        )]
+        from: Option<String>,
+        #[arg(
+            long,
+            requires = "from",
+            help = "With --from: only this pixel layer (default: every pixel layer)"
+        )]
+        layer: Option<String>,
+        #[arg(
+            long,
+            requires = "from",
+            help = "With --from: only the drawing at this frame (default: every drawing)"
+        )]
+        frame: Option<u32>,
         #[command(flatten)]
         flags: EditFlags,
     },
@@ -878,14 +909,14 @@ enum Command {
     },
     #[command(
         about = "Put whole pixels of one palette colour on a pixel layer, or erase them",
-        long_about = "Put whole pixels of one palette colour on a pixel layer, or erase them. A pixel layer is a grid with no anti-aliasing where one pixel is one canvas pixel; make a pixel drawing with klad new --pixel 64x64, or add a layer with klad add <bundle> layer pixel.\n\n--cells lists them: x,y for one pixel, x0-x1,y for a run along a row, x,y0-y1 for a run down a column and x0-x1,y0-y1 for a block. --color is a palette name, a palette index or #rrggbb; a colour the palette does not have yet is added to it. The pixels become one mark bound to that palette entry, so it can be recoloured (klad set <cel>:s<id> color=...), moved (klad transform) or removed (klad rm) later, and klad strokes lists it. --erase clears the pixels under it instead.\n\n--path draws SVG path data as a line of pixels: a pixel is the square from x,y to x+1,y+1, so aim at pixel middles (3.5, not 3). Straight segments keep the corners they are given; curves are cleaned so no corner is doubled. --size makes the pencil a square of that many pixels, for --cells and --path alike.\n\n  klad pixel sprite.klad l1 --color '#2b2d42' --cells '3-12,4 3,5-9 12,5-9 3-12,10'\n  klad pixel sprite.klad l1 --color '#2b2d42' --path 'M3.5 20.5 C 10 4 22 4 28.5 20.5'\n  klad pixel sprite.klad l1 --erase --size 3 --path 'M4.5 4.5 L12.5 12.5'\n  klad pixel sprite.klad l1 --color skin --cells '4-11,5-9'\n  klad pixel sprite.klad l1 --erase --cells '7,7 8,7'\n\nShapes on the grid, each one mark: --line x0,y0,x1,y1 is a straight line between two pixels, --rect x,y,w,h and --ellipse x,y,w,h the outline of a rectangle or of the ellipse that fits that box (--filled for all of it), with --size for a thicker outline. --fill x,y is a flood fill: every pixel joined to that one that has exactly its colour, or is empty like it (--diagonal also crosses corners; --ref all reads every visible pixel layer, --ref <layer> another one, so flat colour can go on a layer under the lines).\n\n  klad pixel sprite.klad l1 --color ink --ellipse 4,4,16,12\n  klad pixel sprite.klad l1 --color body --fill 12,10\n  klad pixel sprite.klad colour --color body --fill 12,10 --ref lines\n\n--grid draws a whole sprite from text, the way klad pixels --plain prints one: legend lines (one character, =, a palette name, a colour, erase or empty), a blank line, then a row of characters per row of pixels. . is empty unless the legend says otherwise. Each character becomes one mark bound to its colour; --at x,y moves the grid's top left.\n\n  klad pixel sprite.klad l1 --grid - <<'GRID'\n  i = ink\n  b = body\n\n  ..iiii..\n  .ibbbbi.\n  .ibbbbi.\n  ..iiii..\n  GRID\n\nAlso a pixel op in klad apply: {\"op\":\"pixel\",\"layer\":\"l1\",\"color\":\"skin\",\"cells\":[[4,5],[5,5]]}, with \"path\":\"M3.5 3.5 L9.5 3.5\" in place of cells, \"size\":2, or \"erase\":true; \"line\":[x0,y0,x1,y1], \"rect\":[x,y,w,h] or \"ellipse\":[x,y,w,h] with \"filled\":true; \"fill\":[x,y] with \"diagonal\" and \"ref\"; and as a grid {\"op\":\"pixel\",\"layer\":\"l1\",\"rows\":[\"..ii..\",\".ibbi.\"],\"legend\":{\"i\":\"ink\",\"b\":\"body\"},\"at\":[0,0]}."
+        long_about = "Put whole pixels of one palette colour on a pixel layer, or erase them. A pixel layer is a grid with no anti-aliasing where one pixel is one canvas pixel; make a pixel drawing with klad new --pixel 64x64, or add a layer with klad add <bundle> layer pixel.\n\n--cells lists them: x,y for one pixel, x0-x1,y for a run along a row, x,y0-y1 for a run down a column and x0-x1,y0-y1 for a block. --color is a palette name, a palette index or #rrggbb; a colour the palette does not have yet is added to it. The pixels become one mark bound to that palette entry, so it can be recoloured (klad set <cel>:s<id> color=...), moved (klad transform) or removed (klad rm) later, and klad strokes lists it. --erase clears the pixels under it instead.\n\n--path draws SVG path data as a line of pixels: a pixel is the square from x,y to x+1,y+1, so aim at pixel middles (3.5, not 3). Straight segments keep the corners they are given; curves are cleaned so no corner is doubled. --size makes the pencil a square of that many pixels, for --cells and --path alike.\n\n  klad pixel sprite.klad l1 --color '#2b2d42' --cells '3-12,4 3,5-9 12,5-9 3-12,10'\n  klad pixel sprite.klad l1 --color '#2b2d42' --path 'M3.5 20.5 C 10 4 22 4 28.5 20.5'\n  klad pixel sprite.klad l1 --erase --size 3 --path 'M4.5 4.5 L12.5 12.5'\n  klad pixel sprite.klad l1 --color skin --cells '4-11,5-9'\n  klad pixel sprite.klad l1 --erase --cells '7,7 8,7'\n\nShapes on the grid, each one mark: --line x0,y0,x1,y1 is a straight line between two pixels, --rect x,y,w,h and --ellipse x,y,w,h the outline of a rectangle or of the ellipse that fits that box (--filled for all of it), with --size for a thicker outline. --fill x,y is a flood fill: every pixel joined to that one that has exactly its colour, or is empty like it (--diagonal also crosses corners; --ref all reads every visible pixel layer, --ref <layer> another one, so flat colour can go on a layer under the lines).\n\n  klad pixel sprite.klad l1 --color ink --ellipse 4,4,16,12\n  klad pixel sprite.klad l1 --color body --fill 12,10\n  klad pixel sprite.klad colour --color body --fill 12,10 --ref lines\n\nShading: --shade 1 (or -1) draws no colour of its own: every pixel it covers takes the next lighter (or darker) colour of its own ramp, so one call shades a form made of several colours; pixels in no ramp, or at its end, stay. --dither 50 draws only that share of the pixels in an even pattern (50 a checkerboard, 25 one in four), and --second gives the others a second colour, for a blend between two ramp steps. --outline draws a one-pixel outline around what the layer shows (--inside on its own edge pixels, --diagonal with the corners, --ref another layer or all).\n\n  klad pixel sprite.klad l1 --shade -1 --rect 4,12,16,4 --filled\n  klad pixel sprite.klad l1 --color wood-2 --second wood-3 --dither 50 --rect 4,8,16,2 --filled\n  klad pixel sprite.klad l1 --color ink --outline\n\n--grid draws a whole sprite from text, the way klad pixels --plain prints one: legend lines (one character, =, a palette name, a colour, erase or empty), a blank line, then a row of characters per row of pixels. . is empty unless the legend says otherwise. Each character becomes one mark bound to its colour; --at x,y moves the grid's top left.\n\n  klad pixel sprite.klad l1 --grid - <<'GRID'\n  i = ink\n  b = body\n\n  ..iiii..\n  .ibbbbi.\n  .ibbbbi.\n  ..iiii..\n  GRID\n\nAlso a pixel op in klad apply: {\"op\":\"pixel\",\"layer\":\"l1\",\"color\":\"skin\",\"cells\":[[4,5],[5,5]]}, with \"path\":\"M3.5 3.5 L9.5 3.5\" in place of cells, \"size\":2, or \"erase\":true; \"line\":[x0,y0,x1,y1], \"rect\":[x,y,w,h] or \"ellipse\":[x,y,w,h] with \"filled\":true; \"fill\":[x,y] with \"diagonal\" and \"ref\"; and as a grid {\"op\":\"pixel\",\"layer\":\"l1\",\"rows\":[\"..ii..\",\".ibbi.\"],\"legend\":{\"i\":\"ink\",\"b\":\"body\"},\"at\":[0,0]}."
     )]
     Pixel {
         bundle: PathBuf,
         layer: String,
         #[arg(
             long,
-            required_unless_present_any = ["path", "grid", "line", "rect", "ellipse", "fill"],
+            required_unless_present_any = ["path", "grid", "line", "rect", "ellipse", "fill", "outline"],
             help = "The pixels: x,y, a row run x0-x1,y, a column run x,y0-y1 or a block x0-x1,y0-y1, separated by spaces"
         )]
         cells: Option<String>,
@@ -929,16 +960,47 @@ enum Command {
         fill: Option<[i64; 2]>,
         #[arg(
             long,
-            requires = "fill",
-            help = "A fill also spreads across corners (eight neighbours, not four)"
+            help = "A fill also spreads across corners (eight neighbours, not four); an outline also takes the corner pixels"
         )]
         diagonal: bool,
         #[arg(
             long = "ref",
-            requires = "fill",
-            help = "What a fill reads: this layer (default), all (every visible pixel layer) or a pixel layer's id or name"
+            help = "What a fill or an outline reads: this layer (default), all (every visible pixel layer) or a pixel layer's id or name"
         )]
         reference: Option<String>,
+        #[arg(
+            long,
+            conflicts_with_all = ["cells", "path", "grid", "line", "rect", "ellipse", "fill", "size"],
+            help = "A one-pixel outline: every empty pixel that touches a drawn one (--inside: every drawn pixel that touches an empty one)"
+        )]
+        outline: bool,
+        #[arg(
+            long,
+            requires = "outline",
+            help = "The outline goes on the drawing's own edge pixels, not around it"
+        )]
+        inside: bool,
+        #[arg(
+            long,
+            value_name = "STEPS",
+            allow_hyphen_values = true,
+            conflicts_with_all = ["color", "erase", "grid", "dither"],
+            help = "Step the colours that are there along their ramps instead of drawing a colour: 1 one lighter, -1 one darker"
+        )]
+        shade: Option<i32>,
+        #[arg(
+            long,
+            value_name = "PERCENT",
+            conflicts_with_all = ["erase", "grid"],
+            help = "Draw only this share of the pixels, in an even pattern: 50 is a checkerboard, 25 one pixel in four"
+        )]
+        dither: Option<u32>,
+        #[arg(
+            long,
+            requires = "dither",
+            help = "With --dither: the colour of the pixels the pattern leaves out"
+        )]
+        second: Option<String>,
         #[arg(
             long,
             value_name = "FILE",
@@ -2651,9 +2713,26 @@ fn run() -> Result<()> {
             };
             agent::edit(&bundle, &[op], &output(&flags, frame))?;
         }
-        Command::Recolour { bundle, ids, to, flags } => {
-            let ops = recolour_ops(&bundle, &ids, &to)?;
-            agent::edit(&bundle, &ops, &output(&flags, 0))?;
+        Command::Recolour {
+            bundle,
+            ids,
+            to,
+            step,
+            from,
+            layer,
+            frame,
+            flags,
+        } => {
+            let ids = match &from {
+                Some(colour) => marks_of_colour(&bundle, colour, layer.as_deref(), frame)?,
+                None => ids,
+            };
+            let ops = match (step, to) {
+                (Some(by), _) => step_ops(&bundle, &ids, by)?,
+                (None, Some(to)) => recolour_ops(&bundle, &ids, &to)?,
+                (None, None) => return Err(anyhow!("recolour needs --to <colour> or --step <steps>")),
+            };
+            agent::edit(&bundle, &ops, &output(&flags, frame.unwrap_or(0)))?;
         }
         Command::Detach { bundle, ids, flags } => {
             if ids.is_empty() {
@@ -2970,6 +3049,11 @@ fn run() -> Result<()> {
             fill,
             diagonal,
             reference,
+            outline,
+            inside,
+            shade,
+            dither,
+            second,
             size,
             color,
             erase,
@@ -3009,6 +3093,11 @@ fn run() -> Result<()> {
                 fill,
                 diagonal,
                 reference,
+                outline,
+                inside,
+                shade,
+                dither,
+                second,
                 size,
                 part,
                 by_hand: false,
@@ -4210,6 +4299,104 @@ pub fn copy_tag(doc: &klad_core::doc::Document) -> String {
         "" => String::new(),
         tag => format!("  copy {tag} (new ids end in {tag})"),
     }
+}
+
+fn marks_of_colour(path: &Path, colour: &str, layer: Option<&str>, frame: Option<u32>) -> Result<Vec<String>> {
+    let bundle = Bundle::open(path)?;
+    let doc = &bundle.doc;
+    let at = doc
+        .swatch(colour)
+        .ok_or_else(|| anyhow!("the palette has no {colour:?} (give a name, a colour, an index or an id)"))?;
+    let entry = doc.palette[at].id.clone();
+    let layers: Vec<&klad_core::doc::Layer> = match layer {
+        Some(key) => vec![doc.find_layer(key)?],
+        None => doc.all_layers().into_iter().filter(|l| l.pixel()).collect(),
+    };
+    if let Some(other) = layers.iter().find(|l| !l.pixel()) {
+        bail!(
+            "{} is a {} layer: --from picks pixel marks by their palette colour",
+            other.id,
+            other.kind_name()
+        );
+    }
+    let found = layers
+        .iter()
+        .flat_map(|l| {
+            l.cels()
+                .iter()
+                .filter(|c| c.link.is_none())
+                .filter(|c| frame.is_none_or(|f| l.content_at(f).is_some_and(|shown| shown.id == c.id)))
+                .map(move |c| (*l, c))
+        })
+        .map(|(l, c)| {
+            Ok(bundle
+                .read_marks(&l.id, &c.id)?
+                .iter()
+                .filter(|m| {
+                    m.as_fill()
+                        .is_some_and(|f| !entry.is_empty() && f.entry() == Some(entry.as_str()))
+                })
+                .map(|m| klad_core::markedit::address(&c.id, m.id()))
+                .collect::<Vec<_>>())
+        })
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    if found.is_empty() {
+        bail!("no pixel mark is drawn in {colour:?} there");
+    }
+    Ok(found)
+}
+
+fn step_ops(path: &Path, ids: &[String], by: i32) -> Result<Vec<Op>> {
+    if ids.is_empty() || by == 0 {
+        return Err(anyhow!(
+            "give the pixel marks to step, as <cel>:s<id>, and a number of steps: 1 one lighter, -1 one darker"
+        ));
+    }
+    let bundle = Bundle::open(path)?;
+    let doc = &bundle.doc;
+    let ops = ids
+        .iter()
+        .map(|id| {
+            let (cel, mark) =
+                klad_core::markedit::parse_address(id).ok_or_else(|| anyhow!("{id} is not a mark: use <cel>:s<id>"))?;
+            let owner = doc
+                .all_layers()
+                .into_iter()
+                .find(|l| l.cels().iter().any(|c| c.id == cel))
+                .ok_or_else(|| anyhow!("no drawing {cel}"))?;
+            let marks = bundle.read_marks(&owner.id, cel)?;
+            let fill = marks
+                .iter()
+                .find(|m| m.id() == mark)
+                .ok_or_else(|| anyhow!("{id} does not exist"))?
+                .as_fill()
+                .filter(|f| f.on_grid() && !f.erases())
+                .ok_or_else(|| {
+                    anyhow!("{id} is not a pixel mark with a colour: --step moves pixel marks along their ramp")
+                })?;
+            let at = fill
+                .entry()
+                .and_then(|entry| doc.swatch(entry))
+                .or_else(|| doc.swatch(&klad_core::color::to_hex(fill.color())));
+            Ok(at.and_then(|at| doc.ramp_step(at, by)).map(|to| Op::Set {
+                id: id.clone(),
+                props: serde_json::Map::from_iter([("color".to_string(), serde_json::json!(to.to_string()))]),
+            }))
+        })
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    if ops.is_empty() {
+        bail!(
+            "none of these marks can step {}: their colours are in no ramp, or already at its end (klad palette --ramp groups colours)",
+            if by > 0 { "lighter" } else { "darker" }
+        );
+    }
+    Ok(ops)
 }
 
 fn recolour_ops(path: &Path, ids: &[String], to: &str) -> Result<Vec<Op>> {

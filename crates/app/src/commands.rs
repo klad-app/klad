@@ -43,6 +43,9 @@ pub enum Cmd {
     CutLasso,
     Recolour,
     Thinner,
+    ShadeLighter,
+    ShadeDarker,
+    PixelOutline,
     Thicker,
     AttachedOnly,
     Detach,
@@ -513,7 +516,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 186] = [
+    pub const ALL: [Cmd; 189] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -553,6 +556,9 @@ impl Cmd {
         Cmd::CutLasso,
         Cmd::Recolour,
         Cmd::Thinner,
+        Cmd::ShadeLighter,
+        Cmd::ShadeDarker,
+        Cmd::PixelOutline,
         Cmd::Thicker,
         Cmd::AttachedOnly,
         Cmd::Detach,
@@ -1045,6 +1051,33 @@ impl Cmd {
                 T::None,
                 R::No,
                 "give the selected strokes and fills the current colour",
+            ),
+            Cmd::ShadeLighter => spec(
+                "edit.lighter",
+                "one step lighter",
+                icon::PLUS,
+                G::Edit,
+                T::None,
+                R::No,
+                "the selected pixel marks take the next lighter colour of their ramp",
+            ),
+            Cmd::ShadeDarker => spec(
+                "edit.darker",
+                "one step darker",
+                icon::MINUS,
+                G::Edit,
+                T::None,
+                R::No,
+                "the selected pixel marks take the next darker colour of their ramp",
+            ),
+            Cmd::PixelOutline => spec(
+                "layer.pixel-outline",
+                "outline the pixels",
+                icon::PIXELS,
+                G::Layers,
+                T::None,
+                R::No,
+                "a one-pixel outline in the current colour around what the pixel layer shows, as one mark",
             ),
             Cmd::Thinner => spec(
                 "edit.thinner",
@@ -2418,6 +2451,9 @@ impl Cmd {
             Cmd::CutLasso => "Lasso cuts strokes",
             Cmd::Recolour => "Recolour",
             Cmd::Thinner => "Thinner",
+            Cmd::ShadeLighter => "Lighter",
+            Cmd::ShadeDarker => "Darker",
+            Cmd::PixelOutline => "Outline the pixels",
             Cmd::Thicker => "Thicker",
             Cmd::AttachedOnly => "Attached only",
             Cmd::Detach => "Detach",
@@ -2666,6 +2702,8 @@ pub const MENUS: [Menu; 9] = [
                 "Strokes",
                 &[
                     Run(Cmd::Recolour),
+                    Run(Cmd::ShadeLighter),
+                    Run(Cmd::ShadeDarker),
                     Run(Cmd::Thinner),
                     Run(Cmd::Thicker),
                     Line,
@@ -2719,6 +2757,7 @@ pub const MENUS: [Menu; 9] = [
         items: &[
             Run(Cmd::NewPaintLayer),
             Run(Cmd::NewPixelLayer),
+            Run(Cmd::PixelOutline),
             Run(Cmd::NewVectorLayer),
             Run(Cmd::NewAdjustLayer),
             Run(Cmd::NewGroupLayer),

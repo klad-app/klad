@@ -2029,6 +2029,139 @@ fn pixels_are_selected_by_box_or_colour_and_move_flip_turn_and_recolour_on_the_g
 }
 
 #[test]
+fn the_pencil_shades_and_dithers_and_a_selection_steps_along_its_ramp_and_takes_an_outline() {
+    let path = pixel_sample("pixel-shade");
+    {
+        let mut bundle = Bundle::open(&path).unwrap();
+        let layer = bundle.doc.layers[0].id.clone();
+        let ramp = klad_core::palettes::ramp_swatches("green", "#4c9a54", 3).unwrap();
+        let keys: Vec<String> = ramp.iter().map(|s| format!("\"{}\"", s.color)).collect();
+        bundle
+            .apply(
+                &parse_lines(&format!(
+                    "{}\n{}\n{}",
+                    format_args!(
+                        r##"{{"op":"palette","load":{}}}"##,
+                        serde_json::to_string(&ramp).unwrap()
+                    ),
+                    format_args!(r##"{{"op":"palette","ramp":"green","of":[{}]}}"##, keys.join(",")),
+                    format_args!(
+                        r##"{{"op":"pixel","layer":"{layer}","color":"green-2","rect":[12,4,8,6],"filled":true}}"##
+                    ),
+                ))
+                .unwrap(),
+            )
+            .unwrap();
+    }
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    let grid = |h: &Harness<'static, Editor>| -> Vec<String> {
+        let ed = h.state();
+        let doc = &ed.scene.bundle.doc;
+        let grid = klad_core::pixel::grid_of(ed.scene.active_marks(), doc.canvas.width, doc.canvas.height);
+        klad_core::pixel::rows(&grid, &klad_core::pixel::legend(doc, &grid))
+    };
+    let green = |h: &Harness<'static, Editor>, name: &str| -> char {
+        let ed = h.state();
+        let doc = &ed.scene.bundle.doc;
+        let grid = klad_core::pixel::grid_of(ed.scene.active_marks(), doc.canvas.width, doc.canvas.height);
+        let at = doc.swatch(name).unwrap();
+        klad_core::pixel::legend(doc, &grid)
+            .iter()
+            .find(|n| n.key == doc.palette[at].id || n.color == doc.palette[at].color)
+            .map_or('?', |n| n.sign)
+    };
+    h.state_mut().tool = Tool::Brush;
+    h.run_steps(2);
+    assert!(h.query_by_label("lighter").is_some() && h.query_by_label("darker").is_some());
+    h.state_mut().pixel_mode = super::PixelMode::Darker;
+    let (a, b) = (on_screen(&h, 12.5, 8.5), on_screen(&h, 19.5, 8.5));
+    drag(&mut h, a, b);
+    h.run_steps(3);
+    ready(&mut h);
+    let mid = green(&h, "green-2");
+    let dark = green(&h, "green-1");
+    assert_eq!(
+        &grid(&h)[8][12..20],
+        dark.to_string().repeat(8),
+        "the row the pencil went over is a step darker"
+    );
+    assert_eq!(&grid(&h)[7][12..20], mid.to_string().repeat(8));
+    let empty = on_screen(&h, 28.5, 20.5);
+    click_with(&mut h, empty, Modifiers::NONE);
+    h.run_steps(3);
+    let refused = h.state().messages.latest().map(|m| m.text.clone()).unwrap_or_default();
+    assert!(refused.contains("in no ramp"), "{refused}");
+    h.state_mut().pixel_mode = super::PixelMode::Draw;
+    h.state_mut().pixel_dither = 50;
+    h.state_mut().pixel_two = true;
+    h.state_mut()
+        .set_colour(klad_core::color::parse_hex("#22223b").unwrap());
+    h.state_mut().second = klad_core::color::parse_hex("#ef233c").unwrap();
+    h.state_mut().tool = Tool::Shape;
+    h.state_mut().pixel_filled = true;
+    let (a, b) = (on_screen(&h, 24.5, 12.5), on_screen(&h, 27.5, 13.5));
+    drag(&mut h, a, b);
+    h.run_steps(3);
+    ready(&mut h);
+    let rows = grid(&h);
+    let (one, two) = (rows[12].as_bytes()[24], rows[12].as_bytes()[25]);
+    assert!(
+        one != two && one != b'.' && two != b'.',
+        "two colours side by side: {}",
+        &rows[12][24..28]
+    );
+    assert_eq!(
+        (
+            rows[12].as_bytes()[26],
+            rows[13].as_bytes()[24],
+            rows[13].as_bytes()[25]
+        ),
+        (one, two, one),
+        "in a checkerboard"
+    );
+    h.state_mut().pixel_dither = 100;
+    h.state_mut().tool = Tool::Strokes;
+    let block = on_screen(&h, 15.5, 5.5);
+    click_with(&mut h, block, Modifiers::NONE);
+    h.run_steps(3);
+    assert!(h.state().picked.is_some(), "the green block is selected");
+    h.state_mut().invoke(Cmd::ShadeLighter).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    let light = green(&h, "green-3");
+    assert_eq!(
+        &grid(&h)[5][12..20],
+        light.to_string().repeat(8),
+        "the mark took the next lighter colour of its ramp"
+    );
+    h.state_mut().invoke(Cmd::ShadeLighter).unwrap();
+    h.run_steps(2);
+    let end = h.state().messages.latest().map(|m| m.text.clone()).unwrap_or_default();
+    assert!(end.contains("light end"), "{end}");
+    h.state_mut().invoke(Cmd::Deselect).unwrap();
+    let before = h.state().scene.active_marks().len();
+    h.state_mut()
+        .set_colour(klad_core::color::parse_hex("#101018").unwrap());
+    h.state_mut().invoke(Cmd::PixelOutline).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    assert_eq!(
+        h.state().scene.active_marks().len(),
+        before + 1,
+        "the outline is one mark"
+    );
+    let outlined = grid(&h);
+    assert_ne!(
+        outlined[3].as_bytes()[13],
+        b'.',
+        "a pixel above the block is outlined: {}",
+        outlined[3]
+    );
+    assert_eq!(outlined[3].as_bytes()[11], b'.', "its corner is left open");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn a_tap_that_wobbles_selects_and_a_drag_past_three_points_moves() {
     let path = sample("tap");
     let mut h = harness(editor(&path), vec2(1440.0, 900.0));
