@@ -13,6 +13,7 @@ pub type Affine = [f32; 6];
 pub const IDENTITY: Affine = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
 const STROKE_KEYS: &[&str] = &["color", "size", "opacity", "flow", "brush", "taper", "path"];
 const FILL_KEYS: &[&str] = &["color", "opacity"];
+const CELL_KEYS: &[&str] = &["color", "opacity", "entry"];
 pub const TRANSFORM_KEYS: &[&str] = &["x", "y", "rotate", "sx", "sy", "pivot"];
 
 pub fn parse_address(text: &str) -> Option<(&str, u32)> {
@@ -333,7 +334,18 @@ pub fn reshape(stroke: &mut Stroke, d: &str) -> Result<()> {
 }
 
 fn set_fill(fill: &mut Fill, props: &Map<String, Value>) -> Result<()> {
-    check_keys(props, FILL_KEYS, "fill")?;
+    match &mut fill.source {
+        FillSource::Cells { erase: true, .. } => {
+            bail!("an erasing mark has no colour or opacity to set; remove it instead")
+        }
+        FillSource::Cells { entry, .. } => {
+            check_keys(props, CELL_KEYS, "pixel mark")?;
+            if let Some(bound) = props.get("entry").and_then(Value::as_str) {
+                *entry = bound.to_string();
+            }
+        }
+        _ => check_keys(props, FILL_KEYS, "fill")?,
+    }
     if let Some(c) = color(props)? {
         fill.color = c;
     }
@@ -395,7 +407,7 @@ fn shifted(c: &Coverage, dx: i64, dy: i64) -> Coverage {
     }
 }
 
-fn resampled(c: &Coverage, a: Affine) -> Coverage {
+fn resampled(c: &Coverage, a: Affine, hard: bool) -> Coverage {
     let Some(inverse) = invert(a) else {
         return Coverage::default();
     };
@@ -419,6 +431,12 @@ fn resampled(c: &Coverage, a: Affine) -> Coverage {
         .flat_map(|j| (0..w).map(move |i| (i, j)))
         .map(|(i, j)| {
             let (sx, sy) = apply_affine(inverse, ((bx0 + i) as f32 + 0.5, (by0 + j) as f32 + 0.5));
+            if hard {
+                return match at(sx.floor() as i64, sy.floor() as i64) > 0.0 {
+                    true => 255,
+                    false => 0,
+                };
+            }
             let (fx, fy) = (sx - 0.5, sy - 0.5);
             let (ix, iy) = (fx.floor() as i64, fy.floor() as i64);
             let (tx, ty) = (fx - ix as f32, fy - iy as f32);
@@ -440,13 +458,14 @@ pub fn transform_fill(fill: &mut Fill, a: Affine) {
     match &mut fill.source {
         FillSource::Seed { seed, .. } => [seed.x, seed.y] = map([seed.x, seed.y]),
         FillSource::Polygon(points) => points.iter_mut().for_each(|p| *p = map(*p)),
+        FillSource::Cells { .. } => {}
     }
     let (coverage, region) = match translation(a) {
         Some((dx, dy)) => (
             shifted(&fill.coverage, dx, dy),
             [1.0, 0.0, 0.0, 1.0, dx as f32, dy as f32],
         ),
-        None => (resampled(&fill.coverage, a), a),
+        None => (resampled(&fill.coverage, a, fill.on_grid()), a),
     };
     fill.coverage = coverage;
     fill.cuts.iter_mut().for_each(|c| c.map(|p| mapped(region, p)));
@@ -971,6 +990,57 @@ mod tests {
         assert_eq!((f.coverage.width, f.coverage.height), (40, 20));
         assert!(f.coverage.pixels() >= 780);
         assert!(matches!(f.source, FillSource::Seed { seed, .. } if seed.x == 30.0));
+    }
+
+    #[test]
+    fn pixel_marks_stay_hard_when_scaled_flipped_or_turned() {
+        let corner = || -> Mark {
+            Fill::cells(
+                1,
+                [1.0, 0.0, 0.0, 1.0],
+                "p1",
+                false,
+                Coverage::from_cells(&[[4, 4], [5, 4], [6, 4], [4, 5]]),
+            )
+            .into()
+        };
+        let changed = |transform: MarkTransform| -> Coverage {
+            let mut marks = vec![corner()];
+            let mut change = MarkChange::Transform {
+                ids: vec![1],
+                transform,
+            };
+            apply(&mut marks, &mut change, "c1", MarkIds::default()).unwrap();
+            let fill = marks[0].as_fill().unwrap();
+            assert_eq!(fill.entry(), Some("p1"));
+            assert!(fill.coverage.alpha.iter().all(|a| *a == 0 || *a == 255));
+            fill.coverage.clone()
+        };
+        let big = changed(MarkTransform {
+            sx: 3.0,
+            sy: 3.0,
+            pivot: Some([0.0, 0.0]),
+            ..Default::default()
+        });
+        assert_eq!((big.x, big.y, big.width, big.height), (12, 12, 9, 6));
+        assert_eq!(big.pixels(), 4 * 9, "every pixel becomes a 3x3 block");
+        assert_eq!(
+            (big.at(12, 12), big.at(20, 14), big.at(15, 15), big.at(14, 17)),
+            (255, 255, 0, 255)
+        );
+        let flipped = changed(MarkTransform {
+            sx: -1.0,
+            pivot: Some([5.5, 5.0]),
+            ..Default::default()
+        });
+        assert_eq!(flipped.cells().collect::<Vec<_>>(), [[4, 4], [5, 4], [6, 4], [6, 5]]);
+        let turned = changed(MarkTransform {
+            rotate: 90.0,
+            pivot: Some([5.0, 5.0]),
+            ..Default::default()
+        });
+        assert_eq!(turned.cells().collect::<Vec<_>>(), [[4, 4], [5, 4], [5, 5], [5, 6]]);
+        assert_eq!(turned.pixels(), 4, "a quarter turn keeps every pixel");
     }
 
     #[test]

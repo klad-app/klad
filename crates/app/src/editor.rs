@@ -2933,6 +2933,10 @@ impl Editor {
         match (self.tool, e.phase) {
             (_, Phase::Down) if !was_focused || !on_canvas || self.navigating => {}
             (_, Phase::Down) if picking => self.pick_colour(c, self.modifiers.shift)?,
+            (Tool::Fill | Tool::Brush, Phase::Down) if self.scene.on_grid() => self.say(
+                Tone::Refused,
+                "this is a pixel layer: it takes whole pixels, not brush strokes or fills",
+            ),
             (Tool::Fill, Phase::Down) => {
                 if self.scene.can_paint() {
                     self.lasso = Some(Lasso {
@@ -4656,7 +4660,7 @@ impl Editor {
             return Ok(());
         };
         let id = layer.id.clone();
-        ui.label(format!("{} layer", layer.kind().name()));
+        ui.label(format!("{} layer", layer.kind_name()));
         let mut props: Vec<(String, Value)> = Vec::new();
         ui.horizontal(|ui| {
             if let Some(name) = self.text(

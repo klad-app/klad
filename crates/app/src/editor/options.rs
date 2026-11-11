@@ -338,6 +338,11 @@ impl Editor {
                             theme::REFUSED,
                             "this is a vector layer: P draws paths on it; brushes paint on paint layers",
                         );
+                    } else if self.scene.on_grid() {
+                        ui.colored_label(
+                            theme::REFUSED,
+                            "this is a pixel layer: it takes whole pixels, not brush strokes",
+                        );
                     } else if !self.scene.can_paint() {
                         ui.colored_label(theme::REFUSED, "pick a paint layer to draw on");
                     }

@@ -61,6 +61,7 @@ pub enum Cmd {
     MakePath,
     AddSwatch,
     NewPaintLayer,
+    NewPixelLayer,
     NewVectorLayer,
     ToggleVisible,
     ToggleLocked,
@@ -506,7 +507,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 179] = [
+    pub const ALL: [Cmd; 180] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -564,6 +565,7 @@ impl Cmd {
         Cmd::MakePath,
         Cmd::AddSwatch,
         Cmd::NewPaintLayer,
+        Cmd::NewPixelLayer,
         Cmd::NewVectorLayer,
         Cmd::ToggleVisible,
         Cmd::ToggleLocked,
@@ -1202,6 +1204,15 @@ impl Cmd {
                 T::None,
                 R::No,
                 "a paint layer above the active one, with a drawing at this frame",
+            ),
+            Cmd::NewPixelLayer => spec(
+                "layer.new-pixel",
+                "new pixel layer",
+                icon::PIXELS,
+                G::Layers,
+                T::None,
+                R::No,
+                "a pixel layer above the active one: whole pixels with no soft edges, each bound to a palette colour",
             ),
             Cmd::NewAdjustLayer => spec(
                 "layer.new-adjust",
@@ -2359,6 +2370,7 @@ impl Cmd {
             Cmd::MakePath => "Make path",
             Cmd::AddSwatch => "Add colour to palette",
             Cmd::NewPaintLayer => "New paint layer",
+            Cmd::NewPixelLayer => "New pixel layer",
             Cmd::NewVectorLayer => "New vector layer",
             Cmd::ToggleVisible => "Show",
             Cmd::ToggleLocked => "Lock",
@@ -2630,6 +2642,7 @@ pub const MENUS: [Menu; 9] = [
         title: "Layer",
         items: &[
             Run(Cmd::NewPaintLayer),
+            Run(Cmd::NewPixelLayer),
             Run(Cmd::NewVectorLayer),
             Run(Cmd::NewAdjustLayer),
             Run(Cmd::NewGroupLayer),

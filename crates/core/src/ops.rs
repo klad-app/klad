@@ -27,6 +27,7 @@ const LAYER_KEYS: &[&str] = &[
     "mask",
     "cels",
     "children",
+    "pixel",
     "effects",
     "adjust",
     "depth",
@@ -53,7 +54,7 @@ const NODE_KEYS: &[&str] = &[
 const TRANSFORM_KEYS: &[&str] = &["x", "y", "rotate", "sx", "sy", "pivot"];
 const STROKE_KEYS: &[&str] = &["paint", "width", "cap", "join", "dash"];
 const STRUCTURE: &[&str] = &[
-    "id", "kind", "type", "cels", "children", "nodes", "mask", "bones", "ik", "rig", "keys", "pose", "parts",
+    "id", "kind", "pixel", "type", "cels", "children", "nodes", "mask", "bones", "ik", "rig", "keys", "pose", "parts",
 ];
 
 fn shape_keys(kind: &str) -> Result<&'static [&'static str]> {
@@ -119,6 +120,7 @@ pub enum Op {
     },
     Stroke(StrokeSpec),
     Fill(FillSpec),
+    Pixel(PixelSpec),
     Palette(PaletteEdit),
     Transform {
         ids: Vec<String>,
@@ -263,6 +265,49 @@ pub enum PaletteEdit {
     Set {
         swatches: Vec<Swatch>,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PixelSpec {
+    pub layer: String,
+    #[serde(default)]
+    pub frame: u32,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub erase: bool,
+    pub cells: Vec<[i64; 2]>,
+    #[serde(default)]
+    pub part: Option<String>,
+}
+
+impl PixelSpec {
+    pub fn check(&self) -> Result<()> {
+        match (&self.color, self.erase) {
+            (Some(_), true) => bail!("pixel takes a color or erase, not both"),
+            (None, false) => bail!("pixel needs a color (a palette name or #rrggbb) or \"erase\":true"),
+            _ => {}
+        }
+        if self.cells.is_empty() {
+            bail!("pixel needs cells: a list of [x, y] in canvas pixels");
+        }
+        Ok(())
+    }
+
+    pub fn coverage(&self, doc: &Document) -> Result<Coverage> {
+        let (w, h) = (doc.canvas.width as i64, doc.canvas.height as i64);
+        let inside: Vec<[u32; 2]> = self
+            .cells
+            .iter()
+            .filter(|c| c[0] >= 0 && c[1] >= 0 && c[0] < w && c[1] < h)
+            .map(|c| [c[0] as u32, c[1] as u32])
+            .collect();
+        if inside.is_empty() {
+            bail!("none of the {} cells is on the {w}x{h} canvas", self.cells.len());
+        }
+        Ok(Coverage::from_cells(&inside))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -1470,6 +1515,11 @@ impl Op {
                 spec.check()?;
                 Op::Fill(spec)
             }
+            "pixel" => {
+                let spec: PixelSpec = serde_json::from_value(Value::Object(std::mem::take(&mut map)))?;
+                spec.check()?;
+                Op::Pixel(spec)
+            }
             "palette" => Op::Palette(parse_palette(&mut map)?),
             "transform" if map.contains_key("layer") => {
                 let layer = take_str(&mut map, "layer")?.unwrap_or_default();
@@ -1612,7 +1662,7 @@ impl Op {
             },
             other => {
                 bail!(
-                    "unknown op {other:?}: use add, set, rm, mv, stroke, fill, palette, transform, path, lasso, copy, timeline, frames, cel, clip, retime, inbetween, duplicate, ink, light, hatch, scatter, paint, foliage, grass, paintover, part, key, bone, ik, weights, pose or export"
+                    "unknown op {other:?}: use add, set, rm, mv, stroke, fill, pixel, palette, transform, path, lasso, copy, timeline, frames, cel, clip, retime, inbetween, duplicate, ink, light, hatch, scatter, paint, foliage, grass, paintover, part, key, bone, ik, weights, pose or export"
                 )
             }
         };
@@ -2727,6 +2777,7 @@ fn edit_palette(doc: &mut Document, edit: &PaletteEdit) -> Result<()> {
                 Swatch {
                     color: color.clone(),
                     name: name.clone(),
+                    id: String::new(),
                 },
             );
         }
@@ -2802,8 +2853,17 @@ fn assign_layer_ids(doc: &mut Document, taken: &mut BTreeSet<String>, value: &mu
     let kind = value
         .get("kind")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("a layer needs a kind: paint, vector, group or adjust"))?
+        .ok_or_else(|| anyhow!("a layer needs a kind: paint, pixel, vector, group or adjust"))?
         .to_string();
+    let pixel = kind == "pixel" || value.get("pixel").and_then(Value::as_bool) == Some(true);
+    if kind == "pixel" {
+        value["kind"] = Value::from("paint");
+        value["pixel"] = Value::from(true);
+    }
+    let kind = match pixel {
+        true => "pixel".to_string(),
+        false => kind,
+    };
     let id = ensure_id(doc, taken, value, 'l')?;
     if value.get("name").is_none() {
         let names: BTreeSet<String> = doc.all_layers().iter().map(|l| l.name.clone()).collect();
@@ -2814,7 +2874,7 @@ fn assign_layer_ids(doc: &mut Document, taken: &mut BTreeSet<String>, value: &mu
         value["name"] = Value::String(name);
     }
     match kind.as_str() {
-        "paint" | "vector" => {
+        "paint" | "pixel" | "vector" => {
             if value.get("cels").is_none_or(|c| c.as_array().is_none_or(Vec::is_empty)) {
                 value["cels"] = serde_json::json!([{ "frame": 0 }]);
             }
@@ -3300,7 +3360,7 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
             let path = layer_path(doc, layer)?;
             let target = doc.layer_at_mut(&path);
             let cels = match &mut target.content {
-                LayerContent::Paint { cels } | LayerContent::Vector { cels } => cels,
+                LayerContent::Paint { cels, .. } | LayerContent::Vector { cels } => cels,
                 LayerContent::Group { .. } => bail!("{layer} is a group; cels go into paint or vector layers"),
                 LayerContent::Adjust { .. } => bail!("{layer} is an adjustment; cels go into paint or vector layers"),
                 LayerContent::Bones {} => bail!("{layer} is a bones layer; cels go into paint or vector layers"),
@@ -3356,8 +3416,20 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
                 Some((cel, mark)) => {
                     let layer = mark_owner(doc, cel)?;
                     let mut props = props.clone();
-                    if let Some(color) = props.get("color").and_then(Value::as_str) {
-                        let hex = doc.resolve_color(color).with_context(|| format!("set {id}"))?;
+                    let on_grid = doc.layer(&layer).is_some_and(Layer::pixel);
+                    if let Some(color) = props.get("color").and_then(Value::as_str).map(String::from) {
+                        let hex = match on_grid {
+                            true => {
+                                let before = doc.palette.clone();
+                                let (entry, hex) = doc.bind_swatch(&color).with_context(|| format!("set {id}"))?;
+                                if doc.palette != before && !out.changed.iter().any(|c| c == "palette") {
+                                    out.changed.push("palette".into());
+                                }
+                                props.insert("entry".into(), Value::String(entry));
+                                hex
+                            }
+                            false => doc.resolve_color(&color).with_context(|| format!("set {id}"))?,
+                        };
                         props.insert("color".into(), Value::String(hex));
                     }
                     out.push(&layer, cel, MarkChange::Set { id: mark, props });
@@ -3438,6 +3510,7 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
             out.changed.push(id.clone());
         }
         Op::Stroke(spec) => {
+            off_the_grid(doc, &spec.layer, "brush strokes")?;
             let resolved = StrokeSpec {
                 color: doc.resolve_color(&spec.color)?,
                 second: spec.second.as_deref().map(|c| doc.resolve_color(c)).transpose()?,
@@ -3482,7 +3555,49 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
                 Ok::<_, anyhow::Error>(())
             })?;
         }
+        Op::Pixel(spec) => {
+            spec.check().with_context(|| format!("pixel on {}", spec.layer))?;
+            let path = layer_path(doc, &spec.layer)?;
+            let target = doc.layer_at(&path);
+            if !target.pixel() {
+                bail!(
+                    "{} is a {} layer; pixels go into pixel layers (klad add <bundle> layer pixel)",
+                    spec.layer,
+                    target.kind().name()
+                );
+            }
+            let coverage = spec.coverage(doc).with_context(|| format!("pixel on {}", spec.layer))?;
+            let mut fill = match &spec.color {
+                Some(color) => {
+                    let before = doc.palette.clone();
+                    let (entry, hex) = doc
+                        .bind_swatch(color)
+                        .with_context(|| format!("pixel on {}", spec.layer))?;
+                    if doc.palette != before && !out.changed.iter().any(|c| c == "palette") {
+                        out.changed.push("palette".into());
+                    }
+                    Fill::cells(0, parse_hex(&hex)?, &entry, false, coverage)
+                }
+                None => Fill::cells(0, [0.0, 0.0, 0.0, 1.0], "", true, coverage),
+            }
+            .by(Author::Agent);
+            fill.lock = !fill.erases() && locks_alpha(doc, &spec.layer);
+            let cel = paint_cel_at(doc, &spec.layer, spec.frame, out)?;
+            out.push(&spec.layer, &cel, MarkChange::Add(vec![Mark::Fill(fill)]));
+            if let Some(name) = &spec.part {
+                out.push(
+                    &spec.layer,
+                    &cel,
+                    MarkChange::Part {
+                        name: name.clone(),
+                        count: 1,
+                        ids: Vec::new(),
+                    },
+                );
+            }
+        }
         Op::Fill(spec) => {
+            off_the_grid(doc, &spec.layer, "flood and lasso fills")?;
             let mut fill = spec.build(doc).with_context(|| format!("fill on {}", spec.layer))?;
             fill.lock = locks_alpha(doc, &spec.layer);
             let cel = paint_cel_at(doc, &spec.layer, spec.frame, out)?;
@@ -3626,6 +3741,13 @@ fn edit_path(doc: &mut Document, id: &str, edit: &PathEdit) -> Result<()> {
     node.shape = Shape::Path {
         d: pathedit::to_d(&subs),
     };
+    Ok(())
+}
+
+fn off_the_grid(doc: &Document, layer: &str, what: &str) -> Result<()> {
+    if doc.layer(layer).is_some_and(Layer::pixel) {
+        bail!("{layer} is a pixel layer: it takes whole pixels (klad pixel), not {what}");
+    }
     Ok(())
 }
 

@@ -126,7 +126,9 @@ pub fn add_op(what: &str, rest: &[String], place: Place) -> Result<Op> {
         "layer" => {
             let (kind, props) = match rest.split_first() {
                 Some((kind, props)) if !kind.contains('=') => (kind.clone(), props),
-                _ => bail!("say which kind: klad add <bundle> layer paint|vector|group|adjust|image [key=value ...]"),
+                _ => bail!(
+                    "say which kind: klad add <bundle> layer paint|pixel|vector|group|adjust|image [key=value ...]"
+                ),
             };
             let layer = match kind.as_str() {
                 "adjust" => crate::looks::adjust_layer(props)?,
@@ -528,14 +530,21 @@ fn report(bundle: &Bundle, applied: &Applied, render: Option<PathBuf>, out: &Out
         .filter(|p| p.added().next().is_some())
         .for_each(|p| {
             let (fills, strokes): (Vec<&PaintMark>, Vec<&PaintMark>) = p.added().partition(|m| m.as_fill().is_some());
+            let (pixels, fills): (Vec<&PaintMark>, Vec<&PaintMark>) = fills
+                .into_iter()
+                .partition(|m| m.as_fill().is_some_and(|f| f.on_grid()));
             let list = |marks: &[&PaintMark], what: &str| {
                 let ids: Vec<String> = marks.iter().map(|m| m.id().to_string()).collect();
                 (!ids.is_empty()).then(|| format!("{what} {}", ids.join(" ")))
             };
-            let parts: Vec<String> = [list(&strokes, "strokes"), list(&fills, "fills")]
-                .into_iter()
-                .flatten()
-                .collect();
+            let parts: Vec<String> = [
+                list(&strokes, "strokes"),
+                list(&fills, "fills"),
+                list(&pixels, "pixel marks"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
             println!("painted on {} cel {}: {}", p.layer, p.cel, parts.join(", "));
         });
     applied
@@ -678,7 +687,7 @@ fn layer_summary(bundle: &Bundle, layer: &Layer, frame: u32) -> Result<Value> {
     let content = layer.content_at(frame);
     let mut value = json!({
         "id": layer.id,
-        "kind": layer.kind().name(),
+        "kind": layer.kind_name(),
         "name": layer.name,
         "visible": layer.visible,
         "opacity": layer.opacity,
@@ -822,6 +831,7 @@ fn print_layer(v: &Value, depth: usize, frames: u32) {
             Some(fills) => format!("{} strokes, {fills} fills", v["strokes"].as_u64().unwrap_or(0)),
             None => format!("{} strokes", v["strokes"].as_u64().unwrap_or(0)),
         },
+        Some("pixel") => format!("{} pixel marks", v["fills"].as_u64().unwrap_or(0)),
         Some("vector") => format!("{} nodes", v["nodes"].as_array().map_or(0, Vec::len)),
         Some("adjust") => v["adjust"]
             .as_object()

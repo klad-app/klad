@@ -26,6 +26,7 @@ pub(super) struct LayerRow {
     pub id: String,
     pub name: String,
     pub kind: Kind,
+    pub pixel: bool,
     pub depth: usize,
     pub visible: bool,
     pub locked: bool,
@@ -146,6 +147,7 @@ impl Editor {
             id: layer.id.clone(),
             name: layer.name.clone(),
             kind: layer.kind(),
+            pixel: layer.pixel(),
             depth,
             visible: layer.visible,
             locked: layer.locked,
@@ -316,6 +318,7 @@ impl Editor {
             (_, Kind::Bones) => icon::BONE,
             (_, Kind::Adjust) => icon::ADJUST,
             (_, Kind::Vector) => icon::POINTS,
+            _ if row.pixel => icon::PIXELS,
             _ => icon::BRUSH,
         };
         child.label(RichText::new(kind).color(theme::WEAK));
@@ -636,6 +639,7 @@ impl Editor {
         ui.horizontal_wrapped(|ui| {
             [
                 (Cmd::NewPaintLayer, Some("paint")),
+                (Cmd::NewPixelLayer, Some("pixel")),
                 (Cmd::NewVectorLayer, Some("vector")),
                 (Cmd::NewGroupLayer, Some("group")),
                 (Cmd::NewBonesLayer, Some("bones")),
@@ -754,6 +758,7 @@ mod tests {
             id: id.into(),
             name: id.into(),
             kind,
+            pixel: false,
             depth: 0,
             visible: true,
             locked: false,

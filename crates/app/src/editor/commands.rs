@@ -255,6 +255,7 @@ impl Editor {
                 }
             }),
             Cmd::NewPaintLayer
+            | Cmd::NewPixelLayer
             | Cmd::NewVectorLayer
             | Cmd::NewGroupLayer
             | Cmd::NewBonesLayer
@@ -671,6 +672,7 @@ impl Editor {
                 self.apply(vec![Op::Palette(edit)])?;
             }
             Cmd::NewPaintLayer => self.add_layer("paint")?,
+            Cmd::NewPixelLayer => self.add_layer("pixel")?,
             Cmd::NewGroupLayer => self.new_group(false)?,
             Cmd::NewBonesLayer => {
                 self.new_skeleton()?;

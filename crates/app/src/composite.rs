@@ -1152,6 +1152,10 @@ impl Scene {
             .is_some_and(|l| l.kind() == Kind::Paint && !l.locked)
     }
 
+    pub fn on_grid(&self) -> bool {
+        self.active_layer().is_some_and(Layer::pixel)
+    }
+
     pub fn active_cel(&self) -> Option<String> {
         self.active_layer()
             .filter(|l| l.kind() == Kind::Paint)

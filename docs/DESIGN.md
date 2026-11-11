@@ -1,4 +1,4 @@
-_Last updated: 2026-11-10 20:10_
+_Last updated: 2026-11-11 13:40_
 
 # klad: design
 
@@ -101,7 +101,7 @@ art.klad/
 
 Committed: everything except `.cache/`. A fresh clone rebuilds the cache by replaying strokes and fills.
 
-### doc.json (format `klad/6`)
+### doc.json (format `klad/7`)
 
 ```json
 {
@@ -226,12 +226,13 @@ Unknown keys are errors that list the valid ones, so a typo never passes silentl
 |---|---|---|
 | `paint` | strokes, replayed to f16 tiles | human pen, agent scripted strokes |
 | `vector` | shapes, paths, text, generators | agent |
-| `pixel` | palette-indexed grid, no anti-aliasing | agent and human |
+| `pixel` | whole pixels bound to palette entries, no anti-aliasing (a `paint` layer with `pixel: true`, M9) | agent and human |
 | `adjust` | one adjustment: `hsl`, `levels`, `curves`, `balance`, `gradient-map`, `fill` (M5) | either |
 | `group` | children, blend mode, opacity, mask, clipping | either |
 
 Every layer has `blend`, `opacity`, `visible`, `locked`, optional `mask`, `clip` and (M5, format 8) `effects`. Effects are layer settings, not a layer kind: the planned `filter` kind became them.
 
+- **Pixel layers (M9).** A pixel layer is a paint layer flagged `pixel`, so it shares cels, masks, clipping, lock alpha, effects, the timeline and every export with paint layers. One pixel is one canvas pixel: a 64x64 sprite is a 64x64 drawing shown enlarged, and a drawing never mixes pixel sizes. Its marks stay data, as strokes do: a pixel mark is a fill record whose source is cells (`FillSource::Cells`), a set of whole pixels (coverage 0 or 255) with the id of the palette swatch it was drawn with, or a set of pixels to erase. So the same addresses, `set`, `rm`, `transform`, lasso, copy and history work on them; scaling, flipping and turning sample the nearest pixel (`markedit::resampled` with `hard`), which also makes an export above full size hard-edged. Colours are palette entries: `Document::bind_swatch` finds or adds the swatch and gives it an `id` the first time a mark uses it, and `set color=` on a pixel mark binds it to the new entry. The `pixel` op (`klad pixel`) is the first way to make marks; brush strokes and flood or lasso fills are refused on a pixel layer (`ops::off_the_grid`). Palette-wide recolouring, the pencil, shapes, shading, sharp exports and Aseprite files follow in the milestone's later stories.
 - **Blend modes.** `normal`, `multiply`, `screen`, `overlay`, `add`, and since M5 `color-dodge`, `soft-light`, `hard-light`, `lighten`, `darken`, `color`, `luminosity`, all as in the W3C compositing spec (Skia's modes; `look::blend_rgb` and `look::composite` hold the formulas the tests check them against).
 - **Effects (M5).** `"effects": [{"glow": {...}}, {"outline": {...}}]`, applied in order to the layer's content (after its mask; for a clip base, to the base and its clipped layers together) before its opacity and blend: `blur` (radius, a Gaussian sigma), `glow` (radius, strength, threshold: 0 glows from every pixel, higher only from the bright ones; color: a tint; blend: how the glow mixes with what is under the layer, screen by default, normal lays it like paint under the layer), `outline` (width, color, inside), `shadow` (x, y, radius, color, laid under the layer), `noise` (amount, size, seed, mono: a grain fixed to the canvas), `displace` (amount, size, seed, by: smooth waves, or a layer whose red pushes across and green down), `relief` (strength, light, highlight, shade, softness: lights the paint height of the layer's drawings, below). Each effect knows its reach (`look::reach`), so a tile is composed from its content within the tile plus that margin and tiles meet without seams (noise and haze read only their own pixel and add no margin, so they cost no neighbouring tiles); a tile skips a clip stack or group that puts no pixel in it (none of its rasters, live tiles or onion ghosts has a tile in the tile grown by its effects' margin; layers moved by keys, adjustment layers and vector layers drawn from their nodes always count), which leaves the tile the same since every blend leaves the pixels under a transparent layer as they are; the pixels are computed in Rust (`klad-render/effects.rs`) on f32 with absolute coordinates, so a tile equals the same pixels of the whole image byte for byte (tested). Blurs use a direct kernel, below a sigma of 2 at full size and above it on a grid of 2, 4, ... px blocks anchored to the canvas, then sampled back.
 - **Adjustment layers (M5).** An `adjust` layer changes what is under it in its list: the layers below it in its group, or, clipped, its base. A group holding an adjustment is composed apart, so the adjustment stays inside it. The colour math is on unpremultiplied sRGB values with alpha kept: `hsl` (hue in degrees, saturation and lightness -1..1), `levels` (black, white, gamma, low, high), `curves` (points, and red, green, blue applied before them; monotone cubic, no overshoot), `balance` (shadows, midtones, highlights: cyan to red, magenta to green, yellow to blue, keepLight), `gradient-map` (stops by brightness). The layer's opacity, blend and mask decide how much of the adjusted colour replaces the colour under it. `fill` (a solid or gradient paint) is drawn like a content layer instead, with the layer's blend.
@@ -528,7 +529,8 @@ The agent may run in a Linux container while the editor runs on the macOS host, 
 | M4 | The editor, usable: docked panels, a look, tool strip, layers panel, timeline toolbar, status and progress, command palette, pen-sized targets |
 | M4.5 | The agent's hand: ink, flats, shade, rim and texture from vector shapes; arcs and spacing checks, parts, in-betweens that keep hand work |
 | M5 | Painting and the look: textured and wet brushes, adjustments, filters, light, depth fog, generators, text, image layers |
-| M6 | Rigs and scenes: cut-out parts, bones, re-posing drawings, keyframes, parallax scenes, pixel layers |
+| M6 | Rigs and scenes: cut-out parts, bones, re-posing drawings, keyframes, parallax scenes |
+| M9 | Pixel art: pixel layers of marks bound to the palette, a sharp view, pencil and shapes on the grid, text grids for agents, palette swaps, sharp exports, Aseprite files, checks and a pixel art skill |
 
 
 ## Risks M0 retires

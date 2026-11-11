@@ -70,6 +70,7 @@ pub mod icon {
     pub const DISTRIBUTE_DOWN: &str = "\u{E536}";
     pub const FLIP_V: &str = "\u{ED6C}";
     pub const LAYERS: &str = "\u{E466}";
+    pub const PIXELS: &str = "\u{E296}";
     pub const EYE: &str = "\u{E220}";
     pub const EYE_OFF: &str = "\u{E224}";
     pub const LOCK: &str = "\u{E2FA}";

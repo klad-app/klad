@@ -36,8 +36,8 @@ use klad_core::history::Stack;
 use klad_core::markedit::{LassoAction, MarkTransform};
 use klad_core::ops::{
     BoneSpec, ClipEdit, CopySpec, CopyTarget, FillSpec, FoliageSpec, GrassSpec, HatchSpec, IkSpec, InbetweenSpec,
-    InkSpec, LassoSpec, LightSpec, Op, PaintOverSpec, PaintSpec, PaletteEdit, Place, PoseSpec, ScatterSpec, ShiftSpec,
-    StrokeSpec, WeightsSpec,
+    InkSpec, LassoSpec, LightSpec, Op, PaintOverSpec, PaintSpec, PaletteEdit, PixelSpec, Place, PoseSpec, ScatterSpec,
+    ShiftSpec, StrokeSpec, WeightsSpec,
 };
 use klad_core::retime::{Retime, RetimeSpec};
 use klad_core::stroke::{fills_of, strokes_of};
@@ -146,6 +146,12 @@ enum Command {
         frames: u32,
         #[arg(long, help = "Add a vector layer named sketch on top, for blocking in shapes")]
         sketch: bool,
+        #[arg(
+            long,
+            value_name = "WxH",
+            help = "A pixel art drawing of that many pixels, for example 64x64: its layers are pixel layers"
+        )]
+        pixel: Option<String>,
     },
     #[command(
         about = "Exposure sheet: a row per frame, a column per layer (top first)",
@@ -497,7 +503,7 @@ enum Command {
         #[arg(help = "layer, cel, mask, rect, ellipse, path, group, rays, image, scatter, repeat, mirror or text")]
         what: String,
         #[arg(
-            help = "For layers the kind first (paint, vector, group, bones, image with src=photo.jpg, or adjust and its type: hsl, levels, curves, balance, gradient-map, fill), then key=value pairs"
+            help = "For layers the kind first (paint, pixel, vector, group, bones, image with src=photo.jpg, or adjust and its type: hsl, levels, curves, balance, gradient-map, fill), then key=value pairs"
         )]
         rest: Vec<String>,
         #[command(flatten)]
@@ -854,6 +860,29 @@ enum Command {
         )]
         shape: Option<String>,
         #[arg(long, help = "Put the new marks in this part of the drawing (see klad part)")]
+        part: Option<String>,
+        #[command(flatten)]
+        flags: EditFlags,
+    },
+    #[command(
+        about = "Put whole pixels of one palette colour on a pixel layer, or erase them",
+        long_about = "Put whole pixels of one palette colour on a pixel layer, or erase them. A pixel layer is a grid with no anti-aliasing where one pixel is one canvas pixel; make a pixel drawing with klad new --pixel 64x64, or add a layer with klad add <bundle> layer pixel.\n\n--cells lists them: x,y for one pixel, x0-x1,y for a run along a row, x,y0-y1 for a run down a column and x0-x1,y0-y1 for a block. --color is a palette name, a palette index or #rrggbb; a colour the palette does not have yet is added to it. The pixels become one mark bound to that palette entry, so it can be recoloured (klad set <cel>:s<id> color=...), moved (klad transform) or removed (klad rm) later, and klad strokes lists it. --erase clears the pixels under it instead.\n\n  klad pixel sprite.klad l1 --color '#2b2d42' --cells '3-12,4 3,5-9 12,5-9 3-12,10'\n  klad pixel sprite.klad l1 --color skin --cells '4-11,5-9'\n  klad pixel sprite.klad l1 --erase --cells '7,7 8,7'\n\nAlso a pixel op in klad apply: {\"op\":\"pixel\",\"layer\":\"l1\",\"color\":\"skin\",\"cells\":[[4,5],[5,5]]} or with \"erase\":true."
+    )]
+    Pixel {
+        bundle: PathBuf,
+        layer: String,
+        #[arg(
+            long,
+            help = "The pixels: x,y, a row run x0-x1,y, a column run x,y0-y1 or a block x0-x1,y0-y1, separated by spaces"
+        )]
+        cells: String,
+        #[arg(long, conflicts_with = "erase", help = "A palette name, a palette index or #rrggbb")]
+        color: Option<String>,
+        #[arg(long, help = "Clear these pixels instead of colouring them")]
+        erase: bool,
+        #[arg(long, default_value_t = 0)]
+        frame: u32,
+        #[arg(long, help = "Put the mark in this named part")]
         part: Option<String>,
         #[command(flatten)]
         flags: EditFlags,
@@ -1985,6 +2014,39 @@ fn parse_pair(text: &str) -> Result<[f32; 2]> {
         .map_err(|_| anyhow!("{text:?} is not x,y"))
 }
 
+fn parse_cells(text: &str) -> Result<Vec<[i64; 2]>> {
+    let span = |part: &str| -> Option<(i64, i64)> {
+        let part = part.trim();
+        let split = part.char_indices().skip(1).find(|(_, c)| *c == '-').map(|(i, _)| i);
+        match split {
+            Some(i) => {
+                let (a, b) = (part[..i].parse::<i64>().ok()?, part[i + 1..].parse::<i64>().ok()?);
+                Some((a.min(b), a.max(b)))
+            }
+            None => part.parse::<i64>().ok().map(|v| (v, v)),
+        }
+    };
+    let cells = text
+        .split_whitespace()
+        .map(|item| {
+            let bad = || anyhow!("{item:?} is not x,y, a row run x0-x1,y, a column run x,y0-y1 or a block x0-x1,y0-y1");
+            let (x, y) = item.split_once(',').ok_or_else(bad)?;
+            let ((x0, x1), (y0, y1)) = (span(x).ok_or_else(bad)?, span(y).ok_or_else(bad)?);
+            if (x1 - x0).max(y1 - y0) > klad_core::doc::MAX_SIZE as i64 {
+                bail!("{item:?} runs further than any canvas");
+            }
+            Ok((y0..=y1).flat_map(move |y| (x0..=x1).map(move |x| [x, y])))
+        })
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    if cells.is_empty() {
+        bail!("--cells is empty: give pixels like '3,4 4,4' or runs like '3-9,4'");
+    }
+    Ok(cells)
+}
+
 fn parse_origin(text: &str) -> Result<Option<[f32; 2]>> {
     match text {
         "centre" | "center" => Ok(None),
@@ -2066,6 +2128,16 @@ fn bug(info: &std::panic::PanicHookInfo) -> String {
     )
 }
 
+fn pixel_size(text: &str) -> Result<(u32, u32)> {
+    let side = |part: &str| part.trim().parse::<u32>().ok().filter(|n| *n > 0);
+    let sides: Vec<Option<u32>> = text.split(['x', 'X']).map(side).collect();
+    match sides.as_slice() {
+        [Some(w)] => Ok((*w, *w)),
+        [Some(w), Some(h)] => Ok((*w, *h)),
+        _ => bail!("--pixel takes a size in pixels like 64x64 or 32, not {text:?}"),
+    }
+}
+
 fn run() -> Result<()> {
     match Cli::parse().command {
         Command::New {
@@ -2077,17 +2149,20 @@ fn run() -> Result<()> {
             fps,
             frames,
             sketch,
+            pixel,
         } => {
+            let size = pixel.as_deref().map(pixel_size).transpose()?;
             edit::new(
                 &bundle,
                 &Blank {
-                    width,
-                    height,
+                    width: size.map_or(width, |s| s.0),
+                    height: size.map_or(height, |s| s.1),
                     layers,
                     background,
                     fps,
                     frames,
                     sketch,
+                    pixel: size.is_some(),
                 },
             )?;
             println!("{}", bundle.display());
@@ -2686,6 +2761,26 @@ fn run() -> Result<()> {
                 second,
             };
             agent::edit(&bundle, &[Op::Stroke(spec)], &output(&flags, frame))?;
+        }
+        Command::Pixel {
+            bundle,
+            layer,
+            cells,
+            color,
+            erase,
+            frame,
+            part,
+            flags,
+        } => {
+            let spec = PixelSpec {
+                layer,
+                frame,
+                color,
+                erase,
+                cells: parse_cells(&cells)?,
+                part,
+            };
+            agent::edit(&bundle, &[Op::Pixel(spec)], &output(&flags, frame))?;
         }
         Command::Fill {
             bundle,
@@ -3983,6 +4078,47 @@ fn strokes(path: &Path, layer: &str, frame: u32, after: u32, as_json: bool) -> R
         );
         return Ok(());
     }
+    if owner.pixel() {
+        println!(
+            "cel {}: address a pixel mark as {}:s<id>, for example {}",
+            cel.id,
+            cel.id,
+            klad_core::markedit::address(&cel.id, marks.first().map_or(1, |m| m.id()))
+        );
+        if !fills.is_empty() {
+            println!("id     author colour    entry            cells  bounds");
+        }
+        fills.iter().for_each(|f| {
+            let part = cel.part_of(f.id).map_or(String::new(), |p| format!("  part {p}"));
+            let (colour, entry) = match (f.erases(), f.entry()) {
+                (true, _) => ("erases   ".to_string(), String::new()),
+                (false, Some(id)) => (
+                    hex8(f.color()),
+                    match bundle.doc.entry(id) {
+                        Some(swatch) => format!("{id} {}", swatch.name).trim().to_string(),
+                        None => format!("{id} (gone)"),
+                    },
+                ),
+                (false, None) => (hex8(f.color()), "none".to_string()),
+            };
+            let [x0, y0, x1, y1] = f.bounds().unwrap_or_default();
+            println!(
+                "{:<6} {:<6} {colour} {entry:<14} {:>7}  {x0:.0},{y0:.0} {:.0}x{:.0}{}{part}",
+                klad_core::doc::mark_name(f.id),
+                f.author.name(),
+                f.coverage.pixels(),
+                x1 - x0,
+                y1 - y0,
+                marks::flags(f.lock, &f.cuts)
+            );
+        });
+        println!(
+            "{} pixel marks, {} cells",
+            fills.len(),
+            fills.iter().map(|f| f.coverage.pixels()).sum::<usize>()
+        );
+        return Ok(());
+    }
     println!(
         "cel {}: address a stroke or fill as {}:s<id>, for example {}",
         cel.id,
@@ -4052,6 +4188,7 @@ fn strokes(path: &Path, layer: &str, frame: u32, after: u32, as_json: bool) -> R
                 seed.tolerance
             ),
             FillSource::Polygon(points) => format!("polygon of {} points", points.len()),
+            FillSource::Cells { .. } => "cells".to_string(),
         };
         let [x0, y0, x1, y1] = f.bounds().unwrap_or_default();
         println!(
@@ -4086,10 +4223,12 @@ fn palette(path: &Path, as_json: bool) -> Result<()> {
     if palette.is_empty() {
         println!("the palette is empty: klad palette <bundle> --add '#rrggbb' --name <name>");
     }
-    palette
-        .iter()
-        .enumerate()
-        .for_each(|(i, s)| println!("{i:<3} {:<10} {}", s.color, s.name));
+    palette.iter().enumerate().for_each(|(i, s)| {
+        println!(
+            "{}",
+            format!("{i:<3} {:<10} {:<8} {}", s.color, s.id, s.name).trim_end()
+        )
+    });
     Ok(())
 }
 

@@ -505,6 +505,82 @@ fn shapes_align_spread_and_centre_on_the_canvas_from_the_command_line() {
 }
 
 #[test]
+fn a_pixel_drawing_is_made_drawn_listed_and_edited_from_the_command_line() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-pixel-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("sprite.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let json = |args: &[&str]| -> serde_json::Value { serde_json::from_str(&draw(args)).unwrap() };
+    draw(&["new", path, "--pixel", "16x12"]);
+    let tree = json(&["ls", path, "--json"]);
+    assert_eq!(
+        (tree["canvas"]["width"].as_u64(), tree["canvas"]["height"].as_u64()),
+        (Some(16), Some(12))
+    );
+    let layer = tree["layers"][0]["id"].as_str().unwrap().to_string();
+    assert_eq!(tree["layers"][0]["kind"], "pixel");
+    draw(&["palette", path, "--add", "#f0c8a0", "--name", "skin"]);
+    let made = draw(&[
+        "pixel",
+        path,
+        &layer,
+        "--color",
+        "#2b2d42",
+        "--cells",
+        "3-12,2 3,3-8 12,3-8 3-12,9",
+    ]);
+    assert!(
+        made.contains("pixel marks") && made.contains("changed palette"),
+        "{made}"
+    );
+    draw(&["pixel", path, &layer, "--color", "skin", "--cells", "4-11,3-8"]);
+    draw(&["pixel", path, &layer, "--erase", "--cells", "7,5 8,5"]);
+    let listed = json(&["strokes", path, &layer, "--json"]);
+    let marks = listed["fills"].as_array().unwrap();
+    assert_eq!(marks.len(), 3);
+    assert_eq!(marks[0]["cells"].as_array().unwrap().len(), 32);
+    assert_eq!(marks[1]["cells"].as_array().unwrap().len(), 48);
+    assert_eq!(
+        (marks[2]["erase"].as_bool(), marks[2]["cells"].as_array().unwrap().len()),
+        (Some(true), 2)
+    );
+    let palette = json(&["palette", path, "--json"]);
+    assert_eq!(palette.as_array().unwrap().len(), 2);
+    assert_eq!(
+        marks[1]["entry"], palette[0]["id"],
+        "the mark is bound to the skin entry"
+    );
+    assert_eq!(marks[0]["entry"], palette[1]["id"]);
+    let text = draw(&["strokes", path, &layer]);
+    assert!(
+        text.contains("3 pixel marks, 82 cells") && text.contains("skin") && text.contains("erases"),
+        "{text}"
+    );
+    let first = marks[0]["address"].as_str().unwrap().to_string();
+    draw(&["set", path, &first, "color=skin"]);
+    draw(&["transform", path, &first, "--move", "1,0"]);
+    let after = json(&["strokes", path, &layer, "--json"]);
+    assert_eq!(after["fills"][0]["entry"], palette[0]["id"]);
+    assert_eq!(after["fills"][0]["bounds"][0].as_f64(), Some(4.0));
+    assert!(draw(&["ls", path]).contains("3 pixel marks"));
+    let refused = run(&["stroke", path, &layer, "--path", "M1 1 L9 9"]);
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("pixel layer"));
+    let bad = run(&["pixel", path, &layer, "--color", "skin", "--cells", "3;4"]);
+    assert!(String::from_utf8_lossy(&bad.stderr).contains("is not x,y"));
+    draw(&["add", path, "layer", "pixel", "name=shade"]);
+    assert_eq!(json(&["ls", path, "--json"])["layers"][0]["kind"], "pixel");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn recolour_moves_strokes_together_and_keeps_their_shades() {
     let dir = std::env::temp_dir().join(format!("draw-binary-recolour-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

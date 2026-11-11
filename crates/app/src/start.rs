@@ -1,6 +1,6 @@
 use crate::picker;
 use crate::settings::Settings;
-use crate::theme::{self, icon};
+use crate::theme::{self, Hint, icon};
 use anyhow::{Result, anyhow, bail};
 use egui::{RichText, TextureHandle, vec2};
 use klad_core::bundle::{Blank, Bundle};
@@ -17,6 +17,14 @@ pub const PRESETS: [(&str, u32, u32); 5] = [
     ("4K screen", 3840, 2160),
     ("sprite", 1024, 1024),
     ("large", 4096, 4096),
+];
+
+pub const PIXEL_PRESETS: [(&str, u32, u32); 5] = [
+    ("icon", 16, 16),
+    ("small sprite", 32, 32),
+    ("sprite", 64, 64),
+    ("large sprite", 128, 128),
+    ("screen", 320, 180),
 ];
 
 const THUMB: f32 = 168.0;
@@ -50,6 +58,10 @@ pub struct Start {
     pub colour: [u8; 3],
     pub fps: u32,
     pub sketch: bool,
+    pub pixel: bool,
+    pub pixel_preset: Option<usize>,
+    pub pixel_width: u32,
+    pub pixel_height: u32,
     pub path: String,
     pub error: Option<String>,
     pub repair: Option<PathBuf>,
@@ -85,6 +97,10 @@ impl Start {
             colour: [244, 239, 230],
             fps: blank.fps,
             sketch: true,
+            pixel: false,
+            pixel_preset: Some(2),
+            pixel_width: 64,
+            pixel_height: 64,
             path: String::new(),
             error: None,
             repair: None,
@@ -103,6 +119,19 @@ impl Start {
             .preset
             .map_or((self.width, self.height), |i| (PRESETS[i].1, PRESETS[i].2));
         let [r, g, b] = self.colour;
+        if self.pixel {
+            let (width, height) = self.pixel_preset.map_or((self.pixel_width, self.pixel_height), |i| {
+                (PIXEL_PRESETS[i].1, PIXEL_PRESETS[i].2)
+            });
+            return Blank {
+                width,
+                height,
+                background: self.paper.then(|| format!("#{r:02x}{g:02x}{b:02x}")),
+                fps: self.fps,
+                pixel: true,
+                ..Blank::default()
+            };
+        }
         Blank {
             width,
             height,
@@ -278,11 +307,22 @@ impl Start {
     }
 
     fn new_section(&mut self, ui: &mut egui::Ui, settings: &mut Settings) -> Option<PathBuf> {
-        ui.label(
-            RichText::new(format!("{} New drawing", icon::FILE_PLUS))
-                .strong()
-                .size(16.0),
-        );
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(format!("{} New drawing", icon::FILE_PLUS))
+                    .strong()
+                    .size(16.0),
+            );
+            ui.add_space(12.0);
+            let was = self.pixel;
+            ui.selectable_value(&mut self.pixel, false, "Painting")
+                .hint("brushes, shapes and text at any size");
+            ui.selectable_value(&mut self.pixel, true, "Pixel art")
+                .hint("a small drawing of whole pixels, bound to a palette, shown enlarged");
+            if self.pixel && !was {
+                self.paper = false;
+            }
+        });
         ui.add_space(6.0);
         let mut entered = false;
         egui::Grid::new("start new")
@@ -311,20 +351,48 @@ impl Start {
                 });
                 ui.end_row();
                 let label = ui.label("Size");
-                let shown = self.preset.map_or("custom".to_string(), preset_name);
+                let shown = match self.pixel {
+                    true => self.pixel_preset.map_or("custom".to_string(), pixel_preset_name),
+                    false => self.preset.map_or("custom".to_string(), preset_name),
+                };
                 egui::ComboBox::from_id_salt("start size")
                     .selected_text(shown)
                     .width(260.0)
-                    .show_ui(ui, |ui| {
-                        (0..PRESETS.len()).for_each(|i| {
-                            ui.selectable_value(&mut self.preset, Some(i), preset_name(i));
-                        });
-                        ui.selectable_value(&mut self.preset, None, "custom");
+                    .show_ui(ui, |ui| match self.pixel {
+                        true => {
+                            (0..PIXEL_PRESETS.len()).for_each(|i| {
+                                ui.selectable_value(&mut self.pixel_preset, Some(i), pixel_preset_name(i));
+                            });
+                            ui.selectable_value(&mut self.pixel_preset, None, "custom");
+                        }
+                        false => {
+                            (0..PRESETS.len()).for_each(|i| {
+                                ui.selectable_value(&mut self.preset, Some(i), preset_name(i));
+                            });
+                            ui.selectable_value(&mut self.preset, None, "custom");
+                        }
                     })
                     .response
                     .labelled_by(label.id);
                 ui.end_row();
-                if self.preset.is_none() {
+                if self.pixel && self.pixel_preset.is_none() {
+                    ui.label("Width and height");
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut self.pixel_width)
+                                .range(1..=4096)
+                                .suffix(" px"),
+                        );
+                        ui.label("by");
+                        ui.add(
+                            egui::DragValue::new(&mut self.pixel_height)
+                                .range(1..=4096)
+                                .suffix(" px"),
+                        );
+                    });
+                    ui.end_row();
+                }
+                if !self.pixel && self.preset.is_none() {
                     ui.label("Width and height");
                     ui.horizontal(|ui| {
                         ui.add(egui::DragValue::new(&mut self.width).range(1..=16384).suffix(" px"));
@@ -351,7 +419,9 @@ impl Start {
                     .labelled_by(label.id);
                 ui.end_row();
             });
-        ui.checkbox(&mut self.sketch, "A sketch layer for blocking in shapes");
+        if !self.pixel {
+            ui.checkbox(&mut self.sketch, "A sketch layer for blocking in shapes");
+        }
         ui.add_space(6.0);
         if !(ui.add(egui::Button::new("Create").min_size(vec2(96.0, 28.0))).clicked() || entered) {
             return None;
@@ -548,6 +618,11 @@ fn preset_name(i: usize) -> String {
     format!("{w} x {h}  {name}")
 }
 
+fn pixel_preset_name(i: usize) -> String {
+    let (name, w, h) = PIXEL_PRESETS[i];
+    format!("{w} x {h}  {name}")
+}
+
 fn fit(size: egui::Vec2) -> egui::Vec2 {
     size * (THUMB / size.x.max(size.y).max(1.0))
 }
@@ -716,6 +791,18 @@ mod tests {
             (start.blank().width, start.blank().height, start.blank().background),
             (640, 360, Some("#f4efe6".to_string()))
         );
+        start.pixel = true;
+        let pixel = start.blank();
+        assert_eq!(
+            (pixel.width, pixel.height, pixel.pixel, pixel.sketch),
+            (64, 64, true, false),
+            "pixel art starts as a 64 pixel sprite with pixel layers and no sketch layer"
+        );
+        start.pixel_preset = None;
+        (start.pixel_width, start.pixel_height) = (48, 24);
+        assert_eq!((start.blank().width, start.blank().height), (48, 24));
+        start.pixel = false;
+        assert_eq!((start.blank().width, start.blank().pixel), (640, false));
         start.name = "a/b".into();
         assert!(format!("{:#}", start.create(&mut Settings::default()).unwrap_err()).contains("cannot hold a /"));
         assert!(format!("{:#}", openable(Path::new("/nowhere")).unwrap_err()).contains("is not a folder"));

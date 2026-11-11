@@ -171,4 +171,67 @@ mod tests {
         assert_eq!(detail_for(0.5), 1.0);
         std::fs::remove_dir_all(&dir).unwrap();
     }
+
+    #[test]
+    fn a_pixel_drawing_exports_its_palette_colours_exactly_and_stays_hard_when_larger() {
+        use klad_core::bundle::Blank;
+        let dir = std::env::temp_dir().join(format!("draw-export-pixel-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut bundle = Bundle::blank(
+            dir.join("art.klad"),
+            &Blank {
+                width: 16,
+                height: 17,
+                pixel: true,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let layer = bundle.doc.layers[0].id.clone();
+        let colour = |i: u32| [i as u8, (255 - i) as u8, ((i * 7) % 256) as u8];
+        let lines: Vec<String> = (0..256u32)
+            .map(|i| {
+                let [r, g, b] = colour(i);
+                format!(
+                    r##"{{"op":"pixel","layer":"{layer}","color":"#{r:02x}{g:02x}{b:02x}","cells":[[{},{}]]}}"##,
+                    i % 16,
+                    i / 16
+                )
+            })
+            .collect();
+        bundle
+            .apply(&klad_core::ops::parse_lines(&lines.join("\n")).unwrap())
+            .unwrap();
+        assert_eq!(bundle.doc.palette.len(), 256);
+        let brushes = BrushSet::for_bundle(&bundle).unwrap();
+        let pixels = |scale: f32| {
+            let detail = detail_for(scale);
+            let rasters = layers::load_at(&bundle, 0, &brushes, detail).unwrap();
+            let options = Options {
+                scale,
+                background: false,
+                references: false,
+                detail,
+            };
+            let image = render(&bundle.doc, 0, &rasters, &Target::Frame, options).unwrap();
+            (image.width() as usize, klad_render::export::dither8(&image).unwrap())
+        };
+        let (w, flat) = pixels(1.0);
+        (0..256usize).for_each(|i| {
+            let at = ((i / 16) * w + i % 16) * 4;
+            let [r, g, b] = colour(i as u32);
+            assert_eq!(flat[at..at + 4], [r, g, b, 255], "colour {i} at real size");
+        });
+        assert!(flat[16 * w * 4..].iter().all(|v| *v == 0), "the empty row stays empty");
+        let (w, big) = pixels(3.0);
+        (0..256usize).for_each(|i| {
+            let [r, g, b] = colour(i as u32);
+            (0..9).for_each(|k| {
+                let at = (((i / 16) * 3 + k / 3) * w + (i % 16) * 3 + k % 3) * 4;
+                assert_eq!(big[at..at + 4], [r, g, b, 255], "colour {i} at 3x, block pixel {k}");
+            });
+        });
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

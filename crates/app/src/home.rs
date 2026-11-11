@@ -491,6 +491,43 @@ mod tests {
     }
 
     #[test]
+    fn the_start_window_makes_a_pixel_drawing_like_draw_new_with_pixel() {
+        let dir = folder("new-pixel");
+        let mut first = home(&dir, &[]);
+        first.begin(&egui::Context::default(), None);
+        let mut h = harness(first);
+        h.state_mut().start.as_mut().unwrap().name.clear();
+        h.get_by_role_and_label(Role::TextInput, "Name").type_text("slime");
+        h.run_steps(2);
+        assert!(h.query_by_label("A sketch layer for blocking in shapes").is_some());
+        h.get_by_label("Pixel art").click();
+        h.run_steps(2);
+        assert!(
+            h.query_by_label("A sketch layer for blocking in shapes").is_none(),
+            "a pixel drawing has no sketch layer to offer"
+        );
+        h.get_by_label("Create").click();
+        h.run_steps(3);
+        let made = dir.join("slime.klad");
+        assert_eq!(opened(&h), made);
+        let cli = Bundle::blank(
+            dir.join("cli.klad"),
+            &Blank {
+                width: 64,
+                height: 64,
+                pixel: true,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let doc = Bundle::open(&made).unwrap().doc;
+        assert_eq!(doc, cli.doc);
+        assert!(doc.layers[0].pixel() && doc.layers[0].name == "pixel 1");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn a_drawing_the_system_asks_to_open_opens_from_the_start_window() {
         let dir = folder("finder");
         let made = dir.join("from finder.klad");

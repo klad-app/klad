@@ -1452,6 +1452,68 @@ fn several_shapes_select_with_shift_or_a_lasso_move_together_align_and_distribut
 }
 
 #[test]
+fn a_pixel_layer_is_added_shows_its_marks_hard_and_keeps_brush_strokes_out() {
+    let path = sample("pixel-layer");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    activate(&mut h, "notes");
+    assert!(h.state().can_run(Cmd::NewPixelLayer).is_none());
+    h.state_mut().invoke(Cmd::NewPixelLayer).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    let layer = h.state().scene.active_layer().unwrap().clone();
+    assert!(
+        layer.pixel() && h.state().scene.on_grid(),
+        "the new layer is a pixel layer and active"
+    );
+    assert!(
+        h.query_by_label("pixel layer").is_some(),
+        "layer settings say what kind of layer it is"
+    );
+    h.state_mut().tool = Tool::Brush;
+    let rect = h.state().canvas_rect;
+    let (a, b) = (rect.center() + vec2(-60.0, -20.0), rect.center() + vec2(40.0, 30.0));
+    drag(&mut h, a, b);
+    h.run_steps(2);
+    assert!(
+        h.state().scene.active_marks().is_empty(),
+        "no brush stroke lands on a pixel layer"
+    );
+    let refused = h.state().messages.latest().map(|m| m.text.clone()).unwrap_or_default();
+    assert!(refused.contains("pixel layer"), "{refused}");
+    h.state_mut()
+        .apply(
+            parse_lines(&format!(
+                r##"{{"op":"pixel","layer":"{}","color":"#3a86ff","cells":[[10,10],[11,10],[10,11]]}}"##,
+                layer.id
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    let ed = h.state();
+    let raster = ed.scene.active_raster().expect("the pixel layer's drawing");
+    let tile = raster.at(0).expect("the first tile is painted");
+    let at = |x: usize, y: usize| -> [f32; 4] {
+        let i = (y * klad_brush::TILE + x) * 4;
+        [tile[i], tile[i + 1], tile[i + 2], tile[i + 3]].map(|v| v.to_f32())
+    };
+    let blue = klad_core::color::parse_hex("#3a86ff").unwrap();
+    [(10, 10), (11, 10), (10, 11)].iter().for_each(|&(x, y)| {
+        let got = at(x, y);
+        assert!(
+            got.iter().zip(blue).all(|(a, b)| (a - b).abs() < 1e-3),
+            "{x},{y} is {got:?}, not {blue:?}"
+        );
+    });
+    assert_eq!(at(11, 11), [0.0; 4], "no soft edge beside the pixels");
+    assert_eq!(at(9, 10), [0.0; 4]);
+    assert_eq!(ed.scene.bundle.doc.palette.len(), 1, "its colour joined the palette");
+    assert!(ed.scene.active_marks()[0].as_fill().is_some_and(|f| f.on_grid()));
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn a_tap_that_wobbles_selects_and_a_drag_past_three_points_moves() {
     let path = sample("tap");
     let mut h = harness(editor(&path), vec2(1440.0, 900.0));

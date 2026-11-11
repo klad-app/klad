@@ -99,6 +99,25 @@ klad lasso art.klad l4 --polygon '...' --cut --rm
 - `klad transform` takes `--flip h` or `--flip v` too. In `transform` and `lasso`, `--scale` scales the marks; their previews use the default size.
 - In `apply`: `{"op":"lasso","layer":"l4","polygon":[[600,600],[1400,560],[1450,1300]],"cut":true,"x":40,"y":-25}` (also `rotate`, `sx`, `sy`, `scale`, `pivot`, or `"rm":true`).
 
+## Pixel art
+
+```
+klad new sprite.klad --pixel 32x32                      a pixel drawing: one pixel layer, l1
+klad add art.klad layer pixel name=sprite               a pixel layer in any drawing
+klad pixel sprite.klad l1 --color '#2b2d42' --cells '3-12,2 3,3-8 12,3-8 3-12,9'
+klad pixel sprite.klad l1 --color skin --cells '4-11,3-8'
+klad pixel sprite.klad l1 --erase --cells '7,5 8,5'
+klad export sprite.klad --scale 8 -o sprite@8x.png      square pixels, to look at
+```
+
+- A pixel layer is a grid with no soft edges, and one pixel is one canvas pixel: a 32x32 sprite is a 32x32 drawing. Size the drawing in pixels of the art, not of the screen; `klad ls` shows the layer as `pixel`.
+- `--cells` takes `x,y` for one pixel, `x0-x1,y` for a run along a row, `x,y0-y1` for a run down a column and `x0-x1,y0-y1` for a block, separated by spaces. Pixels off the canvas are dropped.
+- `--color` is a palette name, a palette index or `#rrggbb`. Every pixel mark is bound to a palette entry: a colour the palette lacks is added to it, so name the colours first (`klad palette sprite.klad --add '#f0c8a0' --name skin`) and draw with the names. `klad palette` lists the entries with their ids.
+- Each call makes one mark, `<cel>:s<id>`, that stays editable: `klad set sprite.klad c2:s1 color=shadow` recolours it (and binds it to that entry), `klad transform ... --move 2,0` moves it by whole pixels, `--flip h` and `--rotate 90` keep it hard, `klad rm` removes it. `klad strokes sprite.klad l1` lists the marks with their entry and cell count; `--json` gives each one's `cells`.
+- Later marks cover earlier ones; `--erase` makes a mark that clears what was drawn before it at those pixels (remove that mark and the pixels come back).
+- Look at a sprite enlarged: `klad export --scale 8` (whole numbers) keeps every pixel a square. At real size a 32 px picture is too small to judge.
+- In `apply`: `{"op":"pixel","layer":"l1","color":"skin","cells":[[4,5],[5,5]]}` or `"erase":true`. Brush strokes (`klad stroke`, `ink`, `paint`, ...) and `klad fill` are refused on a pixel layer.
+
 ## Masks, clipping and lock alpha
 
 ```

@@ -39,6 +39,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad render`](#klad-render): Render a frame to PNG and print the path
 - [`klad stroke`](#klad-stroke): Paint a stroke with a brush along an SVG path or explicit points
 - [`klad fill`](#klad-fill): Fill a region of a paint layer, inside the lines (flood) or inside a polygon (lasso)
+- [`klad pixel`](#klad-pixel): Put whole pixels of one palette colour on a pixel layer, or erase them
 - [`klad ink`](#klad-ink): Ink the outlines of vector shapes as tapered strokes, the way an inker would
 - [`klad light`](#klad-light): Shade and rim light vector shapes from one light direction
 - [`klad hatch`](#klad-hatch): Fill a shape's area with short tapered strokes: hatching, bark, fur, stone grain
@@ -120,6 +121,9 @@ Options:
 
       --sketch
           Add a vector layer named sketch on top, for blocking in shapes
+
+      --pixel <WxH>
+          A pixel art drawing of that many pixels, for example 64x64: its layers are pixel layers
 
   -h, --help
           Print help
@@ -852,7 +856,7 @@ Arguments:
           layer, cel, mask, rect, ellipse, path, group, rays, image, scatter, repeat, mirror or text
 
   [REST]...
-          For layers the kind first (paint, vector, group, bones, image with src=photo.jpg, or adjust and its type: hsl, levels, curves, balance, gradient-map, fill), then key=value pairs
+          For layers the kind first (paint, pixel, vector, group, bones, image with src=photo.jpg, or adjust and its type: hsl, levels, curves, balance, gradient-map, fill), then key=value pairs
 
 Options:
       --in <INTO>
@@ -1621,6 +1625,60 @@ Options:
 
       --part <PART>
           Put the new marks in this part of the drawing (see klad part)
+
+      --render
+          Render a preview after the edit and print its path
+
+      --scale <SCALE>
+          Preview scale (default: longest side 1024 px)
+
+      --json
+          Print the result as JSON
+
+      --overlay <OVERLAY>
+          Draw on the preview: ids, bbox, grid or all (comma separated)
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## klad pixel
+
+```text
+Put whole pixels of one palette colour on a pixel layer, or erase them. A pixel layer is a grid with no anti-aliasing where one pixel is one canvas pixel; make a pixel drawing with klad new --pixel 64x64, or add a layer with klad add <bundle> layer pixel.
+
+--cells lists them: x,y for one pixel, x0-x1,y for a run along a row, x,y0-y1 for a run down a column and x0-x1,y0-y1 for a block. --color is a palette name, a palette index or #rrggbb; a colour the palette does not have yet is added to it. The pixels become one mark bound to that palette entry, so it can be recoloured (klad set <cel>:s<id> color=...), moved (klad transform) or removed (klad rm) later, and klad strokes lists it. --erase clears the pixels under it instead.
+
+  klad pixel sprite.klad l1 --color '#2b2d42' --cells '3-12,4 3,5-9 12,5-9 3-12,10'
+  klad pixel sprite.klad l1 --color skin --cells '4-11,5-9'
+  klad pixel sprite.klad l1 --erase --cells '7,7 8,7'
+
+Also a pixel op in klad apply: {"op":"pixel","layer":"l1","color":"skin","cells":[[4,5],[5,5]]} or with "erase":true.
+
+Usage: klad pixel [OPTIONS] --cells <CELLS> <BUNDLE> <LAYER>
+
+Arguments:
+  <BUNDLE>
+
+
+  <LAYER>
+
+
+Options:
+      --cells <CELLS>
+          The pixels: x,y, a row run x0-x1,y, a column run x,y0-y1 or a block x0-x1,y0-y1, separated by spaces
+
+      --color <COLOR>
+          A palette name, a palette index or #rrggbb
+
+      --erase
+          Clear these pixels instead of colouring them
+
+      --frame <FRAME>
+          [default: 0]
+
+      --part <PART>
+          Put the mark in this named part
 
       --render
           Render a preview after the edit and print its path

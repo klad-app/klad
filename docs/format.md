@@ -1,4 +1,4 @@
-_Last updated: 2026-11-09 21:30 (format `klad/6`, stroke files `KLST` version 2, brushes `klad-brush/1`)_
+_Last updated: 2026-11-11 13:30 (format `klad/7`, stroke files `KLST` version 3, brushes `klad-brush/1`)_
 
 # The klad drawing format
 
@@ -32,13 +32,13 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
 - **Colours** are `"#rrggbb"` or `"#rrggbbaa"`: sRGB, straight (not premultiplied) alpha.
 - **Ids** are unique across the whole document and use letters, digits, `-` and `_`. Ids are case sensitive. klad makes new ones from a prefix (`l` layer, `c` cel, `n` node), a number, and the tag of the copy that made them: `l48qa`. Each copy of a drawing (a clone, a git worktree: any folder without `.cache/copy.json`) picks a two-letter tag the first time klad opens it and keeps it in `.cache/copy.json`, with counters that only go up, so two copies edited apart never make the same id; the copy a drawing was made in has no tag (`l48`). A folder copied by hand with its `.cache/` keeps the tag: delete `.cache/` in the copy to give it its own. Ids already in a drawing never change. Writers that make their own ids should do the same or use a long random part. A drawing with an id used twice does not open; `klad repair` gives every later one a new id.
 - **JSON** is UTF-8, written pretty with a stable key order. Keys at their default value are left out; readers must take the defaults listed below for missing keys. Most objects reject keys they do not know, so writers must not add their own.
-- **Versions.** `format` names the version of `doc.json` and everything it implies; this is `klad/6`. Each version opens the older `klad/` drawings and migrates them in memory (written back on the next change). A reader that meets a newer version than it knows should refuse to write the bundle. Drawings from before `klad/1` (`.draw` folders, formats `draw-anything/0` to `/9`) do not open.
+- **Versions.** `format` names the version of `doc.json` and everything it implies; this is `klad/7`. Each version opens the older `klad/` drawings and migrates them in memory (written back on the next change). A reader that meets a newer version than it knows should refuse to write the bundle. Drawings from before `klad/1` (`.draw` folders, formats `draw-anything/0` to `/9`) do not open.
 
 ## doc.json
 
 ```json
 {
-  "format": "klad/6",
+  "format": "klad/7",
   "canvas": { "width": 2048, "height": 2048, "background": "#f4efe6" },
   "timeline": { "fps": 12, "frames": 24, "origin": [1024, 1800],
     "clips": [{ "name": "run", "from": 0, "to": 11, "loop": true, "fps": 24 }] },
@@ -60,15 +60,15 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `format` | string | | `"klad/6"` |
+| `format` | string | | `"klad/7"` |
 | `canvas` | object | | `width`, `height` (px), `background` (a colour; none is transparent) |
 | `timeline` | object | 12 fps, 1 frame | see below |
-| `palette` | array | `[]` | swatches: `color`, optional `name` (unique, not starting with `#`) |
+| `palette` | array | `[]` | swatches: `color`, optional `name` (unique, not starting with `#`), optional `id` (unique; set once a pixel mark uses the swatch) |
 | `layers` | array | | the layers, **bottom first** |
 | `export` | object | `{}` | `godot`: the folder Godot exports go to, relative to the folder holding the bundle |
 | `atmosphere` | object | none | fog by depth: `color` (`#9aa8b8`), `top` (a colour higher up), `density` (0.5), `blur` (1), `desaturate` (0.15) |
 
-Strokes and fills store their colour, so the palette is a list of names for colours, never a reference: renaming or recolouring a swatch changes nothing drawn.
+Strokes and fills store their colour, so for them the palette is a list of names for colours, never a reference: renaming or recolouring a swatch changes nothing drawn. Pixel marks (below) also name the swatch they were drawn with, by its `id`.
 
 ### The timeline
 
@@ -88,6 +88,7 @@ A clip is `name` (unique), `from` and `to` (both included), `loop` (false) and `
 | `id`, `name` | string | | |
 | `kind` | string | | `paint`, `vector`, `group`, `adjust` or `bones` |
 | `cels` | array | `[]` | paint and vector layers: the drawings on the timeline |
+| `pixel` | bool | false | paint layers: a pixel layer, whose marks are whole pixels (below) |
 | `children` | array | `[]` | groups: the layers inside, bottom first |
 | `adjust` | object | | adjustment layers: one adjustment (below) |
 | `opacity` | number | 1 | |
@@ -109,6 +110,7 @@ Layers compose bottom to top. Groups compose their children into one image, then
 
 - **Clipping.** A layer with `clip: true` shows only where its base, the nearest layer below it in the same list without `clip`, has alpha. The base and the clipped layers above it draw as one group: each clipped layer blends onto the base with its own blend and opacity, kept inside the base's alpha; the group then blends with the base's blend and opacity. A hidden base hides its clipped layers; the lowest layer of a list is never clipped.
 - **Masks.** `mask` is a paint layer of its own (own id, cels and stroke files, `strokes/<mask id>/...`) with opacity 1 and blend normal. Its alpha hides the layer: marks on the mask hide, eraser strokes on it show the layer again, and a frame without a mask cel hides nothing. `visible: false` on the mask turns it off.
+- **Pixel layers.** A paint layer with `pixel: true` is a grid with no anti-aliasing where one pixel is one canvas pixel. Its drawings hold only pixel marks (a fill record whose source is cells, below): each is a set of whole pixels in the colour of one palette swatch, or a set of pixels to erase. klad refuses brush strokes and flood or lasso fills on it.
 - **Lock alpha** is recorded on each stroke and fill as it is made (a flag in the stroke file), so turning `lockAlpha` off later never changes what was drawn. A locked mark composites source-atop: it changes colour where the layer has paint and leaves alpha as it was.
 
 ### Cels: drawings on the timeline
@@ -224,14 +226,14 @@ Constraints are solved parent first, by the position of the limb's top bone (A f
 
 ## Stroke files
 
-`strokes/<layer>/<cel>.strokes` holds the marks of one paint drawing, in the order they are drawn: brush strokes and fills. Every mark has an id, unique within its drawing, shared by strokes and fills. A mark's address is `<cel>:s<id>`. An id is a `u32`: its top 10 bits name the copy that made it (0 for none, else 1 + 26 × first letter + second letter, with `a` as 0) and its low 22 bits are a number counted per copy, so `s349qa` is 349 made by the copy tagged `qa`, stored as `(1 + 16 × 26 + 0) << 22 | 349`. Ids from before `klad/5`, and those of the copy a drawing was made in, are plain numbers: `s348`. Addresses accept the number in either form.
+`strokes/<layer>/<cel>.strokes` holds the marks of one paint drawing, in the order they are drawn: brush strokes and fills (on a pixel layer, pixel marks). Every mark has an id, unique within its drawing, shared by strokes and fills. A mark's address is `<cel>:s<id>`. An id is a `u32`: its top 10 bits name the copy that made it (0 for none, else 1 + 26 × first letter + second letter, with `a` as 0) and its low 22 bits are a number counted per copy, so `s349qa` is 349 made by the copy tagged `qa`, stored as `(1 + 16 × 26 + 0) << 22 | 349`. Ids from before `klad/5`, and those of the copy a drawing was made in, are plain numbers: `s348`. Addresses accept the number in either form.
 
 The file is one zstd frame (any level; klad uses 3). Inside:
 
 | Bytes | What |
 |---|---|
 | 4 | `KLST` |
-| 1 | the version: 2 (version 1 files read as strokes with nothing attached) |
+| 1 | the version: 3 (version 1 files read as strokes with nothing attached; version 2 has no pixel marks) |
 | varint | the number of marks |
 | ... | each mark: a kind byte (0 stroke, 1 fill), then its record |
 
@@ -280,13 +282,16 @@ A reader that ignores attachments draws every drawing as it was when its erasers
 | colour | colour | |
 | opacity | f32 | |
 | author | u8 | 0 a person, 1 an agent |
-| source | u8 | low bits: 0 a flood fill, 1 a polygon; bit `0x80` lock alpha, bit `0x40` cuts |
+| source | u8 | low bits: 0 a flood fill, 1 a polygon, 2 cells (a pixel mark); bit `0x80` lock alpha, bit `0x40` cuts |
 | flood fill | f32 x, f32 y, u8 reference, 3 f32 | the seed point; what it filled from: 0 this layer, 1 everything visible, 2 a layer (then a string, its id); `tolerance`, `gap`, `expand` |
 | polygon | varint n, n pairs of f32 | the polygon's points |
+| cells | string, u8 | the `id` of the palette swatch the mark is bound to (empty: none), then 1 if the mark erases, else 0 |
 | coverage | see below | the pixels the fill covered when it was made |
 | cuts | cuts | if bit `0x40` |
 
 A fill is drawn from its stored **coverage**, not recomputed, so it looks the same however the lines around it change (`klad refill` recomputes it on purpose). Coverage is a box and run-length coded alpha: varints `x`, `y`, `width`, `height`, a varint count of runs, then each run as a varint length and a `u8` alpha, row by row through the box.
+
+A **pixel mark** is a fill whose source is cells. Its coverage holds only 0 and 255: the pixels it covers. It paints them in its colour, which is the colour of its swatch when it was made or last recoloured; a mark that erases clears the paint of the marks before it at those pixels and has no colour of its own. Moving one moves it by whole pixels, and scaling, flipping or turning it samples the nearest pixel, so it never gets a soft edge.
 
 ### Cuts
 
@@ -347,3 +352,4 @@ Drawing a stroke: walk the samples, interpolate between them, stamp the tip ever
 | `klad/4` | skeletons move to bones layers, and paint layers join one with `rig` (2026-11-08). Older drawings open without their bones, IK, weights links and the `pose` of their cels; the drawings themselves, posed ones too, stay. |
 | `klad/5` | `rev` and `nextId` leave `doc.json`, and new ids carry the tag of the copy that made them, so drawings diff and merge in git (2026-11-09). Older drawings open with their ids unchanged; their counters move to `.cache/copy.json`. |
 | `klad/6` | stroke files version 2: eraser, smudge and blender strokes record the marks they are attached to, and attached erasers erase only those (2026-11-09). Older drawings open unchanged, with nothing attached. |
+| `klad/7` | pixel layers: paint layers with `pixel`, pixel marks in stroke files (version 3), and palette swatches with an `id` (2026-11-11). Older drawings open unchanged. |

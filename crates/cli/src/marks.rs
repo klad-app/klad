@@ -36,6 +36,22 @@ pub fn fill_json(cel: &str, f: &Fill) -> Value {
             value["expand"] = json!(round4(seed.expand));
         }
         FillSource::Polygon(points) => value["polygon"] = json!(points),
+        FillSource::Cells { entry, erase } => {
+            value["cells"] = json!(f.coverage.cells().collect::<Vec<_>>());
+            match erase {
+                true => {
+                    value["erase"] = json!(true);
+                    if let Some(map) = value.as_object_mut() {
+                        map.remove("color");
+                        map.remove("opacity");
+                    }
+                }
+                false => value["entry"] = json!(entry),
+            }
+            if let Some(map) = value.as_object_mut() {
+                map.remove("pixels");
+            }
+        }
     }
     flags_json(&mut value, f.lock, &f.cuts);
     value

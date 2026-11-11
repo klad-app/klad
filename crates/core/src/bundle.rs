@@ -33,6 +33,7 @@ pub struct Blank {
     pub fps: u32,
     pub frames: u32,
     pub sketch: bool,
+    pub pixel: bool,
 }
 
 impl Default for Blank {
@@ -45,6 +46,7 @@ impl Default for Blank {
             fps: 12,
             frames: 1,
             sketch: false,
+            pixel: false,
         }
     }
 }
@@ -327,7 +329,10 @@ impl Bundle {
         doc.layers = (1..=blank.layers)
             .map(|i| {
                 let (layer, cel) = (doc.alloc_id('l'), doc.alloc_id('c'));
-                Layer::paint(&layer, &format!("paint {i}"), &cel)
+                match blank.pixel {
+                    true => Layer::pixels(&layer, &format!("pixel {i}"), &cel),
+                    false => Layer::paint(&layer, &format!("paint {i}"), &cel),
+                }
             })
             .collect();
         if blank.sketch {
@@ -650,6 +655,8 @@ pub fn summarize(ops: &[Op]) -> String {
                 like: Some(cel), layer, ..
             }) => format!("fills on {layer} like {cel}"),
             Op::Fill(spec) => format!("fill on {}", spec.layer),
+            Op::Pixel(spec) if spec.erase => format!("erase {} pixels on {}", spec.cells.len(), spec.layer),
+            Op::Pixel(spec) => format!("{} pixels on {}", spec.cells.len(), spec.layer),
             Op::Palette(_) => "palette".to_string(),
             Op::Transform { ids, .. } => format!("transform {}", ids.join(" ")),
             Op::Detach { ids } => format!("detach {}", ids.join(" ")),
@@ -772,6 +779,8 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::doc::Kind;
+    use crate::fill::Fill;
     use crate::synth::Synth;
 
     fn scratch(name: &str) -> PathBuf {
@@ -1421,6 +1430,155 @@ mod tests {
         assert_eq!(applied.removed, vec!["l1"]);
         assert!(!bundle.strokes_path("l1", "c1").exists());
         assert_eq!(Bundle::open(&dir).unwrap().doc.rev, 2);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_pixel_layer_takes_whole_pixels_bound_to_the_palette() {
+        use crate::ops::parse_lines;
+        let dir = scratch("pixels");
+        let mut bundle = Bundle::blank(
+            &dir,
+            &Blank {
+                width: 16,
+                height: 12,
+                pixel: true,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let layer = bundle.doc.layers[0].clone();
+        assert!(layer.pixel() && layer.kind() == Kind::Paint && layer.kind_name() == "pixel");
+        let cel = layer.cels()[0].id.clone();
+        bundle
+            .apply(
+                &parse_lines(&format!(
+                    "{}\n{}\n{}",
+                    r##"{"op":"palette","add":"#f0c8a0","name":"skin"}"##,
+                    format_args!(
+                        r##"{{"op":"pixel","layer":"{}","color":"skin","cells":[[2,3],[3,3],[4,3],[-1,3],[99,3]]}}"##,
+                        layer.id
+                    ),
+                    format_args!(
+                        r##"{{"op":"pixel","layer":"{}","color":"#2b2d42","cells":[[3,3],[3,4]]}}"##,
+                        layer.id
+                    ),
+                ))
+                .unwrap(),
+            )
+            .unwrap();
+        let skin = bundle.doc.palette[0].clone();
+        let ink = bundle.doc.palette[1].clone();
+        assert!(!skin.id.is_empty() && !ink.id.is_empty() && skin.id != ink.id);
+        assert_eq!(
+            (ink.color.as_str(), ink.name.as_str()),
+            ("#2b2d42", ""),
+            "a new colour joins the palette"
+        );
+        let marks = bundle.read_marks(&layer.id, &cel).unwrap();
+        let fills: Vec<&Fill> = crate::stroke::fills_of(&marks).collect();
+        assert_eq!(fills.len(), 2);
+        assert_eq!(fills[0].entry(), Some(skin.id.as_str()));
+        assert_eq!(
+            fills[0].coverage.cells().collect::<Vec<_>>(),
+            [[2, 3], [3, 3], [4, 3]],
+            "cells off the canvas are dropped"
+        );
+        assert!(fills[0].coverage.alpha.iter().all(|a| *a == 0 || *a == 255));
+        assert_eq!(fills[1].color(), crate::color::parse_hex("#2b2d42").unwrap());
+        let address = crate::markedit::address(&cel, fills[0].id);
+        bundle
+            .apply(
+                &parse_lines(&format!(
+                    "{}\n{}\n{}",
+                    format_args!(r##"{{"op":"set","id":"{address}","color":"#2b2d42"}}"##),
+                    format_args!(r##"{{"op":"transform","ids":["{address}"],"x":1.4,"y":0}}"##),
+                    format_args!(
+                        r##"{{"op":"pixel","layer":"{}","erase":true,"cells":[[3,4]]}}"##,
+                        layer.id
+                    ),
+                ))
+                .unwrap(),
+            )
+            .unwrap();
+        let marks = bundle.read_marks(&layer.id, &cel).unwrap();
+        let fills: Vec<&Fill> = crate::stroke::fills_of(&marks).collect();
+        assert_eq!(
+            fills[0].entry(),
+            Some(ink.id.as_str()),
+            "a recoloured mark is bound to the new entry"
+        );
+        assert_eq!(
+            fills[0].coverage.cells().collect::<Vec<_>>(),
+            [[3, 3], [4, 3], [5, 3]],
+            "moves are whole pixels"
+        );
+        assert!(fills[2].erases() && fills[2].entry().is_none());
+        assert_eq!(
+            bundle.doc.palette.len(),
+            2,
+            "a colour the palette has is not added again"
+        );
+        fn refuse(doc: &Document, line: String) -> String {
+            format!(
+                "{:#}",
+                crate::ops::apply_all(doc, &parse_lines(&line).unwrap()).unwrap_err()
+            )
+        }
+        assert!(
+            refuse(
+                &bundle.doc,
+                format!(r##"{{"op":"stroke","layer":"{}","path":"M1 1 L9 9"}}"##, layer.id)
+            )
+            .contains("pixel layer"),
+            "brush strokes stay off the grid"
+        );
+        assert!(
+            refuse(
+                &bundle.doc,
+                format!(
+                    r##"{{"op":"fill","layer":"{}","polygon":[[1,1],[9,1],[9,9]]}}"##,
+                    layer.id
+                )
+            )
+            .contains("pixel layer")
+        );
+        assert!(
+            refuse(
+                &bundle.doc,
+                format!(
+                    r##"{{"op":"pixel","layer":"{}","color":"teal","cells":[[1,1]]}}"##,
+                    layer.id
+                )
+            )
+            .contains("teal")
+        );
+        assert!(
+            refuse(
+                &bundle.doc,
+                format!(
+                    r##"{{"op":"pixel","layer":"{}","color":"skin","cells":[[40,40]]}}"##,
+                    layer.id
+                )
+            )
+            .contains("none of the 1 cells")
+        );
+        let paint = bundle
+            .apply(&parse_lines(r##"{"op":"add","layer":{"kind":"paint","name":"paint"}}"##).unwrap())
+            .unwrap()
+            .added[0]
+            .clone();
+        let wrong = refuse(
+            &bundle.doc,
+            format!(r##"{{"op":"pixel","layer":"{paint}","color":"skin","cells":[[1,1]]}}"##),
+        );
+        assert!(wrong.contains("pixels go into pixel layers"), "{wrong}");
+        bundle
+            .apply(&parse_lines(r##"{"op":"add","layer":{"kind":"pixel","name":"more"}}"##).unwrap())
+            .unwrap();
+        assert!(bundle.doc.find_layer("more").unwrap().pixel());
+        assert!(Bundle::open(&dir).unwrap().doc.find_layer("more").unwrap().pixel());
         fs::remove_dir_all(&dir).unwrap();
     }
 }

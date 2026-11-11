@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const FORMAT: &str = "klad/6";
+pub const FORMAT: &str = "klad/7";
 pub const MAX_SIZE: u32 = 16384;
 pub const MASK: usize = usize::MAX;
 
@@ -76,6 +76,8 @@ pub struct Swatch {
     pub color: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -182,6 +184,8 @@ pub enum LayerContent {
     Paint {
         #[serde(default)]
         cels: Vec<Cel>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        pixel: bool,
     },
     Vector {
         #[serde(default)]
@@ -561,8 +565,31 @@ impl Layer {
             name,
             LayerContent::Paint {
                 cels: vec![Cel::at(cel, 0)],
+                pixel: false,
             },
         )
+    }
+
+    pub fn pixels(id: &str, name: &str, cel: &str) -> Self {
+        Self::with(
+            id,
+            name,
+            LayerContent::Paint {
+                cels: vec![Cel::at(cel, 0)],
+                pixel: true,
+            },
+        )
+    }
+
+    pub fn pixel(&self) -> bool {
+        matches!(self.content, LayerContent::Paint { pixel: true, .. })
+    }
+
+    pub fn kind_name(&self) -> &'static str {
+        match self.pixel() {
+            true => "pixel",
+            false => self.kind().name(),
+        }
     }
 
     pub fn vector(id: &str, name: &str, cel: &str, nodes: Vec<Node>) -> Self {
@@ -610,14 +637,14 @@ impl Layer {
 
     pub fn cels(&self) -> &[Cel] {
         match &self.content {
-            LayerContent::Paint { cels } | LayerContent::Vector { cels } => cels,
+            LayerContent::Paint { cels, .. } | LayerContent::Vector { cels } => cels,
             LayerContent::Group { .. } | LayerContent::Adjust { .. } | LayerContent::Bones {} => &[],
         }
     }
 
     pub fn cels_mut(&mut self) -> Option<&mut Vec<Cel>> {
         match &mut self.content {
-            LayerContent::Paint { cels } | LayerContent::Vector { cels } => Some(cels),
+            LayerContent::Paint { cels, .. } | LayerContent::Vector { cels } => Some(cels),
             LayerContent::Group { .. } | LayerContent::Adjust { .. } | LayerContent::Bones {} => None,
         }
     }
@@ -1203,6 +1230,35 @@ impl Document {
             .or_else(|| key.parse::<usize>().ok().filter(|i| *i < self.palette.len()))
     }
 
+    pub fn entry(&self, id: &str) -> Option<&Swatch> {
+        self.palette.iter().find(|s| !s.id.is_empty() && s.id == id)
+    }
+
+    pub fn bind_swatch(&mut self, key: &str) -> Result<(String, String)> {
+        let key = key.trim();
+        let at = match self.swatch(key) {
+            Some(at) => at,
+            None if key.starts_with('#') => {
+                parse_hex(key)?;
+                self.palette.push(Swatch {
+                    color: key.to_string(),
+                    name: String::new(),
+                    id: String::new(),
+                });
+                self.palette.len() - 1
+            }
+            None => {
+                self.resolve_color(key)?;
+                bail!("the palette has no {key:?}");
+            }
+        };
+        if self.palette[at].id.is_empty() {
+            let mut taken: BTreeSet<String> = self.palette.iter().map(|s| s.id.clone()).collect();
+            self.palette[at].id = self.alloc_id_in('p', &mut taken);
+        }
+        Ok((self.palette[at].id.clone(), self.palette[at].color.clone()))
+    }
+
     pub fn effects_of<'a>(&self, layer: &'a Layer) -> Cow<'a, [Effect]> {
         match (layer.depth, &self.atmosphere) {
             (Some(depth), Some(air)) if depth > 0.0 => Cow::Owned(
@@ -1258,8 +1314,12 @@ impl Document {
             check_color(bg).context("canvas background")?;
         }
         let mut swatch_names = BTreeSet::new();
+        let mut swatch_ids = BTreeSet::new();
         self.palette.iter().try_for_each(|swatch| {
             parse_hex(&swatch.color).with_context(|| format!("palette colour {}", swatch.color))?;
+            if !swatch.id.is_empty() && !swatch_ids.insert(&swatch.id) {
+                bail!("palette id {} is used twice", swatch.id);
+            }
             if swatch.name.starts_with('#') {
                 bail!("palette name {} cannot start with #", swatch.name);
             }
@@ -1500,10 +1560,12 @@ mod tests {
             Swatch {
                 color: "#1b1b1b".into(),
                 name: "ink".into(),
+                id: String::new(),
             },
             Swatch {
                 color: "#F4EFE6".into(),
                 name: String::new(),
+                id: String::new(),
             },
         ];
         doc.next_id = 10;
