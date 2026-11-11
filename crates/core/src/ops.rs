@@ -288,9 +288,20 @@ pub struct PixelSpec {
     pub color: Option<String>,
     #[serde(default)]
     pub erase: bool,
+    #[serde(default)]
     pub cells: Vec<[i64; 2]>,
     #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default = "one_pixel")]
+    pub size: u32,
+    #[serde(default)]
     pub part: Option<String>,
+    #[serde(skip)]
+    pub by_hand: bool,
+}
+
+fn one_pixel() -> u32 {
+    1
 }
 
 impl PixelSpec {
@@ -300,22 +311,40 @@ impl PixelSpec {
             (None, false) => bail!("pixel needs a color (a palette name or #rrggbb) or \"erase\":true"),
             _ => {}
         }
-        if self.cells.is_empty() {
-            bail!("pixel needs cells: a list of [x, y] in canvas pixels");
+        match (self.cells.is_empty(), &self.path) {
+            (true, None) => bail!(
+                "pixel needs cells (a list of [x, y] in canvas pixels) or a path (SVG path data, drawn as a line of pixels)"
+            ),
+            (false, Some(_)) => bail!("pixel takes cells or a path, not both"),
+            _ => {}
+        }
+        if !(1..=crate::pixel::MAX_SIZE).contains(&self.size) {
+            bail!(
+                "a pixel size is a whole number of pixels from 1 to {}, not {}",
+                crate::pixel::MAX_SIZE,
+                self.size
+            );
         }
         Ok(())
     }
 
+    pub fn drawn(&self) -> Result<Vec<[i64; 2]>> {
+        match &self.path {
+            Some(d) => Ok(crate::pixel::drawn(&crate::pixel::of_path(d)?, self.size)),
+            None => Ok(crate::pixel::stamp(&self.cells, self.size)),
+        }
+    }
+
     pub fn coverage(&self, doc: &Document) -> Result<Coverage> {
         let (w, h) = (doc.canvas.width as i64, doc.canvas.height as i64);
-        let inside: Vec<[u32; 2]> = self
-            .cells
+        let drawn = self.drawn()?;
+        let inside: Vec<[u32; 2]> = drawn
             .iter()
             .filter(|c| c[0] >= 0 && c[1] >= 0 && c[0] < w && c[1] < h)
             .map(|c| [c[0] as u32, c[1] as u32])
             .collect();
         if inside.is_empty() {
-            bail!("none of the {} cells is on the {w}x{h} canvas", self.cells.len());
+            bail!("none of the {} cells is on the {w}x{h} canvas", drawn.len());
         }
         Ok(Coverage::from_cells(&inside))
     }
@@ -3765,7 +3794,10 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
                 }
                 None => Fill::cells(0, [0.0, 0.0, 0.0, 1.0], "", true, coverage),
             }
-            .by(Author::Agent);
+            .by(match spec.by_hand {
+                true => Author::Human,
+                false => Author::Agent,
+            });
             fill.lock = !fill.erases() && locks_alpha(doc, &spec.layer);
             let cel = paint_cel_at(doc, &spec.layer, spec.frame, out)?;
             out.push(&spec.layer, &cel, MarkChange::Add(vec![Mark::Fill(fill)]));

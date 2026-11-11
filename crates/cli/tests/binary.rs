@@ -575,6 +575,57 @@ fn a_pixel_drawing_is_made_drawn_listed_and_edited_from_the_command_line() {
     assert!(String::from_utf8_lossy(&refused.stderr).contains("pixel layer"));
     let bad = run(&["pixel", path, &layer, "--color", "skin", "--cells", "3;4"]);
     assert!(String::from_utf8_lossy(&bad.stderr).contains("is not x,y"));
+    let added = draw(&["add", path, "layer", "pixel", "name=lines"]);
+    let lines_id = added
+        .lines()
+        .find_map(|line| line.strip_prefix("added "))
+        .unwrap_or_else(|| panic!("an id in: {added}"))
+        .to_string();
+    draw(&[
+        "pixel",
+        path,
+        "lines",
+        "--color",
+        "skin",
+        "--path",
+        "M0.5 11.5 C 4 2 11 2 15.5 11.5",
+    ]);
+    draw(&[
+        "pixel",
+        path,
+        &lines_id,
+        "--color",
+        "skin",
+        "--path",
+        "M1.5 1.5 L5.5 1.5 L5.5 4.5",
+    ]);
+    draw(&["pixel", path, &lines_id, "--erase", "--size", "3", "--cells", "5,1"]);
+    let lines = json(&["strokes", path, &lines_id, "--json"]);
+    let cells = |at: usize| -> Vec<(i64, i64)> {
+        lines["fills"][at]["cells"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| (c[0].as_i64().unwrap(), c[1].as_i64().unwrap()))
+            .collect()
+    };
+    let curve = cells(0);
+    assert!(curve.contains(&(0, 11)) && curve.contains(&(15, 11)), "{curve:?}");
+    let doubled = curve.iter().any(|&(x, y)| {
+        let has = |dx: i64, dy: i64| curve.contains(&(x + dx, y + dy));
+        (has(1, 0) || has(-1, 0))
+            && (has(0, 1) || has(0, -1))
+            && !(has(1, 0) && has(-1, 0))
+            && !(has(0, 1) && has(0, -1))
+    });
+    assert!(!doubled, "a curve is one pixel thin with no corner doubled: {curve:?}");
+    assert_eq!(cells(1).len(), 8, "a path's own corner is kept");
+    assert_eq!(cells(2).len(), 9, "a size is a square of whole pixels");
+    draw(&["rm", path, &lines_id]);
+    let wide = run(&[
+        "pixel", path, &layer, "--color", "skin", "--cells", "1,1", "--size", "99",
+    ]);
+    assert!(String::from_utf8_lossy(&wide.stderr).contains("from 1 to 64"));
     let shown = run(&["render", path]);
     assert!(
         String::from_utf8_lossy(&shown.stderr).contains("512x384"),

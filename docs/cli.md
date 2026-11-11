@@ -1650,13 +1650,17 @@ Put whole pixels of one palette colour on a pixel layer, or erase them. A pixel 
 
 --cells lists them: x,y for one pixel, x0-x1,y for a run along a row, x,y0-y1 for a run down a column and x0-x1,y0-y1 for a block. --color is a palette name, a palette index or #rrggbb; a colour the palette does not have yet is added to it. The pixels become one mark bound to that palette entry, so it can be recoloured (klad set <cel>:s<id> color=...), moved (klad transform) or removed (klad rm) later, and klad strokes lists it. --erase clears the pixels under it instead.
 
+--path draws SVG path data as a line of pixels: a pixel is the square from x,y to x+1,y+1, so aim at pixel middles (3.5, not 3). Straight segments keep the corners they are given; curves are cleaned so no corner is doubled. --size makes the pencil a square of that many pixels, for --cells and --path alike.
+
   klad pixel sprite.klad l1 --color '#2b2d42' --cells '3-12,4 3,5-9 12,5-9 3-12,10'
+  klad pixel sprite.klad l1 --color '#2b2d42' --path 'M3.5 20.5 C 10 4 22 4 28.5 20.5'
+  klad pixel sprite.klad l1 --erase --size 3 --path 'M4.5 4.5 L12.5 12.5'
   klad pixel sprite.klad l1 --color skin --cells '4-11,5-9'
   klad pixel sprite.klad l1 --erase --cells '7,7 8,7'
 
-Also a pixel op in klad apply: {"op":"pixel","layer":"l1","color":"skin","cells":[[4,5],[5,5]]} or with "erase":true.
+Also a pixel op in klad apply: {"op":"pixel","layer":"l1","color":"skin","cells":[[4,5],[5,5]]}, with "path":"M3.5 3.5 L9.5 3.5" in place of cells, "size":2, or "erase":true.
 
-Usage: klad pixel [OPTIONS] --cells <CELLS> <BUNDLE> <LAYER>
+Usage: klad pixel [OPTIONS] <BUNDLE> <LAYER>
 
 Arguments:
   <BUNDLE>
@@ -1668,6 +1672,14 @@ Arguments:
 Options:
       --cells <CELLS>
           The pixels: x,y, a row run x0-x1,y, a column run x,y0-y1 or a block x0-x1,y0-y1, separated by spaces
+
+      --path <PATH>
+          SVG path data drawn as a line of pixels, one pixel wide with no doubled corners on curves: 'M3.5 20.5 C 10 4 22 4 28.5 20.5'
+
+      --size <SIZE>
+          The pencil's size: a square of this many pixels a side (1 to 64)
+
+          [default: 1]
 
       --color <COLOR>
           A palette name, a palette index or #rrggbb

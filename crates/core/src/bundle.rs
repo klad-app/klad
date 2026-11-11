@@ -655,8 +655,8 @@ pub fn summarize(ops: &[Op]) -> String {
                 like: Some(cel), layer, ..
             }) => format!("fills on {layer} like {cel}"),
             Op::Fill(spec) => format!("fill on {}", spec.layer),
-            Op::Pixel(spec) if spec.erase => format!("erase {} pixels on {}", spec.cells.len(), spec.layer),
-            Op::Pixel(spec) => format!("{} pixels on {}", spec.cells.len(), spec.layer),
+            Op::Pixel(spec) if spec.erase => format!("erase pixels on {}", spec.layer),
+            Op::Pixel(spec) => format!("pixels on {}", spec.layer),
             Op::Palette(_) => "palette".to_string(),
             Op::Transform { ids, .. } => format!("transform {}", ids.join(" ")),
             Op::Detach { ids } => format!("detach {}", ids.join(" ")),

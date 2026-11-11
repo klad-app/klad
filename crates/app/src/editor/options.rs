@@ -308,9 +308,33 @@ impl Editor {
                 Tool::Note => (Cmd::Note, "note"),
                 Tool::Bone => (Cmd::BoneTool, "bones"),
             };
+            let name = match (self.tool, self.scene.on_grid()) {
+                (Tool::Brush, true) if cmd == Cmd::Brush => "pixel pencil",
+                (Tool::Brush, true) => "pixel eraser",
+                _ => name,
+            };
             ui.label(RichText::new(format!("{} {name}", cmd.spec().icon)).strong());
             ui.separator();
             match self.tool {
+                Tool::Brush if self.scene.on_grid() => {
+                    let label = ui.label("size");
+                    ui.add(
+                        egui::DragValue::new(&mut self.pixel_size)
+                            .range(1..=klad_core::pixel::MAX_SIZE)
+                            .suffix(" px"),
+                    )
+                    .labelled_by(label.id)
+                    .hint("the pencil is a square of this many pixels a side; [ and ] change it");
+                    ui.checkbox(&mut self.pixel_perfect, "pixel perfect")
+                        .hint("a one-pixel line drops the corner pixels a hand leaves, so curves stay one pixel thin");
+                    ui.label(
+                        RichText::new("draws whole pixels in the palette colour; shift click: a straight line from the last pixel")
+                            .color(theme::WEAK),
+                    );
+                    if !self.scene.can_paint() {
+                        ui.colored_label(theme::REFUSED, "this layer is locked: unlock it to draw on it");
+                    }
+                }
                 Tool::Brush => {
                     self.brush_main(ui);
                     ui.menu_button(format!("{} more", icon::MORE), |ui| {
@@ -338,11 +362,6 @@ impl Editor {
                         ui.colored_label(
                             theme::REFUSED,
                             "this is a vector layer: P draws paths on it; brushes paint on paint layers",
-                        );
-                    } else if self.scene.on_grid() {
-                        ui.colored_label(
-                            theme::REFUSED,
-                            "this is a pixel layer: it takes whole pixels, not brush strokes",
                         );
                     } else if !self.scene.can_paint() {
                         ui.colored_label(theme::REFUSED, "pick a paint layer to draw on");

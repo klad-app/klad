@@ -593,6 +593,10 @@ impl Editor {
             }
             Cmd::Parallax => {}
             Cmd::Note => self.tool = Tool::Note,
+            Cmd::Smaller if self.scene.on_grid() => self.pixel_size = self.pixel_size.saturating_sub(1).max(1),
+            Cmd::Bigger if self.scene.on_grid() => {
+                self.pixel_size = (self.pixel_size + 1).min(klad_core::pixel::MAX_SIZE)
+            }
             Cmd::Smaller => self.size = (self.size / 1.25).max(0.5),
             Cmd::Bigger => self.size = (self.size * 1.25).min(800.0),
             Cmd::Fit => {

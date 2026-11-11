@@ -1469,17 +1469,34 @@ fn a_pixel_layer_is_added_shows_its_marks_hard_and_keeps_brush_strokes_out() {
         h.query_by_label("pixel layer").is_some(),
         "layer settings say what kind of layer it is"
     );
-    h.state_mut().tool = Tool::Brush;
+    h.state_mut().tool = Tool::Fill;
     let rect = h.state().canvas_rect;
     let (a, b) = (rect.center() + vec2(-60.0, -20.0), rect.center() + vec2(40.0, 30.0));
     drag(&mut h, a, b);
     h.run_steps(2);
     assert!(
         h.state().scene.active_marks().is_empty(),
-        "no brush stroke lands on a pixel layer"
+        "no fill lands on a pixel layer"
     );
     let refused = h.state().messages.latest().map(|m| m.text.clone()).unwrap_or_default();
     assert!(refused.contains("pixel layer"), "{refused}");
+    h.state_mut().tool = Tool::Brush;
+    drag(&mut h, a, b);
+    h.run_steps(3);
+    ready(&mut h);
+    assert!(
+        !h.state().scene.active_marks().is_empty()
+            && h.state()
+                .scene
+                .active_marks()
+                .iter()
+                .all(|m| m.as_fill().is_some_and(|f| f.on_grid())),
+        "the brush tool draws whole pixels there, never a brush stroke"
+    );
+    h.state_mut().invoke(Cmd::Undo).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    assert!(h.state().scene.active_marks().is_empty());
     h.state_mut()
         .apply(
             parse_lines(&format!(
@@ -1508,7 +1525,10 @@ fn a_pixel_layer_is_added_shows_its_marks_hard_and_keeps_brush_strokes_out() {
     });
     assert_eq!(at(11, 11), [0.0; 4], "no soft edge beside the pixels");
     assert_eq!(at(9, 10), [0.0; 4]);
-    assert_eq!(ed.scene.bundle.doc.palette.len(), 1, "its colour joined the palette");
+    assert!(
+        ed.scene.bundle.doc.swatch("#3a86ff").is_some(),
+        "its colour joined the palette"
+    );
     assert!(ed.scene.active_marks()[0].as_fill().is_some_and(|f| f.on_grid()));
     let _ = std::fs::remove_dir_all(&path);
 }
@@ -1718,6 +1738,100 @@ fn a_clicked_palette_colour_is_updated_with_its_pixels_and_ramps_and_palettes_jo
         "two new colours: black is in the palette already"
     );
     let _ = std::fs::remove_file(&file);
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn the_brush_tool_is_a_pixel_pencil_and_eraser_on_a_pixel_layer() {
+    let path = pixel_sample("pencil");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    h.state_mut().tool = Tool::Brush;
+    h.state_mut()
+        .set_colour(klad_core::color::parse_hex("#2a9d8f").unwrap());
+    h.run_steps(2);
+    assert!(
+        h.query_by_label_contains("pixel pencil").is_some(),
+        "the options bar names the pencil"
+    );
+    let cells_of = |h: &Harness<'static, Editor>, at: usize| -> Vec<[u32; 2]> {
+        h.state().scene.active_marks()[at]
+            .as_fill()
+            .unwrap()
+            .coverage
+            .cells()
+            .collect()
+    };
+    let before = h.state().scene.active_marks().len();
+    let (a, b) = (on_screen(&h, 10.5, 10.5), on_screen(&h, 16.5, 13.5));
+    h.hover_at(a);
+    h.run_steps(1);
+    h.drag_at(a);
+    h.run_steps(1);
+    (1..=12).for_each(|i| {
+        h.hover_at(a + (b - a) * (i as f32 / 12.0));
+        h.run_steps(1);
+    });
+    assert!(h.state().pixel_live.is_some(), "the line shows while it is drawn");
+    h.drop_at(b);
+    h.run_steps(3);
+    ready(&mut h);
+    let marks = h.state().scene.active_marks().to_vec();
+    assert_eq!(marks.len(), before + 1, "one drag is one mark");
+    let line = marks[before].as_fill().unwrap();
+    assert!(line.on_grid() && line.author == klad_core::stroke::Author::Human);
+    assert_eq!(klad_core::color::to_hex(line.color()), "#2a9d8f");
+    let teal = h
+        .state()
+        .scene
+        .bundle
+        .doc
+        .swatch("#2a9d8f")
+        .expect("the colour joined the palette");
+    assert_eq!(line.entry(), Some(h.state().scene.bundle.doc.palette[teal].id.as_str()));
+    let cells = cells_of(&h, before);
+    assert_eq!(cells.len(), 7, "one pixel per column from 10 to 16: {cells:?}");
+    assert!(cells.contains(&[10, 10]) && cells.contains(&[16, 13]));
+    let raster = h.state().scene.active_raster().unwrap();
+    assert!(raster.alpha_at(12.5, 11.5) + raster.alpha_at(12.5, 10.5) + raster.alpha_at(12.5, 12.5) >= 1.0);
+    let far = on_screen(&h, 16.5, 20.5);
+    click_with(&mut h, far, Modifiers::SHIFT);
+    h.run_steps(3);
+    assert_eq!(
+        cells_of(&h, before + 1),
+        (13..=20).map(|y| [16, y]).collect::<Vec<_>>(),
+        "shift click draws a straight line from the last pixel"
+    );
+    h.key_press(Key::CloseBracket);
+    h.key_press(Key::CloseBracket);
+    h.run_steps(2);
+    assert_eq!(h.state().pixel_size, 3, "] makes the pencil a pixel larger");
+    let dot = on_screen(&h, 25.5, 5.5);
+    click_with(&mut h, dot, Modifiers::NONE);
+    h.run_steps(3);
+    let block = cells_of(&h, before + 2);
+    assert_eq!(block.len(), 9);
+    assert!(block.contains(&[24, 4]) && block.contains(&[26, 6]));
+    h.state_mut().invoke(Cmd::Eraser).unwrap();
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("pixel eraser").is_some());
+    h.state_mut().pixel_size = 1;
+    click_with(&mut h, dot, Modifiers::NONE);
+    h.run_steps(3);
+    ready(&mut h);
+    let marks = h.state().scene.active_marks().to_vec();
+    assert!(marks[before + 3].as_fill().unwrap().erases());
+    let raster = h.state().scene.active_raster().unwrap();
+    assert_eq!(raster.alpha_at(25.5, 5.5), 0.0, "the erased pixel is clear");
+    assert_eq!(raster.alpha_at(24.5, 5.5), 1.0, "its neighbour is still there");
+    let palette = h.state().scene.bundle.doc.palette.len();
+    h.state_mut().invoke(Cmd::Undo).unwrap();
+    h.run_steps(3);
+    assert_eq!(
+        h.state().scene.active_marks().len(),
+        before + 3,
+        "undo takes the eraser mark back"
+    );
+    assert_eq!(h.state().scene.bundle.doc.palette.len(), palette);
     let _ = std::fs::remove_dir_all(&path);
 }
 

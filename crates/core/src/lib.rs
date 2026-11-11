@@ -19,6 +19,7 @@ pub mod palettes;
 pub mod patch;
 pub mod path;
 pub mod pathedit;
+pub mod pixel;
 pub mod repair;
 pub mod retime;
 pub mod rig;

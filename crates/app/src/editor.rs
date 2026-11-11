@@ -486,6 +486,11 @@ impl PreviewState {
     }
 }
 
+struct PixelLive {
+    run: Vec<klad_core::pixel::Cell>,
+    erase: bool,
+}
+
 struct Live {
     stroke: Stroke,
     painter: StrokePainter,
@@ -708,6 +713,10 @@ pub(crate) struct Editor {
     outbox: Arc<Mutex<Outbox>>,
     zoom_px: f32,
     zoom_wanted: Option<f32>,
+    pub(crate) pixel_size: u32,
+    pub(crate) pixel_perfect: bool,
+    pixel_live: Option<PixelLive>,
+    pixel_last: Option<klad_core::pixel::Cell>,
     hover_cell: Option<[i32; 2]>,
     painted: u64,
     real: Option<(RealKey, egui::TextureHandle)>,
@@ -903,6 +912,10 @@ impl Editor {
             outbox: Arc::default(),
             zoom_px: 1.0,
             zoom_wanted: None,
+            pixel_size: 1,
+            pixel_perfect: true,
+            pixel_live: None,
+            pixel_last: None,
             hover_cell: None,
             painted: 0,
             real: None,
@@ -2957,10 +2970,27 @@ impl Editor {
         match (self.tool, e.phase) {
             (_, Phase::Down) if !was_focused || !on_canvas || self.navigating => {}
             (_, Phase::Down) if picking => self.pick_colour(c, self.modifiers.shift)?,
-            (Tool::Fill | Tool::Brush, Phase::Down) if self.scene.on_grid() => self.say(
+            (Tool::Fill, Phase::Down) if self.scene.on_grid() => self.say(
                 Tone::Refused,
-                "this is a pixel layer: it takes whole pixels, not brush strokes or fills",
+                "this is a pixel layer: it takes whole pixels (the pencil, B), not flood or lasso fills",
             ),
+            (Tool::Brush, Phase::Down) if self.scene.on_grid() => {
+                if self.pixel_live.is_none() && self.scene.can_paint() {
+                    let at = klad_core::pixel::cell_at(c.x, c.y);
+                    let run = match self.pixel_last.filter(|_| self.modifiers.shift) {
+                        Some(last) => klad_core::pixel::line(last, at),
+                        None => vec![at],
+                    };
+                    let erase = e.eraser || self.brush == "eraser";
+                    self.pixel_live = Some(PixelLive { run, erase });
+                }
+            }
+            (Tool::Brush, Phase::Move) if self.pixel_live.is_some() => {
+                if let Some(live) = self.pixel_live.as_mut() {
+                    klad_core::pixel::extend(&mut live.run, klad_core::pixel::cell_at(c.x, c.y));
+                }
+            }
+            (Tool::Brush, Phase::Up) if self.pixel_live.is_some() => self.finish_pixels()?,
             (Tool::Fill, Phase::Down) => {
                 if self.scene.can_paint() {
                     self.lasso = Some(Lasso {
@@ -3306,6 +3336,49 @@ impl Editor {
         }
     }
 
+    fn pixel_cells(&self, live: &PixelLive) -> Vec<klad_core::pixel::Cell> {
+        let run = match self.pixel_perfect && self.pixel_size == 1 {
+            true => klad_core::pixel::perfect(&live.run),
+            false => live.run.clone(),
+        };
+        klad_core::pixel::stamp(&run, self.pixel_size)
+    }
+
+    fn finish_pixels(&mut self) -> Result<()> {
+        let Some(live) = self.pixel_live.take() else {
+            return Ok(());
+        };
+        let Some(layer) = self.scene.active_id() else {
+            return Ok(());
+        };
+        self.pixel_last = live.run.last().copied();
+        let (w, h) = self.scene.size();
+        let cells: Vec<klad_core::pixel::Cell> = self
+            .pixel_cells(&live)
+            .into_iter()
+            .filter(|c| c[0] >= 0 && c[1] >= 0 && c[0] < w as i64 && c[1] < h as i64)
+            .collect();
+        if cells.is_empty() {
+            return Ok(());
+        }
+        let spec = klad_core::ops::PixelSpec {
+            layer,
+            frame: self.scene.frame,
+            color: (!live.erase).then(|| color::hex(self.color)),
+            erase: live.erase,
+            cells,
+            path: None,
+            size: 1,
+            part: None,
+            by_hand: true,
+        };
+        self.apply(vec![Op::Pixel(spec)])?;
+        if !live.erase {
+            self.used_colour();
+        }
+        Ok(())
+    }
+
     fn finish_fill(&mut self) -> Result<()> {
         let Some(lasso) = self.lasso.take() else {
             return Ok(());
@@ -3594,9 +3667,25 @@ impl Editor {
                 .map(|y| y as f32)
                 .for_each(|y| rule(to_screen(x0, y), to_screen(x1, y)));
         }
+        if let Some(live) = self.pixel_live.as_ref() {
+            let fill = match live.erase {
+                true => Color32::from_rgba_unmultiplied(255, 255, 255, 120),
+                false => color::color32(self.color),
+            };
+            self.pixel_cells(live).iter().for_each(|c| {
+                let (x, y) = (c[0] as f32, c[1] as f32);
+                let corners = [(x, y), (x + 1.0, y), (x + 1.0, y + 1.0), (x, y + 1.0)]
+                    .map(|(x, y)| self.screen(view, rect, vec2(x, y)))
+                    .to_vec();
+                painter.add(egui::Shape::convex_polygon(corners, fill, egui::Stroke::NONE));
+            });
+        }
+        let pencil = self.tool == Tool::Brush && self.scene.on_grid();
         if let Some([x, y]) = self.hover_cell.filter(|_| self.scene.on_grid() && self.zoom_px >= 3.0) {
-            let (x, y) = (x as f32, y as f32);
-            let cell = [(x, y), (x + 1.0, y), (x + 1.0, y + 1.0), (x, y + 1.0)]
+            let side = if pencil { self.pixel_size.max(1) as f32 } else { 1.0 };
+            let low = ((side - 1.0) / 2.0).floor();
+            let (x, y) = (x as f32 - low, y as f32 - low);
+            let cell = [(x, y), (x + side, y), (x + side, y + side), (x, y + side)]
                 .map(|(x, y)| self.screen(view, rect, vec2(x, y)))
                 .to_vec();
             painter.add(egui::Shape::closed_line(
