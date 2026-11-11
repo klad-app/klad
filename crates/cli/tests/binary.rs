@@ -449,6 +449,62 @@ fn a_merge_that_left_an_id_used_twice_is_repaired() {
 }
 
 #[test]
+fn shapes_align_spread_and_centre_on_the_canvas_from_the_command_line() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-align-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let bundle = dir.join("a.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    draw(&["new", path, "--width", "400", "--height", "200", "--sketch"]);
+    let add = |x: &str, y: &str, w: &str| {
+        let made = draw(&[
+            "add",
+            path,
+            "rect",
+            "--in",
+            "l3",
+            &format!("x={x}"),
+            &format!("y={y}"),
+            &format!("w={w}"),
+            "h=20",
+        ]);
+        made.lines()
+            .find_map(|line| line.strip_prefix("added "))
+            .unwrap_or_else(|| panic!("an id in: {made}"))
+            .to_string()
+    };
+    let (a, b, c) = (add("10", "10", "20"), add("100", "40", "40"), add("50", "80", "10"));
+    let boxes = || {
+        [&a, &b, &c].map(|id| {
+            let node: serde_json::Value = serde_json::from_str(&draw(&["show", path, id])).unwrap();
+            [0, 1].map(|i| node["bounds"][i].as_f64().unwrap())
+        })
+    };
+    draw(&["align", path, &a, &b, &c, "--y", "top", "--spread", "x"]);
+    assert_eq!(boxes(), [[10.0, 10.0], [100.0, 10.0], [60.0, 10.0]]);
+    draw(&["align", path, &b, "--x", "centre", "--y", "middle", "--to", "canvas"]);
+    assert_eq!(boxes()[1], [180.0, 90.0]);
+    draw(&["align", path, &b, &c, "--x", "left", "--to", &a]);
+    assert_eq!(boxes().map(|at| at[0]), [10.0, 10.0, 10.0]);
+    assert!(draw(&["align", path, &b, &c, "--x", "left", "--to", &a]).contains("nothing moved"));
+    let log = draw(&["log", path]);
+    assert_eq!(
+        log.lines().filter(|line| line.contains("set n")).count(),
+        3,
+        "one history step each: {log}"
+    );
+    let refused = run(&["align", path, &a, "--x", "left"]);
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("nothing to line up with"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn recolour_moves_strokes_together_and_keeps_their_shades() {
     let dir = std::env::temp_dir().join(format!("draw-binary-recolour-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

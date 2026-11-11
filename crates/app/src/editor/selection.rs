@@ -1,5 +1,6 @@
-use super::{Editor, Tool};
+use super::{Editor, Tool, transform_props};
 use crate::commands::Cmd;
+use crate::lift;
 use crate::messages::Tone;
 use crate::pen::PenEvent;
 use crate::theme;
@@ -9,6 +10,7 @@ use klad_core::doc::Item;
 use klad_core::markedit::{LassoAction, MarkTransform};
 use klad_core::ops::{Op, Place};
 use klad_core::pathedit::PathEdit;
+use klad_render::align::{Across, Axis, Down, Plan, To};
 use serde_json::{Map, Value, json};
 
 #[derive(Default)]
@@ -97,6 +99,73 @@ impl Editor {
         }
     }
 
+    fn group_nodes(&self) -> Vec<(String, klad_core::doc::Node)> {
+        self.shapes()
+            .into_iter()
+            .filter_map(|id| match self.scene.bundle.doc.item(&id) {
+                Some(Item::Node(_, _, node)) => Some((id, node.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn group_middle(&self) -> Option<egui::Vec2> {
+        self.selection_corners().map(|(_, c)| (c[0] + c[2]) / 2.0)
+    }
+
+    fn move_group(
+        &mut self,
+        affine: [f32; 6],
+        degrees: f32,
+        after: impl Fn(&mut klad_core::doc::Transform),
+    ) -> Result<()> {
+        let ops = self
+            .group_nodes()
+            .into_iter()
+            .map(|(id, node)| {
+                let mut t = lift::committed(&node, affine, 1.0, degrees)?;
+                after(&mut t);
+                Ok(Op::Set {
+                    id,
+                    props: transform_props(&t),
+                })
+            })
+            .collect::<Result<Vec<Op>>>()?;
+        self.apply(ops)
+    }
+
+    pub(super) fn align(&mut self, x: Option<Across>, y: Option<Down>, spread: Option<Axis>) -> Result<()> {
+        let ids = self.shapes();
+        let plan = Plan {
+            x,
+            y,
+            spread,
+            gap: None,
+            to: if ids.len() == 1 { To::Canvas } else { To::Selection },
+        };
+        match klad_render::align::ops(&self.scene.bundle.doc, &ids, &plan) {
+            Ok(ops) if ops.is_empty() => {
+                self.say(Tone::Info, "already lined up: nothing moved");
+                Ok(())
+            }
+            Ok(ops) => {
+                let moved = ops.len();
+                self.apply(ops)?;
+                let what = match (spread, ids.len()) {
+                    (Some(_), _) => "spaced evenly".to_string(),
+                    (None, 1) => "lined up on the canvas".to_string(),
+                    (None, n) => format!("{n} shapes lined up"),
+                };
+                self.say(Tone::Done, format!("{what}, {moved} moved"));
+                Ok(())
+            }
+            Err(e) => {
+                self.say(Tone::Refused, format!("{e:#}"));
+                Ok(())
+            }
+        }
+    }
+
     pub(super) fn nudge(&mut self, dx: f32, dy: f32) -> Result<()> {
         let step = if self.key_shift { 10.0 } else { 1.0 };
         let (dx, dy) = (dx * step, dy * step);
@@ -106,6 +175,9 @@ impl Editor {
                 y: dy,
                 ..Default::default()
             })),
+            Some(Selected::Shape(_)) if self.group.len() > 1 => {
+                self.move_group([1.0, 0.0, 0.0, 1.0, dx, dy], 0.0, |_| {})
+            }
             Some(Selected::Shape(id)) => {
                 let Some(t) = self.node_transform(&id) else {
                     return Ok(());
@@ -136,6 +208,21 @@ impl Editor {
                     ..Default::default()
                 }))
             }
+            Some(Selected::Shape(_)) if self.group.len() > 1 => {
+                let Some(c) = self.group_middle() else {
+                    return Ok(());
+                };
+                let (sin, cos) = degrees.to_radians().sin_cos();
+                let affine = [
+                    cos,
+                    -sin,
+                    sin,
+                    cos,
+                    c.x - c.x * cos + c.y * sin,
+                    c.y - c.x * sin - c.y * cos,
+                ];
+                self.move_group(affine, degrees, |_| {})
+            }
             Some(Selected::Shape(id)) => {
                 let Some(t) = self.node_transform(&id) else {
                     return Ok(());
@@ -152,6 +239,22 @@ impl Editor {
                 true => self.flip_picked(-1.0, 1.0),
                 false => self.flip_picked(1.0, -1.0),
             },
+            Some(Selected::Shape(_)) if self.group.len() > 1 => {
+                let Some(c) = self.group_middle() else {
+                    return Ok(());
+                };
+                let affine = match horizontal {
+                    true => [-1.0, 0.0, 0.0, 1.0, 2.0 * c.x, 0.0],
+                    false => [1.0, 0.0, 0.0, -1.0, 0.0, 2.0 * c.y],
+                };
+                self.move_group(affine, 0.0, |t| {
+                    match horizontal {
+                        true => t.sx = -t.sx,
+                        false => t.sy = -t.sy,
+                    }
+                    t.rotate = -t.rotate;
+                })
+            }
             Some(Selected::Shape(id)) => {
                 let Some(t) = self.node_transform(&id) else {
                     return Ok(());
@@ -172,26 +275,33 @@ impl Editor {
                 Some(copied) => self.paste_copied(copied, "duplicated"),
                 None => Ok(()),
             },
-            Some(Selected::Shape(id)) => {
-                let Some(Item::Node(_, _, node)) = self.scene.bundle.doc.item(&id) else {
-                    return Ok(());
-                };
-                let mut value = serde_json::to_value(node)?;
-                strip_ids(&mut value);
-                let op = Op::AddNode {
-                    node: value,
-                    place: Place {
-                        above: Some(id.clone()),
-                        frame: Some(self.scene.frame),
-                        ..Place::default()
-                    },
-                };
-                let applied = self.scene.apply_with(&[op], &self.brushes);
+            Some(Selected::Shape(_)) => {
+                let nodes = self.group_nodes();
+                let ops = nodes
+                    .iter()
+                    .map(|(id, node)| {
+                        let mut value = serde_json::to_value(node)?;
+                        strip_ids(&mut value);
+                        Ok(Op::AddNode {
+                            node: value,
+                            place: Place {
+                                above: Some(id.clone()),
+                                frame: Some(self.scene.frame),
+                                ..Place::default()
+                            },
+                        })
+                    })
+                    .collect::<Result<Vec<Op>>>()?;
+                let applied = self.scene.apply_with(&ops, &self.brushes);
                 match applied {
                     Ok((dirty, applied)) => {
                         self.dirty.extend(dirty);
-                        self.selection = applied.added.first().cloned();
-                        self.say(Tone::Done, format!("duplicated {id} in place"));
+                        self.select_shapes(applied.added.clone());
+                        let what = match nodes.as_slice() {
+                            [(id, _)] => id.clone(),
+                            many => format!("{} shapes", many.len()),
+                        };
+                        self.say(Tone::Done, format!("duplicated {what} in place"));
                         Ok(())
                     }
                     Err(e) => {
@@ -244,6 +354,19 @@ impl Editor {
                 Cmd::Thicker,
                 Cmd::Copy,
                 Cmd::Paste,
+                Cmd::DuplicateInPlace,
+                Cmd::Delete,
+                Cmd::Deselect,
+            ],
+            Selected::Shape(_) if self.group.len() > 1 => vec![
+                Cmd::AlignLeft,
+                Cmd::AlignCentre,
+                Cmd::AlignRight,
+                Cmd::AlignTop,
+                Cmd::AlignMiddle,
+                Cmd::AlignBottom,
+                Cmd::DistributeAcross,
+                Cmd::DistributeDown,
                 Cmd::DuplicateInPlace,
                 Cmd::Delete,
                 Cmd::Deselect,

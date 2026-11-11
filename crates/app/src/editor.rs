@@ -313,6 +313,19 @@ fn edge(corners: &[Vec2; 4], side: usize) -> Vec2 {
     (corners[side] + corners[(side + 1) % 4]) / 2.0
 }
 
+fn transform_props(t: &klad_core::doc::Transform) -> Map<String, Value> {
+    [
+        ("transform.x", json!(t.x)),
+        ("transform.y", json!(t.y)),
+        ("transform.rotate", json!(t.rotate)),
+        ("transform.sx", json!(t.sx)),
+        ("transform.sy", json!(t.sy)),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v))
+    .collect()
+}
+
 struct Drag {
     grab: Grab,
     node: String,
@@ -670,6 +683,7 @@ pub(crate) struct Editor {
     keys_busy: bool,
     key_filter: String,
     selection: Option<String>,
+    group: Vec<String>,
     drag: Option<Drag>,
     edits: BTreeMap<String, f32>,
     texts: BTreeMap<String, String>,
@@ -682,6 +696,7 @@ pub(crate) struct Editor {
     shared: (Option<String>, Vec<String>, u32),
     ctx: egui::Context,
     sel_box: Option<(String, u64, [Vec2; 4])>,
+    group_boxes: Vec<[Vec2; 4]>,
     preview: Option<PreviewState>,
     outbox: Arc<Mutex<Outbox>>,
     zoom_px: f32,
@@ -850,6 +865,7 @@ impl Editor {
             keys_busy: false,
             key_filter: String::new(),
             selection: None,
+            group: Vec::new(),
             drag: None,
             edits: BTreeMap::new(),
             texts: BTreeMap::new(),
@@ -862,6 +878,7 @@ impl Editor {
             shared: (None, Vec::new(), 0),
             ctx,
             sel_box: None,
+            group_boxes: Vec::new(),
             preview: None,
             outbox: Arc::default(),
             zoom_px: 1.0,
@@ -968,7 +985,7 @@ impl Editor {
 
     fn share_selection(&mut self) {
         let items: Vec<String> = self
-            .selection
+            .shapes()
             .iter()
             .chain(self.direct.as_ref().map(|d| &d.node))
             .cloned()
@@ -1038,8 +1055,26 @@ impl Editor {
         Ok(())
     }
 
+    pub(super) fn shapes(&self) -> Vec<String> {
+        match &self.selection {
+            Some(id) if self.group.len() > 1 && self.group.contains(id) => self.group.clone(),
+            Some(id) => vec![id.clone()],
+            None => Vec::new(),
+        }
+    }
+
+    pub(super) fn select_shapes(&mut self, ids: Vec<String>) {
+        self.selection = ids.last().cloned();
+        self.group = if ids.len() > 1 { ids } else { Vec::new() };
+        self.refresh_box();
+    }
+
     fn forget_missing_selection(&mut self) {
         let doc = &self.scene.bundle.doc;
+        self.group.retain(|id| matches!(doc.item(id), Some(Item::Node(..))));
+        if self.group.len() < 2 || !self.selection.as_ref().is_some_and(|id| self.group.contains(id)) {
+            self.group.clear();
+        }
         if self
             .selection
             .as_ref()
@@ -1181,28 +1216,44 @@ impl Editor {
 
     fn refresh_box(&mut self) {
         let rev = self.scene.bundle.doc.rev;
-        let Some(id) = self.selection.clone() else {
+        let ids = self.shapes();
+        if ids.is_empty() {
             self.sel_box = None;
-            return;
-        };
-        if self.sel_box.as_ref().is_some_and(|(s, r, _)| *s == id && *r == rev) {
+            self.group_boxes.clear();
             return;
         }
-        self.sel_box = overlay::node_world_box(&self.scene.bundle.doc, &id)
-            .ok()
-            .flatten()
-            .map(|[x, y, w, h]| {
-                (
-                    id,
-                    rev,
-                    [vec2(x, y), vec2(x + w, y), vec2(x + w, y + h), vec2(x, y + h)],
-                )
-            });
+        let key = ids.join(" ");
+        if self.sel_box.as_ref().is_some_and(|(s, r, _)| *s == key && *r == rev) {
+            return;
+        }
+        let boxes: Vec<[f32; 4]> = ids
+            .iter()
+            .filter_map(|id| overlay::node_world_box(&self.scene.bundle.doc, id).ok().flatten())
+            .collect();
+        let corners = |[x, y, w, h]: [f32; 4]| [vec2(x, y), vec2(x + w, y), vec2(x + w, y + h), vec2(x, y + h)];
+        self.group_boxes = match boxes.len() {
+            0 | 1 => Vec::new(),
+            _ => boxes.iter().map(|b| corners(*b)).collect(),
+        };
+        self.sel_box = boxes
+            .iter()
+            .copied()
+            .reduce(|a, b| {
+                let (x, y) = (a[0].min(b[0]), a[1].min(b[1]));
+                [
+                    x,
+                    y,
+                    (a[0] + a[2]).max(b[0] + b[2]) - x,
+                    (a[1] + a[3]).max(b[1] + b[3]) - y,
+                ]
+            })
+            .map(|all| (key, rev, corners(all)));
     }
 
     fn selection_corners(&self) -> Option<(String, [Vec2; 4])> {
-        let (id, _, corners) = self.sel_box.as_ref()?;
-        (self.selection.as_ref() == Some(id)).then(|| (id.clone(), *corners))
+        let (key, _, corners) = self.sel_box.as_ref()?;
+        let id = self.selection.clone()?;
+        (self.shapes().join(" ") == *key).then_some((id, *corners))
     }
 
     fn refresh_cut(&mut self) {
@@ -1416,29 +1467,30 @@ impl Editor {
     }
 
     fn node_ops(&self, drag: &Drag) -> Result<Option<Vec<Op>>> {
-        let node = match self.scene.bundle.doc.item(&drag.node) {
-            Some(Item::Node(_, _, node)) => node.clone(),
-            _ => return Ok(None),
+        let ids = match self.shapes() {
+            all if all.len() > 1 && all.contains(&drag.node) => all,
+            _ => vec![drag.node.clone()],
         };
+        let together = ids.len() > 1;
         let affine = drag.affine();
-        let t = match drag.stretch() {
-            Some((axis, _, k)) => lift::stretched(&node, affine, axis, k)?,
-            None => lift::committed(&node, affine, drag.scale(), drag.angle().to_degrees())?,
-        };
-        let props: Map<String, Value> = [
-            ("transform.x", json!(t.x)),
-            ("transform.y", json!(t.y)),
-            ("transform.rotate", json!(t.rotate)),
-            ("transform.sx", json!(t.sx)),
-            ("transform.sy", json!(t.sy)),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v))
-        .collect();
-        Ok(Some(vec![Op::Set {
-            id: drag.node.clone(),
-            props,
-        }]))
+        let ops = ids
+            .into_iter()
+            .filter_map(|id| match self.scene.bundle.doc.item(&id) {
+                Some(Item::Node(_, _, node)) => Some((id, node.clone())),
+                _ => None,
+            })
+            .map(|(id, node)| {
+                let t = match drag.stretch().filter(|_| !together) {
+                    Some((axis, _, k)) => lift::stretched(&node, affine, axis, k)?,
+                    None => lift::committed(&node, affine, drag.scale(), drag.angle().to_degrees())?,
+                };
+                Ok(Op::Set {
+                    id,
+                    props: transform_props(&t),
+                })
+            })
+            .collect::<Result<Vec<Op>>>()?;
+        Ok((!ops.is_empty()).then_some(ops))
     }
 
     fn drag_ops(&self) -> Option<Vec<Op>> {
@@ -1664,6 +1716,7 @@ impl Editor {
     fn edges(&self) -> bool {
         match self.tool {
             _ if self.on_marks() => true,
+            Tool::Select if self.group.len() > 1 => false,
             Tool::Select => self
                 .selection
                 .as_ref()
@@ -1754,8 +1807,48 @@ impl Editor {
             _ => hits.first(),
         };
         self.selection = next.map(|(n, _)| n.clone());
+        self.group.clear();
         self.refresh_box();
         Ok(())
+    }
+
+    fn toggle_shape(&mut self, at: Vec2) -> Result<bool> {
+        let Some((hit, _)) = self.shape_hits(at)?.into_iter().next() else {
+            return Ok(false);
+        };
+        let held = self.shapes();
+        let next: Vec<String> = match held.contains(&hit) {
+            true => held.into_iter().filter(|id| *id != hit).collect(),
+            false => held.into_iter().chain([hit]).collect(),
+        };
+        self.picked = None;
+        self.select_shapes(next);
+        Ok(true)
+    }
+
+    fn lasso_shapes(&mut self) -> Result<bool> {
+        let vector = self
+            .scene
+            .active_layer()
+            .is_some_and(|l| l.kind() == klad_core::doc::Kind::Vector);
+        let Some(polygon) = self
+            .lasso
+            .as_ref()
+            .filter(|l| vector && l.far && l.points.len() >= 3)
+            .map(|l| l.points.iter().map(|p| [p.x, p.y]).collect::<Vec<_>>())
+        else {
+            return Ok(false);
+        };
+        let active = self.scene.active_id();
+        let found: Vec<String> = overlay::shapes_inside(&self.scene.bundle.doc, self.scene.frame, &polygon)?
+            .into_iter()
+            .filter(|(_, layer)| self.settings.pick_all_layers || active.as_deref() == Some(layer.as_str()))
+            .map(|(node, _)| node)
+            .collect();
+        self.lasso = None;
+        self.picked = None;
+        self.select_shapes(found);
+        Ok(true)
     }
 
     fn finish_drag(&mut self) -> Result<()> {
@@ -1813,6 +1906,9 @@ impl Editor {
             (_, None) => true,
             (None, Some(_)) => false,
         };
+        if !stroke_first && self.modifiers.shift && self.selection.is_some() && self.toggle_shape(c)? {
+            return Ok(());
+        }
         if !stroke_first {
             self.select_at(c, false)?;
             if let Some((id, corners)) = self.selection_corners() {
@@ -2905,6 +3001,11 @@ impl Editor {
             }
             (Tool::Brush, Phase::Up) => self.finish()?,
             (Tool::Select, Phase::Down) => match self.grab_at(view, rect, e.pos) {
+                Some((_, Grab::Move, _))
+                    if self.modifiers.shift
+                        && self.selection.is_some()
+                        && !self.on_marks()
+                        && self.toggle_shape(c)? => {}
                 Some((id, grab, corners)) => self.start_drag(id, grab, corners, c, false),
                 None => {
                     self.end_shift();
@@ -2917,6 +3018,7 @@ impl Editor {
                 }
                 self.copy_for_drag()?;
             }
+            (Tool::Select, Phase::Up) if self.lasso.is_some() && self.lasso_shapes()? => {}
             (Tool::Select, Phase::Up) if self.lasso.is_some() => match self.scene.active_cel() {
                 Some(_) => self.finish_pick()?,
                 None => {
@@ -3473,6 +3575,12 @@ impl Editor {
             self.decorate_pen(&painter, path, hover, view, rect, accent, dark);
         }
         if let Some((_, corners)) = self.handles() {
+            if self.drag.is_none() && self.tool == Tool::Select && !self.on_marks() {
+                self.group_boxes.iter().for_each(|member| {
+                    let outline: Vec<Pos2> = member.iter().map(|c| self.screen(view, rect, *c)).collect();
+                    painter.add(egui::Shape::closed_line(outline, egui::Stroke::new(1.0, accent)));
+                });
+            }
             let corners = match &self.drag {
                 Some(drag) => drag.preview(),
                 None => corners,

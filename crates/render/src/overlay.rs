@@ -631,6 +631,36 @@ pub fn hit(doc: &Document, frame: u32, point: (f32, f32)) -> Result<Option<(Stri
     Ok(hits(doc, frame, point)?.into_iter().next())
 }
 
+fn layer_shapes(layer: &Layer, frame: u32, polygon: &[[f32; 2]], out: &mut Vec<(String, String)>) -> Result<()> {
+    if !layer.visible || layer.locked {
+        return Ok(());
+    }
+    match layer.kind() {
+        Kind::Group => layer
+            .children()
+            .iter()
+            .try_for_each(|child| layer_shapes(child, frame, polygon, out)),
+        Kind::Vector => layer.content_at(frame).map_or(Ok(()), |cel| {
+            cel.nodes.iter().filter(|node| node.visible).try_for_each(|node| {
+                let middle = vector::node_bounds(node, &Matrix::new_identity())?.map(|r| (r.center_x(), r.center_y()));
+                if middle.is_some_and(|at| klad_core::cut::inside_polygon(polygon, at)) {
+                    out.push((node.id.clone(), layer.id.clone()));
+                }
+                Ok(())
+            })
+        }),
+        Kind::Paint | Kind::Adjust | Kind::Bones => Ok(()),
+    }
+}
+
+pub fn shapes_inside(doc: &Document, frame: u32, polygon: &[[f32; 2]]) -> Result<Vec<(String, String)>> {
+    let mut out = Vec::new();
+    doc.layers
+        .iter()
+        .try_for_each(|layer| layer_shapes(layer, frame, polygon, &mut out))?;
+    Ok(out)
+}
+
 pub fn node_world_box(doc: &Document, id: &str) -> Result<Option<[f32; 4]>> {
     Ok(match node_world(doc, id)? {
         Some((node, matrix)) => vector::node_bounds(node, &matrix)?.map(vector::to_box),

@@ -1341,6 +1341,117 @@ fn strokes_and_copies_dragged_leave_the_committed_picture_on_the_canvas() {
 }
 
 #[test]
+fn several_shapes_select_with_shift_or_a_lasso_move_together_align_and_distribute() {
+    let path = sample("align");
+    {
+        let mut bundle = Bundle::open(&path).unwrap();
+        let shapes = bundle.doc.find_layer("shapes").unwrap().id.clone();
+        let rect = |x: u32, y: u32, w: u32| {
+            format!(
+                r##"{{"op":"add","node":{{"type":"rect","x":{x},"y":{y},"w":{w},"h":40,"fill":"#3060a0"}},"in":"{shapes}","frame":0}}"##
+            )
+        };
+        bundle
+            .apply(&parse_lines(&format!("{}\n{}", rect(300, 30, 60), rect(420, 300, 40))).unwrap())
+            .unwrap();
+    }
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    activate(&mut h, "shapes");
+    h.state_mut().tool = Tool::Select;
+    let ids: Vec<String> = h.state().scene.bundle.doc.find_layer("shapes").unwrap().cels()[0]
+        .nodes
+        .iter()
+        .map(|n| n.id.clone())
+        .collect();
+    let boxes = |h: &Harness<'static, Editor>| -> Vec<[f32; 4]> {
+        ids.iter()
+            .map(|id| {
+                klad_render::overlay::node_world_box(&h.state().scene.bundle.doc, id)
+                    .unwrap()
+                    .unwrap()
+            })
+            .collect()
+    };
+    assert_eq!(boxes(&h).iter().map(|b| b[0]).collect::<Vec<_>>(), [20.0, 300.0, 420.0]);
+    let at = on_screen(&h, 120.0, 30.0);
+    click_with(&mut h, at, Modifiers::NONE);
+    assert_eq!(h.state().shapes(), ids[..1], "a click takes one shape");
+    assert!(
+        h.state().can_run(Cmd::DistributeAcross).is_some(),
+        "distributing needs three"
+    );
+    let at = on_screen(&h, 330.0, 50.0);
+    click_with(&mut h, at, Modifiers::SHIFT);
+    let at = on_screen(&h, 440.0, 320.0);
+    click_with(&mut h, at, Modifiers::SHIFT);
+    assert_eq!(h.state().shapes(), ids, "shift click adds each shape");
+    assert!(
+        h.query_all(By::new().label_contains(crate::theme::icon::ALIGN_TOP))
+            .count()
+            > 0,
+        "the bar under several shapes aligns them"
+    );
+    let rev = h.state().scene.bundle.doc.rev;
+    h.state_mut().invoke(Cmd::AlignTop).unwrap();
+    h.run_steps(2);
+    assert_eq!(boxes(&h).iter().map(|b| b[1]).collect::<Vec<_>>(), [20.0, 20.0, 20.0]);
+    assert_eq!(h.state().scene.bundle.doc.rev, rev + 1, "one step for the three");
+    h.state_mut().invoke(Cmd::DistributeAcross).unwrap();
+    h.run_steps(2);
+    assert_eq!(boxes(&h).iter().map(|b| b[0]).collect::<Vec<_>>(), [20.0, 250.0, 420.0]);
+    let from = on_screen(&h, 120.0, 30.0);
+    let to = on_screen(&h, 150.0, 30.0);
+    drag(&mut h, from, to);
+    settle(&mut h, |ed| ed.drag.is_none() && ed.preview.is_none());
+    let moved = boxes(&h);
+    [50.0, 280.0, 450.0].iter().zip(&moved).for_each(|(want, b)| {
+        assert!((b[0] - want).abs() < 1.0, "the three moved together: {moved:?}");
+    });
+    assert_eq!(h.state().shapes(), ids, "and stay selected");
+    let at = on_screen(&h, 470.0, 40.0);
+    click_with(&mut h, at, Modifiers::SHIFT);
+    assert_eq!(
+        h.state().shapes(),
+        ids[..2],
+        "shift click on a selected shape lets it go"
+    );
+    h.state_mut().invoke(Cmd::Deselect).unwrap();
+    h.run_steps(1);
+    assert!(h.state().shapes().is_empty());
+    let around =
+        [(262.0, 4.0), (505.0, 4.0), (505.0, 75.0), (262.0, 75.0), (262.0, 10.0)].map(|(x, y)| on_screen(&h, x, y));
+    h.hover_at(around[0]);
+    h.run_steps(1);
+    h.drag_at(around[0]);
+    h.run_steps(1);
+    around[1..].iter().for_each(|p| {
+        h.hover_at(*p);
+        h.run_steps(1);
+    });
+    h.drop_at(around[4]);
+    h.run_steps(2);
+    assert_eq!(
+        h.state().shapes(),
+        ids[1..],
+        "a lasso on a shapes layer takes the shapes inside"
+    );
+    h.state_mut().invoke(Cmd::AlignLeft).unwrap();
+    h.run_steps(2);
+    let lined = boxes(&h);
+    assert_eq!(
+        lined[1][0], lined[2][0],
+        "two shapes line up on the left one: {lined:?}"
+    );
+    h.key_press(Key::Delete);
+    h.run_steps(2);
+    let left = h.state().scene.bundle.doc.find_layer("shapes").unwrap().cels()[0]
+        .nodes
+        .len();
+    assert_eq!(left, 1, "Delete removes every selected shape");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn a_tap_that_wobbles_selects_and_a_drag_past_three_points_moves() {
     let path = sample("tap");
     let mut h = harness(editor(&path), vec2(1440.0, 900.0));

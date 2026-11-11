@@ -540,6 +540,33 @@ enum Command {
         #[command(flatten)]
         flags: EditFlags,
     },
+    #[command(
+        about = "Align shapes to each other, the canvas or one shape, or spread them evenly",
+        long_about = "Align shapes (the nodes of a vector layer) by their bounds on the canvas, or spread them evenly. --x lines up left edges, centres or right edges; --y lines up tops, middles or bottoms; both together stack them on one point. Without --to they line up on the bounds of the shapes together, so the outermost one stays; --to canvas uses the canvas (one shape is enough), --to <id> uses that shape, which stays where it is. --spread x or y keeps the two outer shapes and makes the gaps between neighbours equal; with --gap the first stays and each next one follows that many px after it. Aligning one way and spreading the other go together. A shape inside a group moves by the distance seen on the canvas. One history step.\n\n  klad align art.klad n3 n4 n7 --y middle\n  klad align art.klad n3 n4 n7 --y middle --spread x\n  klad align art.klad n3 n4 n7 --spread x --gap 24\n  klad align art.klad title --x centre --to canvas\n  klad align art.klad n4 n7 --x left --to n3"
+    )]
+    Align {
+        bundle: PathBuf,
+        ids: Vec<String>,
+        #[arg(long, value_parser = ["left", "centre", "center", "right"], help = "Line up left edges, centres or right edges")]
+        x: Option<String>,
+        #[arg(long, value_parser = ["top", "middle", "bottom"], help = "Line up tops, middles or bottoms")]
+        y: Option<String>,
+        #[arg(long, value_parser = ["x", "y"], help = "Make the gaps between neighbours equal, across (x) or down (y)")]
+        spread: Option<String>,
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "With --spread: px between neighbours, counted from the first"
+        )]
+        gap: Option<f32>,
+        #[arg(
+            long,
+            help = "What to line up on: canvas, or a shape id that stays put (default: the shapes together)"
+        )]
+        to: Option<String>,
+        #[command(flatten)]
+        flags: EditFlags,
+    },
     #[command(about = "Remove layers, cels or nodes")]
     Rm {
         bundle: PathBuf,
@@ -2375,6 +2402,44 @@ fn run() -> Result<()> {
                 ));
             }
             agent::edit(&bundle, &[Op::Detach { ids }], &output(&flags, 0))?;
+        }
+        Command::Align {
+            bundle,
+            ids,
+            x,
+            y,
+            spread,
+            gap,
+            to,
+            flags,
+        } => {
+            use klad_render::align::{Across, Axis, Down, Plan, To};
+            let plan = Plan {
+                x: x.as_deref().map(|x| match x {
+                    "left" => Across::Left,
+                    "right" => Across::Right,
+                    _ => Across::Centre,
+                }),
+                y: y.as_deref().map(|y| match y {
+                    "top" => Down::Top,
+                    "bottom" => Down::Bottom,
+                    _ => Down::Middle,
+                }),
+                spread: spread
+                    .as_deref()
+                    .map(|axis| if axis == "x" { Axis::X } else { Axis::Y }),
+                gap,
+                to: match to.as_deref() {
+                    None => To::Selection,
+                    Some("canvas") => To::Canvas,
+                    Some(id) => To::Shape(id.to_string()),
+                },
+            };
+            let ops = klad_render::align::ops(&Bundle::open(&bundle)?.doc, &ids, &plan)?;
+            match ops.is_empty() {
+                true => println!("already there: nothing moved"),
+                false => agent::edit(&bundle, &ops, &output(&flags, 0))?,
+            }
         }
         Command::Rm { bundle, ids, flags } => {
             if ids.is_empty() {
