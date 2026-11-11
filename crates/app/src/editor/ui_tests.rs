@@ -1729,6 +1729,83 @@ fn a_clicked_palette_colour_is_updated_with_its_pixels_and_ramps_and_palettes_jo
         "two new colours: black is in the palette already"
     );
     let _ = std::fs::remove_file(&file);
+    assert!(
+        h.state().can_run(Cmd::NextVariant).is_some() && h.state().can_run(Cmd::RemoveVariant).is_some(),
+        "without variants there is nothing to show or remove"
+    );
+    let first = h.state().scene.bundle.doc.palette[0].color.clone();
+    h.state_mut().swatch_name = "night".into();
+    h.state_mut().invoke(Cmd::NewVariant).unwrap();
+    h.run_steps(3);
+    assert_eq!(h.state().scene.bundle.doc.shown_variant(), "night");
+    assert!(h.state().swatch_name.is_empty());
+    assert!(
+        h.query_all(By::new().label("variant")).count() > 0 && h.query_by_label("night").is_some(),
+        "the palette panel lists the variants"
+    );
+    h.state_mut().swatch_picked = Some(0);
+    h.state_mut()
+        .set_colour(klad_core::color::parse_hex("#101040").unwrap());
+    h.state_mut().invoke(Cmd::UpdateSwatch).unwrap();
+    h.run_steps(3);
+    assert_eq!(h.state().scene.bundle.doc.palette[0].color, "#101040");
+    [Pane::Brush, Pane::Layers, Pane::Inspector, Pane::Preview]
+        .into_iter()
+        .filter(|pane| h.state().settings.layout.is_open(*pane))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .for_each(|pane| h.state_mut().settings.layout.toggle(pane));
+    h.run_steps(3);
+    h.get_by_label("base").click();
+    h.run_steps(3);
+    assert_eq!(
+        h.state().scene.bundle.doc.shown_variant(),
+        "base",
+        "a click shows the palette itself"
+    );
+    assert_eq!(
+        h.state().scene.bundle.doc.palette[0].color,
+        first,
+        "which kept its colour"
+    );
+    assert!(
+        h.state()
+            .can_run(Cmd::RenameVariant)
+            .is_some_and(|why| why.contains("show a variant first"))
+    );
+    h.state_mut().invoke(Cmd::NextVariant).unwrap();
+    h.run_steps(2);
+    assert_eq!(h.state().scene.bundle.doc.palette[0].color, "#101040");
+    h.state_mut().invoke(Cmd::NewVariant).unwrap();
+    h.run_steps(2);
+    assert_eq!(
+        h.state().scene.bundle.doc.variant_names(),
+        ["base", "night", "variant 3"],
+        "an unnamed variant gets a name of its own"
+    );
+    h.state_mut().swatch_name = "dusk".into();
+    h.state_mut().invoke(Cmd::RenameVariant).unwrap();
+    h.run_steps(2);
+    assert_eq!(h.state().scene.bundle.doc.shown_variant(), "dusk");
+    {
+        let ed = h.state_mut();
+        ed.windows.export = true;
+        ed.export.variant = "gone".into();
+    }
+    h.run_steps(3);
+    assert!(
+        h.query_all(By::new().label("palette variant")).count() > 0,
+        "the export window offers the variants"
+    );
+    assert!(
+        h.state().export.variant.is_empty(),
+        "a variant that is gone falls back to what is shown"
+    );
+    h.state_mut().windows.export = false;
+    h.state_mut().invoke(Cmd::RemoveVariant).unwrap();
+    h.run_steps(2);
+    assert_eq!(h.state().scene.bundle.doc.variant_names(), ["base", "night"]);
+    assert_eq!(h.state().scene.bundle.doc.shown_variant(), "base");
     let _ = std::fs::remove_dir_all(&path);
 }
 

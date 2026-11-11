@@ -1798,7 +1798,7 @@ enum Command {
     },
     #[command(
         about = "The document palette: list it, --add or --rm a colour, --recolour one, --load a palette, or group colours in a --ramp",
-        long_about = "The document palette, kept in doc.json. Named colours can be used wherever a colour goes (--color skin). On pixel layers every mark is bound to the palette colour it was drawn with, so changing that colour here changes the marks.\n\n  klad palette art.klad\n  klad palette art.klad --add '#f0c8a0' --name skin\n  klad palette art.klad --add '#d0a080' --name skin    (changes skin)\n  klad palette art.klad --recolour skin --to '#e8b796'  (by name, colour, index or id)\n  klad palette art.klad --rm skin\n  klad palette art.klad --load pico-8                  (a palette that comes with klad: klad palettes lists them)\n  klad palette art.klad --load my.hex                  (a list of hex colours, one per line, or a GIMP .gpl palette)\n  klad palette art.klad --ramp wood --base '#8b5a2b' --steps 5   (wood-1 to wood-5, dark and cool to light and warm)\n  klad palette art.klad --ramp skin --of skin-dark,skin,skin-light   (group colours it has, dark to light)\n\nA loaded colour the palette already holds is not added again. A ramp is a row of colours from dark to light, used to shade one material.\n\nAs ops: {\"op\":\"palette\",\"add\":\"#f0c8a0\",\"name\":\"skin\"}, {\"op\":\"palette\",\"rm\":\"skin\"}, {\"op\":\"palette\",\"recolour\":\"skin\",\"to\":\"#e8b796\"}, {\"op\":\"palette\",\"load\":\"pico-8\"}, {\"op\":\"palette\",\"ramp\":\"skin\",\"of\":[\"skin-dark\",\"skin\"]}, {\"op\":\"palette\",\"set\":[{\"color\":\"#1b1b1b\",\"name\":\"ink\"}]}"
+        long_about = "The document palette, kept in doc.json. Named colours can be used wherever a colour goes (--color skin). On pixel layers every mark is bound to the palette colour it was drawn with, so changing that colour here changes the marks.\n\n  klad palette art.klad\n  klad palette art.klad --add '#f0c8a0' --name skin\n  klad palette art.klad --add '#d0a080' --name skin    (changes skin)\n  klad palette art.klad --recolour skin --to '#e8b796'  (by name, colour, index or id)\n  klad palette art.klad --rm skin\n  klad palette art.klad --load pico-8                  (a palette that comes with klad: klad palettes lists them)\n  klad palette art.klad --load my.hex                  (a list of hex colours, one per line, or a GIMP .gpl palette)\n  klad palette art.klad --ramp wood --base '#8b5a2b' --steps 5   (wood-1 to wood-5, dark and cool to light and warm)\n  klad palette art.klad --ramp skin --of skin-dark,skin,skin-light   (group colours it has, dark to light)\n\nA loaded colour the palette already holds is not added again. A ramp is a row of colours from dark to light, used to shade one material.\n\nPalette variants are named sets of other colours for the same palette (a red and a blue team). The drawing shows one at a time; base is the palette itself. A colour changed while a variant is shown belongs to that variant, and the base keeps its own; a variant follows the base for every colour it has not changed.\n\n  klad palette art.klad --new-variant blue             (a variant, shown at once)\n  klad palette art.klad --recolour team --to '#2a6fdb'  (blue's team colour; the base keeps its red)\n  klad palette art.klad --variant base                 (show the base again; --variant blue shows blue)\n  klad palette art.klad --rename-variant blue --to navy\n  klad palette art.klad --rm-variant navy\n  klad export art.klad --sheet all --variants          (a sheet for the base and one for each variant, art-blue-sheet.png)\n  klad export art.klad --variant blue --scale 8        (one variant, whatever is shown)\n\nAs ops: {\"op\":\"palette\",\"add\":\"#f0c8a0\",\"name\":\"skin\"}, {\"op\":\"palette\",\"rm\":\"skin\"}, {\"op\":\"palette\",\"recolour\":\"skin\",\"to\":\"#e8b796\"}, {\"op\":\"palette\",\"load\":\"pico-8\"}, {\"op\":\"palette\",\"ramp\":\"skin\",\"of\":[\"skin-dark\",\"skin\"]}, {\"op\":\"palette\",\"set\":[{\"color\":\"#1b1b1b\",\"name\":\"ink\"}]}, {\"op\":\"palette\",\"newVariant\":\"blue\"}, {\"op\":\"palette\",\"variant\":\"base\"}, {\"op\":\"palette\",\"rmVariant\":\"blue\"}, {\"op\":\"palette\",\"renameVariant\":\"blue\",\"to\":\"navy\"}"
     )]
     Palette {
         bundle: PathBuf,
@@ -1816,8 +1816,33 @@ enum Command {
             help = "Change one colour (a name, a colour, an index or an id) to --to; pixel marks drawn with it change too"
         )]
         recolour: Option<String>,
-        #[arg(long, requires = "recolour", help = "The new colour for --recolour")]
+        #[arg(long, help = "The new colour for --recolour, or the new name for --rename-variant")]
         to: Option<String>,
+        #[arg(
+            long,
+            conflicts_with_all = ["add", "rm", "recolour", "load", "ramp"],
+            help = "Show a palette variant (base is the palette itself): every pixel mark takes that variant's colours"
+        )]
+        variant: Option<String>,
+        #[arg(
+            long,
+            conflicts_with_all = ["add", "rm", "recolour", "load", "ramp", "variant"],
+            help = "A new palette variant, shown at once; colours changed while it is shown are its own"
+        )]
+        new_variant: Option<String>,
+        #[arg(
+            long,
+            conflicts_with_all = ["add", "rm", "recolour", "load", "ramp", "variant", "new_variant"],
+            help = "Remove a palette variant"
+        )]
+        rm_variant: Option<String>,
+        #[arg(
+            long,
+            requires = "to",
+            conflicts_with_all = ["add", "rm", "recolour", "load", "ramp", "variant", "new_variant", "rm_variant"],
+            help = "Rename a palette variant to --to"
+        )]
+        rename_variant: Option<String>,
         #[arg(
             long,
             conflicts_with_all = ["add", "rm", "recolour"],
@@ -1949,6 +1974,18 @@ enum Command {
             help = "A Godot rig: the rest drawing as Polygon2Ds weighted to a Skeleton2D, and an AnimationPlayer with the poses of every clip, into this folder"
         )]
         godot_rig: Option<Option<PathBuf>>,
+        #[arg(
+            long,
+            conflicts_with_all = ["variants", "godot_scene", "godot_rig"],
+            help = "Export in this palette variant (base is the palette itself), whatever the drawing shows now; the file names end in the variant's name"
+        )]
+        variant: Option<String>,
+        #[arg(
+            long,
+            conflicts_with_all = ["godot_scene", "godot_rig"],
+            help = "Export once for every palette variant: the base under the usual name, each variant with its name added (art-blue.png)"
+        )]
+        variants: bool,
         #[arg(long, default_value_t = 2, help = "Sheets: transparent pixels around each picture")]
         padding: u32,
         #[arg(long, default_value_t = 4096, help = "Sheets: largest page side in px")]
@@ -3944,8 +3981,31 @@ fn run() -> Result<()> {
             base,
             steps,
             of,
+            variant,
+            new_variant,
+            rm_variant,
+            rename_variant,
             flags,
         } => {
+            if to.is_some() && recolour.is_none() && rename_variant.is_none() {
+                return Err(anyhow!(
+                    "--to goes with --recolour (a colour) or --rename-variant (a name)"
+                ));
+            }
+            let of_variants = match (variant, new_variant, rm_variant, rename_variant) {
+                (Some(name), ..) => Some(PaletteEdit::Variant { name }),
+                (_, Some(name), ..) => Some(PaletteEdit::NewVariant { name }),
+                (_, _, Some(name), _) => Some(PaletteEdit::RemoveVariant { name }),
+                (_, _, _, Some(name)) => Some(PaletteEdit::RenameVariant {
+                    name,
+                    to: to.clone().unwrap_or_default(),
+                }),
+                _ => None,
+            };
+            if let Some(edit) = of_variants {
+                agent::edit(&bundle, &[Op::Palette(edit)], &output(&flags, 0))?;
+                return Ok(());
+            }
             let edit = match (add, rm, recolour, load, ramp) {
                 (Some(color), ..) => Some(PaletteEdit::Add {
                     color,
@@ -4020,6 +4080,8 @@ fn run() -> Result<()> {
             godot_rig,
             padding,
             max,
+            variant,
+            variants,
             out,
         } => {
             let scenes = godot_scene.is_some() || godot_rig.is_some();
@@ -4033,32 +4095,51 @@ fn run() -> Result<()> {
                     .iter()
                     .for_each(|f| println!("{}", f.display()));
             }
-            let look = sprites::Look {
-                layer: layer.clone(),
-                scale,
-                depth,
-                background,
-            };
             let packing = sprites::Packing { padding, max };
-            match (sheet, frames, godot) {
-                _ if gif.is_some() => sprites::gif(&bundle, gif.as_deref().unwrap_or("all"), &look, dither, out)?,
-                (Some(spec), _, _) => sprites::sheet(&bundle, &spec, &look, &packing, out)?,
-                (_, Some(spec), _) => sprites::frames(&bundle, &spec, &look, out)?,
-                (_, _, Some(dir)) => sprites::godot(&bundle, dir.or(out), store, &look, &packing)?,
-                _ if scenes => {}
-                _ => export::run(
-                    &bundle,
-                    export::Export {
-                        layer,
-                        frame,
-                        scale,
-                        depth,
-                        background,
-                        references,
-                        out,
-                    },
-                )?,
-            }
+            let names: Vec<Option<String>> = match variants {
+                true => Bundle::open(&bundle)?
+                    .doc
+                    .variant_names()
+                    .into_iter()
+                    .map(|name| Some(name.to_string()))
+                    .collect(),
+                false => vec![variant],
+            };
+            let several = names.len() > 1;
+            names.into_iter().try_for_each(|variant| {
+                let tag = layers::variant_tag(variant.as_deref());
+                let out = match (&out, several && !tag.is_empty() && godot.is_none()) {
+                    (Some(given), true) => Some(sprites::tagged(given, &tag)),
+                    _ => out.clone(),
+                };
+                let look = sprites::Look {
+                    layer: layer.clone(),
+                    scale,
+                    depth,
+                    background,
+                    variant: variant.clone(),
+                };
+                match (&sheet, &frames, &godot) {
+                    _ if gif.is_some() => sprites::gif(&bundle, gif.as_deref().unwrap_or("all"), &look, dither, out),
+                    (Some(spec), _, _) => sprites::sheet(&bundle, spec, &look, &packing, out),
+                    (_, Some(spec), _) => sprites::frames(&bundle, spec, &look, out),
+                    (_, _, Some(dir)) => sprites::godot(&bundle, dir.clone().or(out), store, &look, &packing),
+                    _ if scenes => Ok(()),
+                    _ => export::run(
+                        &bundle,
+                        export::Export {
+                            layer: layer.clone(),
+                            frame,
+                            scale,
+                            depth,
+                            background,
+                            references,
+                            variant,
+                            out,
+                        },
+                    ),
+                }
+            })?;
         }
         Command::Brushes {
             bundle,
@@ -4810,6 +4891,10 @@ fn palette(path: &Path, as_json: bool) -> Result<()> {
     if palette.is_empty() {
         println!("the palette is empty: klad palette <bundle> --add '#rrggbb' --name <name>");
     }
+    let doc = &bundle.doc;
+    if !doc.variants.is_empty() {
+        println!("showing {}", doc.shown_variant());
+    }
     palette.iter().enumerate().for_each(|(i, s)| {
         let ramp = match s.ramp.is_empty() {
             true => String::new(),
@@ -4818,6 +4903,24 @@ fn palette(path: &Path, as_json: bool) -> Result<()> {
         println!(
             "{}",
             format!("{i:<3} {:<10} {:<8} {}{ramp}", s.color, s.id, s.name).trim_end()
+        );
+    });
+    doc.variants.sets.iter().for_each(|variant| {
+        let own: Vec<String> = palette
+            .iter()
+            .filter_map(|s| variant.colors.get(&s.id).map(|colour| (s, colour)))
+            .map(|(s, colour)| match s.name.is_empty() {
+                true => format!("{} {colour}", s.id),
+                false => format!("{} {colour}", s.name),
+            })
+            .collect();
+        println!(
+            "variant {}: {}",
+            variant.name,
+            match own.is_empty() {
+                true => "the base colours".to_string(),
+                false => own.join(", "),
+            }
         );
     });
     Ok(())

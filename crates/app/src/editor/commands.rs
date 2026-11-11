@@ -194,6 +194,28 @@ impl Editor {
                 }
             }
             Cmd::WrapCanvas => editing,
+            Cmd::NewVariant => match self.scene.bundle.doc.all_layers().iter().any(|l| l.pixel()) {
+                true => editing,
+                false => Some(
+                    "palette variants recolour pixel layers, and this drawing has none: Layer > New pixel layer"
+                        .to_string(),
+                ),
+            },
+            Cmd::NextVariant if self.scene.bundle.doc.variants.is_empty() => {
+                Some("the drawing has no palette variants yet: make one with new variant".to_string())
+            }
+            Cmd::NextVariant => editing,
+            Cmd::RenameVariant | Cmd::RemoveVariant if self.scene.bundle.doc.variants.shown.is_empty() => Some(
+                match self.scene.bundle.doc.variants.is_empty() {
+                    true => "the drawing has no palette variants yet: make one with new variant",
+                    false => "the palette itself is shown: show a variant first",
+                }
+                .to_string(),
+            ),
+            Cmd::RenameVariant if self.swatch_name.trim().is_empty() => {
+                Some("type the new name in the name field first".to_string())
+            }
+            Cmd::RenameVariant | Cmd::RemoveVariant => editing,
             Cmd::PixelGrid => (!self.scene.bundle.doc.pixel_art())
                 .then(|| "this drawing has no pixel layer: Layer > New pixel layer adds one".to_string()),
             Cmd::Corner | Cmd::Smooth => direct
@@ -582,6 +604,40 @@ impl Editor {
             Cmd::Unwrap => self.unwrap()?,
             Cmd::ImportPicture => self.windows.import = !self.windows.import,
             Cmd::LoadPalette => self.windows.palettes = !self.windows.palettes,
+            Cmd::NewVariant => {
+                let typed = self.swatch_name.trim().to_string();
+                let doc = &self.scene.bundle.doc;
+                let taken =
+                    |name: &str| klad_core::doc::Variants::key(name).is_empty() || doc.variants.find(name).is_some();
+                let name = match typed.is_empty() || taken(&typed) {
+                    false => typed,
+                    true => (doc.variants.sets.len() + 2..)
+                        .map(|n| format!("variant {n}"))
+                        .find(|n| !taken(n))
+                        .unwrap_or(typed),
+                };
+                self.swatch_name.clear();
+                self.apply(vec![Op::Palette(PaletteEdit::NewVariant { name })])?;
+            }
+            Cmd::NextVariant => {
+                let doc = &self.scene.bundle.doc;
+                let names = doc.variant_names();
+                let at = names.iter().position(|n| *n == doc.shown_variant()).unwrap_or(0);
+                let name = names[(at + 1) % names.len()].to_string();
+                self.apply(vec![Op::Palette(PaletteEdit::Variant { name })])?;
+            }
+            Cmd::RenameVariant => {
+                let edit = PaletteEdit::RenameVariant {
+                    name: self.scene.bundle.doc.variants.shown.clone(),
+                    to: self.swatch_name.trim().to_string(),
+                };
+                self.apply(vec![Op::Palette(edit)])?;
+                self.swatch_name.clear();
+            }
+            Cmd::RemoveVariant => {
+                let name = self.scene.bundle.doc.variants.shown.clone();
+                self.apply(vec![Op::Palette(PaletteEdit::RemoveVariant { name })])?;
+            }
             Cmd::UpdateSwatch => {
                 if let Some(at) = self.swatch_picked {
                     let edit = PaletteEdit::Recolour {

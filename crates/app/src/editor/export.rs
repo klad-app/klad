@@ -22,6 +22,7 @@ pub(super) struct Form {
     pub background: bool,
     pub deep: bool,
     pub dither: bool,
+    pub variant: String,
     pub range: String,
     pub padding: u32,
     pub max: u32,
@@ -37,6 +38,7 @@ impl Default for Form {
             background: false,
             deep: false,
             dither: false,
+            variant: String::new(),
             range: "all".into(),
             padding: 2,
             max: 4096,
@@ -44,6 +46,8 @@ impl Default for Form {
         }
     }
 }
+
+pub(super) const EVERY: &str = "*";
 
 pub(super) fn args(bundle: &Path, home: &Path, frame: u32, form: &Form) -> Vec<String> {
     let mut args = vec!["export".to_string(), bundle.to_string_lossy().to_string()];
@@ -71,6 +75,11 @@ pub(super) fn args(bundle: &Path, home: &Path, frame: u32, form: &Form) -> Vec<S
     }
     if form.dither && form.what == What::Gif {
         push("--dither", None);
+    }
+    match form.variant.as_str() {
+        "" => {}
+        EVERY => push("--variants", None),
+        name => push("--variant", Some(name.to_string())),
     }
     if form.what == What::Sheet {
         push("--padding", Some(form.padding.to_string()));
@@ -140,7 +149,11 @@ impl Editor {
         let doc = &self.scene.bundle.doc;
         let (pixel, most) = (doc.pixel_art(), klad_render::export::pixel_most(doc));
         let (width, height) = (doc.canvas.width, doc.canvas.height);
+        let variants: Vec<String> = doc.variant_names().into_iter().map(String::from).collect();
         let form = &mut self.export;
+        if form.variant != EVERY && !form.variant.is_empty() && !variants.contains(&form.variant) {
+            form.variant.clear();
+        }
         ui.horizontal(|ui| {
             ui.selectable_value(&mut form.what, What::Image, "image")
                 .hint("this frame as one PNG");
@@ -217,6 +230,24 @@ impl Editor {
         if matches!(form.what, What::Image | What::Gif) {
             ui.checkbox(&mut form.background, "keep the background colour")
                 .hint("off: a transparent picture");
+        }
+        if variants.len() > 1 {
+            let chosen = match form.variant.as_str() {
+                "" => "as shown".to_string(),
+                EVERY => "every variant".to_string(),
+                name => name.to_string(),
+            };
+            egui::ComboBox::from_label("palette variant")
+                .selected_text(chosen)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut form.variant, String::new(), "as shown");
+                    ui.selectable_value(&mut form.variant, EVERY.to_string(), "every variant");
+                    variants.iter().for_each(|name| {
+                        ui.selectable_value(&mut form.variant, name.clone(), name);
+                    });
+                })
+                .response
+                .hint("the colours to export in: what the drawing shows now, one variant, or a file for each (the variant's name is added to the file name)");
         }
         if form.what == What::Gif && !pixel {
             ui.checkbox(&mut form.dither, "dither")
@@ -326,6 +357,23 @@ mod tests {
         assert_eq!(
             args(bundle, home, 0, &gif).join(" "),
             "export /w/art.klad --gif hop --scale 8 --background --dither"
+        );
+        let every = Form {
+            what: What::Sheet,
+            variant: EVERY.into(),
+            ..Form::default()
+        };
+        assert_eq!(
+            args(bundle, home, 0, &every).join(" "),
+            "export /w/art.klad --sheet all --variants --padding 2 --max 4096"
+        );
+        let blue = Form {
+            variant: "blue".into(),
+            ..Form::default()
+        };
+        assert_eq!(
+            args(bundle, home, 2, &blue).join(" "),
+            "export /w/art.klad --frame 2 --variant blue"
         );
         let image = Form {
             dither: true,

@@ -1776,6 +1776,148 @@ mod tests {
     }
 
     #[test]
+    fn palette_variants_swap_colours_keep_their_own_edits_and_leave_the_base_alone() {
+        use crate::ops::parse_lines;
+        let dir = scratch("variants");
+        let mut bundle = Bundle::blank(
+            &dir,
+            &Blank {
+                width: 8,
+                height: 8,
+                pixel: true,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let layer = bundle.doc.layers[0].id.clone();
+        let cel = bundle.doc.layers[0].cels()[0].id.clone();
+        let run = |bundle: &mut Bundle, lines: &str| bundle.apply(&parse_lines(lines).unwrap()).unwrap();
+        let fails = |bundle: &mut Bundle, line: &str| -> String {
+            format!("{:#}", bundle.apply(&parse_lines(line).unwrap()).unwrap_err())
+        };
+        run(
+            &mut bundle,
+            &format!(
+                "{}\n{}\n{}\n{}\n{}",
+                r##"{"op":"palette","add":"#c0392b","name":"team"}"##,
+                r##"{"op":"palette","add":"#2b2d42","name":"ink"}"##,
+                r##"{"op":"palette","add":"#f0c8a0","name":"skin"}"##,
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"team","cells":[[1,1],[2,1]]}}"##),
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"ink","cells":[[3,3]]}}"##),
+            ),
+        );
+        let shown = |bundle: &Bundle| -> Vec<String> {
+            crate::stroke::fills_of(&bundle.read_marks(&layer, &cel).unwrap())
+                .map(|f| crate::color::to_hex(f.color()))
+                .collect()
+        };
+        let palette = |bundle: &Bundle| -> Vec<String> { bundle.doc.palette.iter().map(|s| s.color.clone()).collect() };
+        let team = bundle.doc.palette[0].id.clone();
+        assert!(bundle.doc.variants.is_empty() && bundle.doc.shown_variant() == "base");
+
+        run(&mut bundle, r##"{"op":"palette","newVariant":"blue"}"##);
+        assert_eq!(bundle.doc.shown_variant(), "blue", "a new variant is shown at once");
+        assert!(
+            bundle.doc.palette.iter().all(|s| !s.id.is_empty()),
+            "every colour has an id now"
+        );
+        assert_eq!(shown(&bundle), ["#c0392b", "#2b2d42"], "it starts as what was shown");
+        run(&mut bundle, r##"{"op":"palette","recolour":"team","to":"#2a6fdb"}"##);
+        assert_eq!(shown(&bundle), ["#2a6fdb", "#2b2d42"]);
+        assert_eq!(
+            bundle.doc.variants.sets[0].colors.get(&team).map(String::as_str),
+            Some("#2a6fdb")
+        );
+        assert_eq!(bundle.doc.variants.base.get(&team).map(String::as_str), Some("#c0392b"));
+
+        run(&mut bundle, r##"{"op":"palette","variant":"base"}"##);
+        assert_eq!(shown(&bundle), ["#c0392b", "#2b2d42"], "the base kept its colour");
+        assert_eq!(palette(&bundle)[0], "#c0392b");
+        assert!(bundle.doc.variants.base.is_empty());
+        run(&mut bundle, r##"{"op":"palette","recolour":"ink","to":"#101020"}"##);
+        run(&mut bundle, r##"{"op":"palette","recolour":"team","to":"#d0402b"}"##);
+        run(&mut bundle, r##"{"op":"palette","variant":"Blue"}"##);
+        assert_eq!(
+            shown(&bundle),
+            ["#2a6fdb", "#101020"],
+            "a variant follows the base where it has no colour of its own, and keeps the ones it has"
+        );
+        assert_eq!(bundle.doc.variants.base.get(&team).map(String::as_str), Some("#d0402b"));
+
+        run(&mut bundle, r##"{"op":"palette","newVariant":"green"}"##);
+        run(&mut bundle, r##"{"op":"palette","recolour":"team","to":"#3a9d5d"}"##);
+        assert_eq!(bundle.doc.variant_names(), ["base", "blue", "green"]);
+        let colour_of = |bundle: &Bundle, name: &str| -> String {
+            bundle
+                .doc
+                .variant_colours(name)
+                .unwrap()
+                .into_iter()
+                .find(|(id, _)| *id == team)
+                .unwrap()
+                .1
+        };
+        assert_eq!(
+            (
+                colour_of(&bundle, "base"),
+                colour_of(&bundle, "blue"),
+                colour_of(&bundle, "green")
+            ),
+            ("#d0402b".to_string(), "#2a6fdb".to_string(), "#3a9d5d".to_string())
+        );
+        let dress = bundle.doc.dress("blue").unwrap();
+        assert_eq!(dress.len(), 1, "only the colours that differ from what is shown");
+        assert!(dress.contains_key(&team));
+        assert!(bundle.doc.dress("green").unwrap().is_empty());
+
+        run(&mut bundle, r##"{"op":"palette","recolour":"team","to":"#d0402b"}"##);
+        assert!(
+            bundle.doc.variants.sets[1].colors.is_empty() && bundle.doc.variants.base.is_empty(),
+            "set back to the base colour, it is no longer the variant's own"
+        );
+        run(&mut bundle, r##"{"op":"palette","recolour":"team","to":"#3a9d5d"}"##);
+        crate::history::step(&mut bundle, crate::history::Stack::Undo).unwrap();
+        assert_eq!(shown(&bundle)[0], "#d0402b", "undo takes the variant's colour back");
+        assert!(bundle.doc.variants.sets[1].colors.is_empty());
+        crate::history::step(&mut bundle, crate::history::Stack::Redo).unwrap();
+
+        run(
+            &mut bundle,
+            r##"{"op":"palette","renameVariant":"green","to":"forest"}"##,
+        );
+        assert_eq!(bundle.doc.shown_variant(), "forest");
+        assert!(
+            fails(
+                &mut bundle,
+                r##"{"op":"palette","renameVariant":"forest","to":"blue"}"##
+            )
+            .contains("already has")
+        );
+        assert!(fails(&mut bundle, r##"{"op":"palette","newVariant":"Base"}"##).contains("other than base"));
+        assert!(fails(&mut bundle, r##"{"op":"palette","variant":"pink"}"##).contains("base, blue, forest"));
+        assert!(fails(&mut bundle, r##"{"op":"palette","rmVariant":"base"}"##).contains("cannot be removed"));
+
+        run(&mut bundle, r##"{"op":"palette","rm":"team"}"##);
+        assert!(
+            bundle.doc.variants.sets.iter().all(|v| v.colors.is_empty()) && bundle.doc.variants.base.is_empty(),
+            "a removed colour leaves the variants too"
+        );
+        run(&mut bundle, r##"{"op":"palette","recolour":"skin","to":"#ffe0c0"}"##);
+        run(&mut bundle, r##"{"op":"palette","rmVariant":"forest"}"##);
+        assert_eq!(
+            bundle.doc.shown_variant(),
+            "base",
+            "removing the shown variant shows the base"
+        );
+        assert_eq!(palette(&bundle)[1], "#f0c8a0", "with the base's colours");
+        let reopened = Bundle::open(&dir).unwrap();
+        assert_eq!(reopened.doc.variants, bundle.doc.variants);
+        assert_eq!(reopened.doc.variant_names(), ["base", "blue"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn a_swatch_change_recolours_the_marks_bound_to_it_and_ramps_and_loads_shape_the_palette() {
         use crate::ops::parse_lines;
         let dir = scratch("palette");

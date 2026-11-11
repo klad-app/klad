@@ -21,6 +21,8 @@ pub struct Document {
     pub timeline: Timeline,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub palette: Vec<Swatch>,
+    #[serde(default, skip_serializing_if = "Variants::is_empty")]
+    pub variants: Variants,
     pub layers: Vec<Layer>,
     #[serde(default, skip_serializing_if = "Exports::is_empty")]
     pub export: Exports,
@@ -38,6 +40,7 @@ impl PartialEq for Document {
             && self.canvas == other.canvas
             && self.timeline == other.timeline
             && self.palette == other.palette
+            && self.variants == other.variants
             && self.layers == other.layers
             && self.export == other.export
             && self.atmosphere == other.atmosphere
@@ -82,6 +85,45 @@ pub struct Swatch {
     pub id: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub ramp: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Variant {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub colors: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Variants {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub shown: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub base: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sets: Vec<Variant>,
+}
+
+pub const BASE_VARIANT: &str = "base";
+
+impl Variants {
+    pub fn is_empty(&self) -> bool {
+        self.sets.is_empty()
+    }
+
+    pub fn key(name: &str) -> &str {
+        match name.trim() {
+            n if n.eq_ignore_ascii_case(BASE_VARIANT) => "",
+            n => n,
+        }
+    }
+
+    pub fn find(&self, name: &str) -> Option<usize> {
+        let key = Self::key(name);
+        self.sets.iter().position(|v| v.name.eq_ignore_ascii_case(key))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1060,6 +1102,7 @@ impl Document {
             },
             timeline: Timeline::default(),
             palette: Vec::new(),
+            variants: Variants::default(),
             layers: Vec::new(),
             export: Exports::default(),
             atmosphere: None,
@@ -1272,6 +1315,71 @@ impl Document {
         self.palette.iter().find(|s| !s.id.is_empty() && s.id == id)
     }
 
+    pub fn bind_all(&mut self) {
+        let mut taken: BTreeSet<String> = self.palette.iter().map(|s| s.id.clone()).collect();
+        (0..self.palette.len()).for_each(|at| {
+            if self.palette[at].id.is_empty() {
+                self.palette[at].id = self.alloc_id_in('p', &mut taken);
+            }
+        });
+    }
+
+    pub fn shown_variant(&self) -> &str {
+        match self.variants.shown.is_empty() {
+            true => BASE_VARIANT,
+            false => &self.variants.shown,
+        }
+    }
+
+    pub fn variant_names(&self) -> Vec<&str> {
+        std::iter::once(BASE_VARIANT)
+            .chain(self.variants.sets.iter().map(|v| v.name.as_str()))
+            .collect()
+    }
+
+    pub fn base_colour<'a>(&'a self, swatch: &'a Swatch) -> &'a str {
+        self.variants.base.get(&swatch.id).map_or(&swatch.color, String::as_str)
+    }
+
+    pub fn variant_colours(&self, name: &str) -> Result<Vec<(String, String)>> {
+        let set = match Variants::key(name) {
+            "" => None,
+            _ => Some(
+                self.variants
+                    .find(name)
+                    .map(|at| &self.variants.sets[at])
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "the drawing has no palette variant {name:?}: it has {}",
+                            self.variant_names().join(", ")
+                        )
+                    })?,
+            ),
+        };
+        Ok(self
+            .palette
+            .iter()
+            .filter(|s| !s.id.is_empty())
+            .map(|s| {
+                let colour = set
+                    .and_then(|v| v.colors.get(&s.id))
+                    .map_or(self.base_colour(s), String::as_str);
+                (s.id.clone(), colour.to_string())
+            })
+            .collect())
+    }
+
+    pub fn dress(&self, name: &str) -> Result<BTreeMap<String, [u16; 4]>> {
+        self.variant_colours(name)?
+            .into_iter()
+            .filter(|(id, colour)| {
+                self.entry(id)
+                    .is_some_and(|now| !now.color.eq_ignore_ascii_case(colour))
+            })
+            .map(|(id, colour)| Ok((id, crate::color::to_u16(parse_hex(&colour)?))))
+            .collect()
+    }
+
     pub fn bind_swatch(&mut self, key: &str) -> Result<(String, String)> {
         let key = key.trim();
         let at = match self.swatch(key) {
@@ -1369,6 +1477,34 @@ impl Document {
                 bail!("palette name {} is used twice", swatch.name);
             }
             Ok(())
+        })?;
+        let sets = &self.variants;
+        let mut variant_names = BTreeSet::new();
+        sets.sets.iter().try_for_each(|variant| {
+            let name = variant.name.trim();
+            if name.is_empty() || name != variant.name || Variants::key(name).is_empty() {
+                bail!("palette variant {:?} needs a name other than base", variant.name);
+            }
+            if !variant_names.insert(name.to_ascii_lowercase()) {
+                bail!("palette variant {name} is there twice");
+            }
+            variant.colors.iter().try_for_each(|(id, colour)| {
+                parse_hex(colour).with_context(|| format!("palette variant {name}, colour of {id}"))?;
+                Ok::<_, anyhow::Error>(())
+            })
+        })?;
+        if !sets.shown.is_empty() && sets.find(&sets.shown).is_none() {
+            bail!(
+                "the drawing shows palette variant {}, which it does not have",
+                sets.shown
+            );
+        }
+        if sets.shown.is_empty() && !sets.base.is_empty() {
+            bail!("the base palette is shown, so no base colours should be kept aside");
+        }
+        sets.base.values().try_for_each(|colour| {
+            parse_hex(colour).context("a base colour kept aside for a palette variant")?;
+            Ok::<_, anyhow::Error>(())
         })?;
         let t = &self.timeline;
         if t.fps == 0 || t.fps > 240 || t.frames == 0 {

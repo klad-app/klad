@@ -98,6 +98,7 @@ fn doc_shell(doc: &Document) -> Document {
         canvas: doc.canvas.clone(),
         timeline: doc.timeline.clone(),
         palette: doc.palette.clone(),
+        variants: doc.variants.clone(),
         layers: Vec::new(),
         export: doc.export.clone(),
         atmosphere: doc.atmosphere.clone(),

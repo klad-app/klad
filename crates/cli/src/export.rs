@@ -13,6 +13,7 @@ pub struct Export {
     pub depth: u8,
     pub background: bool,
     pub references: bool,
+    pub variant: Option<String>,
     pub out: Option<PathBuf>,
 }
 
@@ -24,7 +25,7 @@ pub(crate) fn scale_tag(scale: f32) -> String {
     format!("@{}x", text.trim_end_matches('0').trim_end_matches('.'))
 }
 
-pub fn default_path(bundle: &Bundle, layer: Option<&str>, frame: u32, scale: f32) -> PathBuf {
+pub fn default_path(bundle: &Bundle, layer: Option<&str>, frame: u32, scale: f32, variant: Option<&str>) -> PathBuf {
     let root = bundle.root.components().collect::<PathBuf>();
     let stem = root
         .file_stem()
@@ -35,9 +36,11 @@ pub fn default_path(bundle: &Bundle, layer: Option<&str>, frame: u32, scale: f32
     } else {
         String::new()
     };
-    root.parent()
-        .unwrap_or(Path::new("."))
-        .join(format!("{stem}{layer}{frame}{}.png", scale_tag(scale)))
+    root.parent().unwrap_or(Path::new(".")).join(format!(
+        "{stem}{}{layer}{frame}{}.png",
+        layers::variant_tag(variant),
+        scale_tag(scale)
+    ))
 }
 
 pub fn run(path: &Path, opts: Export) -> Result<()> {
@@ -54,7 +57,14 @@ pub fn run(path: &Path, opts: Export) -> Result<()> {
     let layer = opts.layer.as_deref().map(|key| doc.find_layer(key)).transpose()?;
     klad_render::export::check_scale(doc, opts.scale)?;
     let detail = klad_render::export::detail_of(doc, opts.scale);
-    let rasters = layers::load_at(&bundle, opts.frame, &BrushSet::for_bundle(&bundle)?, detail)?;
+    let brushes = BrushSet::for_bundle(&bundle)?;
+    let dress = layers::dress_of(doc, opts.variant.as_deref())?;
+    let rasters = layers::dressed(
+        &bundle,
+        &brushes,
+        layers::load_at(&bundle, opts.frame, &brushes, detail)?,
+        &dress,
+    )?;
     let target = match layer {
         Some(l) => Target::Layer(l),
         None => Target::Frame,
@@ -81,7 +91,7 @@ pub fn run(path: &Path, opts: Export) -> Result<()> {
     });
     let out = opts
         .out
-        .unwrap_or_else(|| default_path(&bundle, name, opts.frame, opts.scale));
+        .unwrap_or_else(|| default_path(&bundle, name, opts.frame, opts.scale, opts.variant.as_deref()));
     write_atomic(&out, &bytes)?;
     println!("{}", out.display());
     eprintln!(
@@ -108,9 +118,15 @@ mod tests {
         let mut doc = Document::new(64, 32);
         doc.layers.push(Layer::paint("l1", "ink", "c1"));
         let bundle = Bundle::create(dir.join("art.klad/"), doc).unwrap();
-        assert_eq!(default_path(&bundle, None, 0, 1.0), dir.join("art.png"));
-        assert_eq!(default_path(&bundle, Some("ink"), 0, 2.0), dir.join("art-ink@2x.png"));
-        assert_eq!(default_path(&bundle, None, 0, 0.5), dir.join("art@0.5x.png"));
+        assert_eq!(default_path(&bundle, None, 0, 1.0, None), dir.join("art.png"));
+        assert_eq!(
+            default_path(&bundle, Some("ink"), 0, 2.0, Some("Blue team")),
+            dir.join("art-Blue_team-ink@2x.png")
+        );
+        assert_eq!(
+            default_path(&bundle, None, 0, 0.5, Some("base")),
+            dir.join("art@0.5x.png")
+        );
         let out = dir.join("out/ink.png");
         run(
             &dir.join("art.klad"),
@@ -121,6 +137,7 @@ mod tests {
                 depth: 16,
                 background: false,
                 references: false,
+                variant: None,
                 out: Some(out.clone()),
             },
         )

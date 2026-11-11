@@ -18,6 +18,26 @@ pub struct Look {
     pub scale: f32,
     pub depth: u8,
     pub background: bool,
+    pub variant: Option<String>,
+}
+
+pub fn tagged(path: &Path, tag: &str) -> PathBuf {
+    let stem = path
+        .file_stem()
+        .map_or(String::new(), |s| s.to_string_lossy().to_string());
+    let name = match path.extension() {
+        Some(ext) => format!("{stem}{tag}.{}", ext.to_string_lossy()),
+        None => format!("{stem}{tag}"),
+    };
+    path.with_file_name(name)
+}
+
+fn stem_for(bundle: &Bundle, look: &Look) -> String {
+    format!(
+        "{}{}",
+        bundle_stem(bundle),
+        crate::layers::variant_tag(look.variant.as_deref())
+    )
 }
 
 pub struct Packing {
@@ -88,6 +108,7 @@ pub fn pictures(bundle: &Bundle, animations: Vec<Animation>, look: &Look) -> Res
         references: false,
         detail: detail_of(doc, look.scale),
     };
+    let dress = crate::layers::dress_of(doc, look.variant.as_deref())?;
     let frames: BTreeSet<u32> = animations.iter().flat_map(|a| a.from..=a.to).collect();
     let mut firsts: BTreeMap<Vec<String>, u32> = BTreeMap::new();
     let first_of: BTreeMap<u32, u32> = frames
@@ -108,7 +129,12 @@ pub fn pictures(bundle: &Bundle, animations: Vec<Animation>, look: &Look) -> Res
                 .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect();
-            let rasters = load_cels_at(bundle, &brushes, &needed, options.detail)?;
+            let rasters = crate::layers::dressed(
+                bundle,
+                &brushes,
+                load_cels_at(bundle, &brushes, &needed, options.detail)?,
+                &dress,
+            )?;
             let done = batch
                 .par_iter()
                 .map(|(frame, _)| {
@@ -262,7 +288,7 @@ pub fn sheet(path: &Path, spec: &str, look: &Look, packing: &Packing, out: Optio
     check_look(look)?;
     let bundle = Bundle::open(path)?;
     let animations = sprites::animations(&bundle.doc, spec)?;
-    let stem = bundle_stem(&bundle);
+    let stem = stem_for(&bundle, look);
     let name = match out {
         Some(out) => Name {
             dir: out.parent().map_or(PathBuf::from("."), Path::to_path_buf),
@@ -321,7 +347,7 @@ pub fn frames(path: &Path, spec: &str, look: &Look, out: Option<PathBuf>) -> Res
     check_look(look)?;
     let bundle = Bundle::open(path)?;
     let animations = sprites::animations(&bundle.doc, spec)?;
-    let stem = bundle_stem(&bundle);
+    let stem = stem_for(&bundle, look);
     let prefix = match spec {
         "all" => stem.clone(),
         other => file_safe(other),
@@ -381,13 +407,14 @@ pub fn gif(path: &Path, spec: &str, look: &Look, dither: bool, out: Option<PathB
     let start = Instant::now();
     let bundle = Bundle::open(path)?;
     let animations = sprites::animations(&bundle.doc, spec)?;
-    let stem = bundle_stem(&bundle);
     let look = Look {
         layer: look.layer.clone(),
         scale: look.scale,
         depth: 8,
         background: look.background,
+        variant: look.variant.clone(),
     };
+    let stem = stem_for(&bundle, &look);
     let pics = pictures(&bundle, animations, &look)?;
     let (sw, sh) = pics.source;
     let full: Vec<Vec<u8>> = pics
@@ -505,7 +532,7 @@ pub fn godot(path: &Path, dir: Option<PathBuf>, store: bool, look: &Look, packin
     }
     let doc = &bundle.doc;
     let animations = sprites::animations(doc, "all")?;
-    let stem = file_safe(&bundle_stem(&bundle));
+    let stem = file_safe(&stem_for(&bundle, look));
     let name = Name {
         dir: target.clone(),
         stem: stem.clone(),
@@ -546,7 +573,7 @@ pub fn godot(path: &Path, dir: Option<PathBuf>, store: bool, look: &Look, packin
         .ok_or_else(|| anyhow!("nothing to export"))?;
     let scene_text = sprites::scene(&Scene {
         uid: &scene_uid,
-        node: &sprites::node_name(&bundle_stem(&bundle)),
+        node: &sprites::node_name(&stem_for(&bundle, look)),
         frames_path: &file_name(&tres),
         frames_uid: &frames_uid,
         animation: &first,
@@ -689,6 +716,7 @@ func _init():
             scale,
             depth: 8,
             background: false,
+            variant: None,
         }
     }
 

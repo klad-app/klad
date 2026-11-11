@@ -1,4 +1,4 @@
-_Last updated: 2026-11-12 04:00 (format `klad/7`, stroke files `KLST` version 3, brushes `klad-brush/1`)_
+_Last updated: 2026-11-12 11:00 (format `klad/7`, stroke files `KLST` version 3, brushes `klad-brush/1`)_
 
 # The klad drawing format
 
@@ -64,11 +64,27 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
 | `canvas` | object | | `width`, `height` (px), `background` (a colour; none is transparent), `wrap` (bool, default false: the drawing is a tile, and klad brings pixel marks drawn past an edge back in on the other side; it changes nothing about how the drawing renders) |
 | `timeline` | object | 12 fps, 1 frame | see below |
 | `palette` | array | `[]` | swatches: `color`, optional `name` (unique, not starting with `#`), optional `id` (unique; set once a pixel mark uses the swatch), optional `ramp` (the name of the ramp it belongs to) |
+| `variants` | object | none | palette variants (below): `sets`, `shown` and `base`; left out when the drawing has none |
 | `layers` | array | | the layers, **bottom first** |
 | `export` | object | `{}` | `godot`: the folder Godot exports go to, relative to the folder holding the bundle |
 | `atmosphere` | object | none | fog by depth: `color` (`#9aa8b8`), `top` (a colour higher up), `density` (0.5), `blur` (1), `desaturate` (0.15) |
 
 Strokes and fills store their colour, so for them the palette is a list of names for colours, never a reference: renaming or recolouring a swatch changes nothing drawn. Pixel marks (below) also name the swatch they were drawn with, by its `id`: when klad changes that swatch's colour it rewrites the colour of every pixel mark bound to it, and when the swatch is removed it clears the marks' binding and leaves their colour. A reader draws a pixel mark in the colour the mark stores. A **ramp** is the swatches that share a `ramp` name, in palette order, dark to light.
+
+**Palette variants.** `variants` holds named sets of other colours for the same swatches (a red and a blue team):
+
+```json
+"variants": {
+  "shown": "blue",
+  "base": { "p4": "#c0392b" },
+  "sets": [{ "name": "blue", "colors": { "p4": "#2a6fdb" } }]
+}
+```
+
+- `sets`: each variant has a `name` (unique without regard to case, never `base`) and `colors`, the swatch `id`s it gives a colour of its own. A swatch a variant does not name has the base colour in that variant.
+- `shown`: the variant the drawing shows now; left out when it shows the palette itself (called `base`). The palette's `color`s, and the colours stored in pixel marks, are always those of the shown variant, so a reader that knows nothing of variants still draws the picture as it was saved.
+- `base`: while a variant is shown, the base colour of every swatch that variant changes, by `id`; empty when the base is shown. Together with `sets` it gives every variant's colours whatever is shown: a swatch's colour in variant V is V's `colors[id]`, else `base[id]`, else the swatch's `color`.
+- Once a drawing has variants every swatch has an `id`. A removed swatch leaves `sets` and `base` too.
 
 ### The timeline
 
@@ -352,4 +368,4 @@ Drawing a stroke: walk the samples, interpolate between them, stamp the tip ever
 | `klad/4` | skeletons move to bones layers, and paint layers join one with `rig` (2026-11-08). Older drawings open without their bones, IK, weights links and the `pose` of their cels; the drawings themselves, posed ones too, stay. |
 | `klad/5` | `rev` and `nextId` leave `doc.json`, and new ids carry the tag of the copy that made them, so drawings diff and merge in git (2026-11-09). Older drawings open with their ids unchanged; their counters move to `.cache/copy.json`. |
 | `klad/6` | stroke files version 2: eraser, smudge and blender strokes record the marks they are attached to, and attached erasers erase only those (2026-11-09). Older drawings open unchanged, with nothing attached. |
-| `klad/7` | pixel layers: paint layers with `pixel`, pixel marks in stroke files (version 3), and palette swatches with an `id` (2026-11-11). Older drawings open unchanged. |
+| `klad/7` | pixel layers: paint layers with `pixel`, pixel marks in stroke files (version 3), palette swatches with an `id` (2026-11-11), and palette `variants` (2026-11-12). Older drawings open unchanged. |

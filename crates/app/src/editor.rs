@@ -5221,6 +5221,32 @@ impl Editor {
         });
         ui.label("palette");
         let edit = self.palette_row(ui);
+        let variants: Vec<String> = self
+            .scene
+            .bundle
+            .doc
+            .variant_names()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let shown = self.scene.bundle.doc.shown_variant().to_string();
+        let mut show = None;
+        if variants.len() > 1 {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("variant");
+                variants.iter().for_each(|name| {
+                    let hint = match name == klad_core::doc::BASE_VARIANT {
+                        true => "show the palette itself".to_string(),
+                        false => format!(
+                            "show the drawing in the colours of {name}; colours changed while it is shown are its own"
+                        ),
+                    };
+                    if ui.selectable_label(*name == shown, name).hint(hint).clicked() && *name != shown {
+                        show = Some(name.clone());
+                    }
+                });
+            });
+        }
         ui.horizontal_wrapped(|ui| {
             let label = ui.label("name");
             ui.add(
@@ -5236,7 +5262,15 @@ impl Editor {
             }
             self.command_button(ui, Cmd::AddRamp, Some("ramp"));
             self.command_button(ui, Cmd::LoadPalette, Some("palettes"));
+            if variants.len() > 1 || self.can_run(Cmd::NewVariant).is_none() {
+                self.command_button(ui, Cmd::NewVariant, Some("new variant"));
+            }
+            if !self.scene.bundle.doc.variants.shown.is_empty() {
+                self.command_button(ui, Cmd::RenameVariant, Some("rename variant"));
+                self.command_button(ui, Cmd::RemoveVariant, Some("remove variant"));
+            }
         });
+        let edit = edit.or(show.map(|name| klad_core::ops::PaletteEdit::Variant { name }));
         if !self.settings.recent.is_empty() {
             ui.label("recent");
             let recent = self.settings.recent.clone();

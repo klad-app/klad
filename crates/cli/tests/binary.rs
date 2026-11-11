@@ -1268,6 +1268,146 @@ fn a_pixel_drawing_exports_sharp_at_whole_number_scales_as_png_gif_sheet_and_god
 }
 
 #[test]
+fn palette_variants_are_made_shown_and_exported_one_by_one() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-variants-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("team.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let refused = |args: &[&str]| {
+        let out = run(args);
+        assert!(!out.status.success(), "{args:?} went through");
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    draw(&["new", path, "--pixel", "8x8", "--frames", "2", "--fps", "8"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&["palette", path, "--add", "#c0392b", "--name", "team"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--rect", "1,1,6,6"]);
+    draw(&["pixel", path, "l1", "--color", "team", "--rect", "2,2,4,4", "--filled"]);
+    let row = |at: usize| -> String {
+        draw(&["pixels", path, "l1", "--plain"])
+            .lines()
+            .skip_while(|line| !line.is_empty())
+            .skip(1)
+            .nth(at)
+            .unwrap()
+            .to_string()
+    };
+    let before = row(3);
+
+    draw(&["palette", path, "--new-variant", "blue"]);
+    draw(&["palette", path, "--recolour", "team", "--to", "#2a6fdb"]);
+    let listed = draw(&["palette", path]);
+    assert!(listed.starts_with("showing blue\n"), "{listed}");
+    assert!(
+        listed.contains("#2a6fdb") && listed.contains("variant blue: team #2a6fdb"),
+        "{listed}"
+    );
+    assert_eq!(row(3), before, "the pixels are the same pixels, in another colour");
+    draw(&["palette", path, "--variant", "base"]);
+    let listed = draw(&["palette", path]);
+    assert!(
+        listed.starts_with("showing base\n") && listed.contains("#c0392b"),
+        "{listed}"
+    );
+    assert!(refused(&["palette", path, "--variant", "pink"]).contains("base, blue"));
+    assert!(refused(&["palette", path, "--to", "navy"]).contains("--rename-variant"));
+
+    let pixel = |file: &std::path::Path| -> Vec<u8> { std::fs::read(file).unwrap() };
+    let named: Vec<String> = draw(&["export", path, "--variants"])
+        .lines()
+        .map(String::from)
+        .collect();
+    let names: Vec<String> = named
+        .iter()
+        .map(|p| {
+            std::path::Path::new(p)
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(names, ["team-f0.png", "team-blue-f0.png"]);
+    assert_ne!(
+        pixel(std::path::Path::new(&named[0])),
+        pixel(std::path::Path::new(&named[1]))
+    );
+    let alone = dir.join("alone.png");
+    draw(&["export", path, "--variant", "blue", "-o", alone.to_str().unwrap()]);
+    assert_eq!(
+        pixel(&alone),
+        pixel(std::path::Path::new(&named[1])),
+        "one variant by name, while the base is shown"
+    );
+    draw(&["palette", path, "--variant", "blue"]);
+    let shown = dir.join("shown.png");
+    draw(&["export", path, "-o", shown.to_str().unwrap()]);
+    assert_eq!(
+        pixel(&shown),
+        pixel(&alone),
+        "the same picture as showing the variant and exporting"
+    );
+    let base = dir.join("base.png");
+    draw(&["export", path, "--variant", "base", "-o", base.to_str().unwrap()]);
+    assert_eq!(
+        pixel(&base),
+        pixel(std::path::Path::new(&named[0])),
+        "and the base while blue is shown"
+    );
+
+    let sheet = dir.join("out").join("sheet.png");
+    std::fs::create_dir_all(sheet.parent().unwrap()).unwrap();
+    let sheets = draw(&[
+        "export",
+        path,
+        "--sheet",
+        "all",
+        "--variants",
+        "-o",
+        sheet.to_str().unwrap(),
+    ]);
+    assert!(
+        sheets.contains("sheet.png") && sheets.contains("sheet-blue.png"),
+        "{sheets}"
+    );
+    assert!(dir.join("out").join("sheet-blue.json").exists());
+    let gifs = draw(&["export", path, "--gif", "--variants", "--scale", "2"]);
+    assert!(
+        gifs.contains("team@2x.gif") && gifs.contains("team-blue@2x.gif"),
+        "{gifs}"
+    );
+    let table = |file: &str| std::fs::read(file.trim()).unwrap()[13..19].to_vec();
+    let both: Vec<Vec<u8>> = gifs.lines().map(table).collect();
+    assert_eq!(both[0], [0x22, 0x22, 0x3b, 0xc0, 0x39, 0x2b]);
+    assert_eq!(both[1], [0x22, 0x22, 0x3b, 0x2a, 0x6f, 0xdb]);
+    let game = dir.join("game");
+    let godot = draw(&["export", path, "--godot", game.to_str().unwrap(), "--variants"]);
+    assert!(
+        godot.contains("team.tscn") && godot.contains("team-blue.tscn") && godot.contains("team-blue.png"),
+        "{godot}"
+    );
+
+    draw(&["palette", path, "--rename-variant", "blue", "--to", "navy"]);
+    assert!(draw(&["palette", path]).contains("variant navy: team #2a6fdb"));
+    draw(&["palette", path, "--rm-variant", "navy"]);
+    let listed = draw(&["palette", path]);
+    assert!(!listed.contains("showing") && listed.contains("#c0392b"), "{listed}");
+    assert!(refused(&["export", path, "--variant", "navy"]).contains("no palette variant"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn recolour_moves_strokes_together_and_keeps_their_shades() {
     let dir = std::env::temp_dir().join(format!("draw-binary-recolour-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

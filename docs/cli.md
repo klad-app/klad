@@ -3231,7 +3231,17 @@ The document palette, kept in doc.json. Named colours can be used wherever a col
 
 A loaded colour the palette already holds is not added again. A ramp is a row of colours from dark to light, used to shade one material.
 
-As ops: {"op":"palette","add":"#f0c8a0","name":"skin"}, {"op":"palette","rm":"skin"}, {"op":"palette","recolour":"skin","to":"#e8b796"}, {"op":"palette","load":"pico-8"}, {"op":"palette","ramp":"skin","of":["skin-dark","skin"]}, {"op":"palette","set":[{"color":"#1b1b1b","name":"ink"}]}
+Palette variants are named sets of other colours for the same palette (a red and a blue team). The drawing shows one at a time; base is the palette itself. A colour changed while a variant is shown belongs to that variant, and the base keeps its own; a variant follows the base for every colour it has not changed.
+
+  klad palette art.klad --new-variant blue             (a variant, shown at once)
+  klad palette art.klad --recolour team --to '#2a6fdb'  (blue's team colour; the base keeps its red)
+  klad palette art.klad --variant base                 (show the base again; --variant blue shows blue)
+  klad palette art.klad --rename-variant blue --to navy
+  klad palette art.klad --rm-variant navy
+  klad export art.klad --sheet all --variants          (a sheet for the base and one for each variant, art-blue-sheet.png)
+  klad export art.klad --variant blue --scale 8        (one variant, whatever is shown)
+
+As ops: {"op":"palette","add":"#f0c8a0","name":"skin"}, {"op":"palette","rm":"skin"}, {"op":"palette","recolour":"skin","to":"#e8b796"}, {"op":"palette","load":"pico-8"}, {"op":"palette","ramp":"skin","of":["skin-dark","skin"]}, {"op":"palette","set":[{"color":"#1b1b1b","name":"ink"}]}, {"op":"palette","newVariant":"blue"}, {"op":"palette","variant":"base"}, {"op":"palette","rmVariant":"blue"}, {"op":"palette","renameVariant":"blue","to":"navy"}
 
 Usage: klad palette [OPTIONS] <BUNDLE>
 
@@ -3253,7 +3263,19 @@ Options:
           Change one colour (a name, a colour, an index or an id) to --to; pixel marks drawn with it change too
 
       --to <TO>
-          The new colour for --recolour
+          The new colour for --recolour, or the new name for --rename-variant
+
+      --variant <VARIANT>
+          Show a palette variant (base is the palette itself): every pixel mark takes that variant's colours
+
+      --new-variant <NEW_VARIANT>
+          A new palette variant, shown at once; colours changed while it is shown are its own
+
+      --rm-variant <RM_VARIANT>
+          Remove a palette variant
+
+      --rename-variant <RENAME_VARIANT>
+          Rename a palette variant to --to
 
       --load <LOAD>
           Add the colours of a palette that comes with klad (klad palettes), or of a .hex or .gpl file
@@ -3408,6 +3430,12 @@ Options:
 
       --godot-rig [<GODOT_RIG>]
           A Godot rig: the rest drawing as Polygon2Ds weighted to a Skeleton2D, and an AnimationPlayer with the poses of every clip, into this folder
+
+      --variant <VARIANT>
+          Export in this palette variant (base is the palette itself), whatever the drawing shows now; the file names end in the variant's name
+
+      --variants
+          Export once for every palette variant: the base under the usual name, each variant with its name added (art-blue.png)
 
       --padding <PADDING>
           Sheets: transparent pixels around each picture

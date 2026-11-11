@@ -280,6 +280,28 @@ pub enum PaletteEdit {
         name: String,
         keys: Vec<String>,
     },
+    Variant {
+        name: String,
+    },
+    NewVariant {
+        name: String,
+    },
+    RemoveVariant {
+        name: String,
+    },
+    RenameVariant {
+        name: String,
+        to: String,
+    },
+}
+
+impl PaletteEdit {
+    pub fn of_variants(&self) -> bool {
+        matches!(
+            self,
+            Self::Variant { .. } | Self::NewVariant { .. } | Self::RemoveVariant { .. } | Self::RenameVariant { .. }
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -3027,9 +3049,146 @@ fn parse_palette(map: &mut Map<String, Value>) -> Result<PaletteEdit> {
         };
         return Ok(PaletteEdit::Ramp { name, keys });
     }
+    if let Some(name) = take_str(map, "variant")? {
+        return Ok(PaletteEdit::Variant { name });
+    }
+    if let Some(name) = take_str(map, "newVariant")? {
+        return Ok(PaletteEdit::NewVariant { name });
+    }
+    if let Some(name) = take_str(map, "rmVariant")? {
+        return Ok(PaletteEdit::RemoveVariant { name });
+    }
+    if let Some(name) = take_str(map, "renameVariant")? {
+        let to = take_str(map, "to")?.ok_or_else(|| anyhow!("palette renameVariant needs \"to\": the new name"))?;
+        return Ok(PaletteEdit::RenameVariant { name, to });
+    }
     bail!(
-        "palette needs \"add\" (with \"name\"), \"rm\", \"set\", \"recolour\" (with \"to\"), \"load\" or \"ramp\" (with \"of\")"
+        "palette needs \"add\" (with \"name\"), \"rm\", \"set\", \"recolour\" (with \"to\"), \"load\", \"ramp\" (with \"of\"), or for its variants \"variant\" (show one), \"newVariant\", \"rmVariant\" or \"renameVariant\" (with \"to\")"
     )
+}
+
+fn variant_name(doc: &Document, name: &str) -> Result<String> {
+    let name = name.trim();
+    if name.is_empty() || crate::doc::Variants::key(name).is_empty() {
+        bail!("a palette variant needs a name other than base, which is the palette itself");
+    }
+    if name.starts_with('#') || name.contains(['/', '\\']) {
+        bail!("a palette variant's name cannot start with # or hold a slash: {name:?}");
+    }
+    if doc.variants.find(name).is_some() {
+        bail!("the drawing already has a palette variant {name}");
+    }
+    Ok(name.to_string())
+}
+
+fn show_variant(doc: &mut Document, name: &str) -> Result<()> {
+    let colours = doc.variant_colours(name)?;
+    let set = doc.variants.find(name);
+    let base: BTreeMap<String, String> = match set {
+        None => BTreeMap::new(),
+        Some(at) => doc
+            .palette
+            .iter()
+            .filter(|s| doc.variants.sets[at].colors.contains_key(&s.id))
+            .map(|s| (s.id.clone(), doc.base_colour(s).to_string()))
+            .collect(),
+    };
+    colours.into_iter().for_each(|(id, colour)| {
+        if let Some(swatch) = doc.palette.iter_mut().find(|s| s.id == id) {
+            swatch.color = colour;
+        }
+    });
+    doc.variants.shown = set.map_or(String::new(), |at| doc.variants.sets[at].name.clone());
+    doc.variants.base = base;
+    Ok(())
+}
+
+fn edit_variants(doc: &mut Document, edit: &PaletteEdit) -> Result<()> {
+    match edit {
+        PaletteEdit::Variant { name } => show_variant(doc, name)?,
+        PaletteEdit::NewVariant { name } => {
+            let name = variant_name(doc, name)?;
+            doc.bind_all();
+            let colors = doc
+                .variants
+                .find(&doc.variants.shown)
+                .map(|at| doc.variants.sets[at].colors.clone())
+                .unwrap_or_default();
+            doc.variants.sets.push(crate::doc::Variant {
+                name: name.clone(),
+                colors,
+            });
+            doc.variants.shown = name;
+        }
+        PaletteEdit::RemoveVariant { name } => {
+            let Some(at) = doc.variants.find(name) else {
+                doc.variant_colours(name)?;
+                bail!("base is the palette itself and cannot be removed");
+            };
+            if doc.variants.shown == doc.variants.sets[at].name {
+                show_variant(doc, crate::doc::BASE_VARIANT)?;
+            }
+            doc.variants.sets.remove(at);
+        }
+        PaletteEdit::RenameVariant { name, to } => {
+            let Some(at) = doc.variants.find(name) else {
+                doc.variant_colours(name)?;
+                bail!("base is the palette itself and keeps its name");
+            };
+            let old = doc.variants.sets[at].name.clone();
+            if !old.eq_ignore_ascii_case(to.trim()) {
+                variant_name(doc, to)?;
+            }
+            let to = to.trim().to_string();
+            if doc.variants.shown == old {
+                doc.variants.shown = to.clone();
+            }
+            doc.variants.sets[at].name = to;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn keep_variant(doc: &mut Document, before: &[Swatch]) {
+    if doc.variants.sets.is_empty() {
+        return;
+    }
+    doc.bind_all();
+    let live: BTreeSet<String> = doc.palette.iter().map(|s| s.id.clone()).collect();
+    doc.variants.base.retain(|id, _| live.contains(id));
+    doc.variants
+        .sets
+        .iter_mut()
+        .for_each(|v| v.colors.retain(|id, _| live.contains(id)));
+    let Some(at) = doc
+        .variants
+        .find(&doc.variants.shown)
+        .filter(|_| !doc.variants.shown.is_empty())
+    else {
+        return;
+    };
+    let changed: Vec<(String, String, String)> = before
+        .iter()
+        .filter(|old| !old.id.is_empty())
+        .filter_map(|old| {
+            doc.entry(&old.id)
+                .filter(|now| !now.color.eq_ignore_ascii_case(&old.color))
+                .map(|now| (old.id.clone(), old.color.clone(), now.color.clone()))
+        })
+        .collect();
+    changed.into_iter().for_each(|(id, old, now)| {
+        let base = doc.variants.base.entry(id.clone()).or_insert(old).clone();
+        match base.eq_ignore_ascii_case(&now) {
+            true => {
+                doc.variants.base.remove(&id);
+                doc.variants.sets[at].colors.remove(&id);
+            }
+            false => {
+                doc.variants.sets[at].colors.insert(id, now);
+            }
+        }
+    });
 }
 
 fn edit_palette(doc: &mut Document, edit: &PaletteEdit) -> Result<()> {
@@ -3133,6 +3292,7 @@ fn edit_palette(doc: &mut Document, edit: &PaletteEdit) -> Result<()> {
             rest.splice(at..at, chosen);
             doc.palette = rest;
         }
+        _ => {}
     }
     Ok(())
 }
@@ -4026,7 +4186,13 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
         }
         Op::Palette(edit) => {
             let before = doc.palette.clone();
-            edit_palette(doc, edit)?;
+            match edit.of_variants() {
+                true => edit_variants(doc, edit)?,
+                false => {
+                    edit_palette(doc, edit)?;
+                    keep_variant(doc, &before);
+                }
+            }
             follow_palette(doc, &before, out)?;
             if !out.changed.iter().any(|c| c == "palette") {
                 out.changed.push("palette".into());
