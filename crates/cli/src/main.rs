@@ -869,17 +869,33 @@ enum Command {
     },
     #[command(
         about = "Put whole pixels of one palette colour on a pixel layer, or erase them",
-        long_about = "Put whole pixels of one palette colour on a pixel layer, or erase them. A pixel layer is a grid with no anti-aliasing where one pixel is one canvas pixel; make a pixel drawing with klad new --pixel 64x64, or add a layer with klad add <bundle> layer pixel.\n\n--cells lists them: x,y for one pixel, x0-x1,y for a run along a row, x,y0-y1 for a run down a column and x0-x1,y0-y1 for a block. --color is a palette name, a palette index or #rrggbb; a colour the palette does not have yet is added to it. The pixels become one mark bound to that palette entry, so it can be recoloured (klad set <cel>:s<id> color=...), moved (klad transform) or removed (klad rm) later, and klad strokes lists it. --erase clears the pixels under it instead.\n\n--path draws SVG path data as a line of pixels: a pixel is the square from x,y to x+1,y+1, so aim at pixel middles (3.5, not 3). Straight segments keep the corners they are given; curves are cleaned so no corner is doubled. --size makes the pencil a square of that many pixels, for --cells and --path alike.\n\n  klad pixel sprite.klad l1 --color '#2b2d42' --cells '3-12,4 3,5-9 12,5-9 3-12,10'\n  klad pixel sprite.klad l1 --color '#2b2d42' --path 'M3.5 20.5 C 10 4 22 4 28.5 20.5'\n  klad pixel sprite.klad l1 --erase --size 3 --path 'M4.5 4.5 L12.5 12.5'\n  klad pixel sprite.klad l1 --color skin --cells '4-11,5-9'\n  klad pixel sprite.klad l1 --erase --cells '7,7 8,7'\n\nAlso a pixel op in klad apply: {\"op\":\"pixel\",\"layer\":\"l1\",\"color\":\"skin\",\"cells\":[[4,5],[5,5]]}, with \"path\":\"M3.5 3.5 L9.5 3.5\" in place of cells, \"size\":2, or \"erase\":true."
+        long_about = "Put whole pixels of one palette colour on a pixel layer, or erase them. A pixel layer is a grid with no anti-aliasing where one pixel is one canvas pixel; make a pixel drawing with klad new --pixel 64x64, or add a layer with klad add <bundle> layer pixel.\n\n--cells lists them: x,y for one pixel, x0-x1,y for a run along a row, x,y0-y1 for a run down a column and x0-x1,y0-y1 for a block. --color is a palette name, a palette index or #rrggbb; a colour the palette does not have yet is added to it. The pixels become one mark bound to that palette entry, so it can be recoloured (klad set <cel>:s<id> color=...), moved (klad transform) or removed (klad rm) later, and klad strokes lists it. --erase clears the pixels under it instead.\n\n--path draws SVG path data as a line of pixels: a pixel is the square from x,y to x+1,y+1, so aim at pixel middles (3.5, not 3). Straight segments keep the corners they are given; curves are cleaned so no corner is doubled. --size makes the pencil a square of that many pixels, for --cells and --path alike.\n\n  klad pixel sprite.klad l1 --color '#2b2d42' --cells '3-12,4 3,5-9 12,5-9 3-12,10'\n  klad pixel sprite.klad l1 --color '#2b2d42' --path 'M3.5 20.5 C 10 4 22 4 28.5 20.5'\n  klad pixel sprite.klad l1 --erase --size 3 --path 'M4.5 4.5 L12.5 12.5'\n  klad pixel sprite.klad l1 --color skin --cells '4-11,5-9'\n  klad pixel sprite.klad l1 --erase --cells '7,7 8,7'\n\n--grid draws a whole sprite from text, the way klad pixels --plain prints one: legend lines (one character, =, a palette name, a colour, erase or empty), a blank line, then a row of characters per row of pixels. . is empty unless the legend says otherwise. Each character becomes one mark bound to its colour; --at x,y moves the grid's top left.\n\n  klad pixel sprite.klad l1 --grid - <<'GRID'\n  i = ink\n  b = body\n\n  ..iiii..\n  .ibbbbi.\n  .ibbbbi.\n  ..iiii..\n  GRID\n\nAlso a pixel op in klad apply: {\"op\":\"pixel\",\"layer\":\"l1\",\"color\":\"skin\",\"cells\":[[4,5],[5,5]]}, with \"path\":\"M3.5 3.5 L9.5 3.5\" in place of cells, \"size\":2, or \"erase\":true; and as a grid {\"op\":\"pixel\",\"layer\":\"l1\",\"rows\":[\"..ii..\",\".ibbi.\"],\"legend\":{\"i\":\"ink\",\"b\":\"body\"},\"at\":[0,0]}."
     )]
     Pixel {
         bundle: PathBuf,
         layer: String,
         #[arg(
             long,
-            required_unless_present = "path",
+            required_unless_present_any = ["path", "grid"],
             help = "The pixels: x,y, a row run x0-x1,y, a column run x,y0-y1 or a block x0-x1,y0-y1, separated by spaces"
         )]
         cells: Option<String>,
+        #[arg(
+            long,
+            value_name = "FILE",
+            conflicts_with_all = ["cells", "path", "color", "erase"],
+            help = "Draw a grid of characters from a file (- reads stdin): a legend (i = ink), a blank line, then one row of characters per row of pixels"
+        )]
+        grid: Option<String>,
+        #[arg(
+            long,
+            requires = "grid",
+            value_parser = parse_cell,
+            allow_hyphen_values = true,
+            default_value = "0,0",
+            help = "Where the grid's top left pixel goes: x,y"
+        )]
+        at: [i64; 2],
         #[arg(
             long,
             conflicts_with = "cells",
@@ -1686,6 +1702,24 @@ enum Command {
         #[command(flatten)]
         flags: EditFlags,
     },
+    #[command(
+        about = "Read a pixel layer as a grid of characters, one per pixel, with a legend of its palette colours",
+        long_about = "Read a pixel layer as a grid of characters, one per pixel, with a legend of its palette colours. It is what the layer shows at the frame: later marks over earlier ones, erased pixels empty. Each colour gets a character (the first letter of its palette name where that is free), . is an empty pixel, and the numbers along the top and the left count the pixels.\n\n  klad pixels sprite.klad l1\n  klad pixels sprite.klad l1 --plain > sprite.txt     (the form klad pixel --grid reads back)\n  klad pixels sprite.klad l1 --json\n\nTo draw from such a text: klad pixel sprite.klad l1 --grid sprite.txt. Each character of the legend becomes one mark bound to its colour."
+    )]
+    Pixels {
+        bundle: PathBuf,
+        layer: String,
+        #[arg(long, default_value_t = 0)]
+        frame: u32,
+        #[arg(
+            long,
+            conflicts_with = "json",
+            help = "Only the legend and the rows, as klad pixel --grid reads them"
+        )]
+        plain: bool,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "The palettes that come with klad, to load with klad palette <bundle> --load <name>")]
     Palettes {
         #[arg(long)]
@@ -2109,6 +2143,17 @@ fn parse_cells(text: &str) -> Result<Vec<[i64; 2]>> {
         bail!("--cells is empty: give pixels like '3,4 4,4' or runs like '3-9,4'");
     }
     Ok(cells)
+}
+
+fn parse_cell(text: &str) -> Result<[i64; 2]> {
+    let parts: Vec<i64> = text
+        .split(',')
+        .map(|part| part.trim().parse::<i64>())
+        .collect::<std::result::Result<_, _>>()
+        .map_err(|_| anyhow!("{text:?} is not x,y in whole pixels"))?;
+    parts
+        .try_into()
+        .map_err(|_| anyhow!("{text:?} is not x,y in whole pixels"))
 }
 
 fn parse_origin(text: &str) -> Result<Option<[f32; 2]>> {
@@ -2830,6 +2875,8 @@ fn run() -> Result<()> {
             bundle,
             layer,
             cells,
+            grid,
+            at,
             path,
             size,
             color,
@@ -2839,6 +2886,23 @@ fn run() -> Result<()> {
             flags,
         } => {
             let layer = Bundle::open(&bundle)?.doc.find_layer(&layer)?.id.clone();
+            if let Some(source) = grid {
+                let text = match source.as_str() {
+                    "-" => std::io::read_to_string(std::io::stdin()).context("reading the grid from stdin")?,
+                    file => std::fs::read_to_string(file).with_context(|| format!("reading {file}"))?,
+                };
+                let (legend, rows) = klad_core::pixel::parse_text(&text)?;
+                let spec = klad_core::ops::GridSpec {
+                    layer,
+                    frame,
+                    rows,
+                    legend,
+                    at,
+                    part,
+                };
+                spec.check()?;
+                return agent::edit(&bundle, &[Op::PixelGrid(spec)], &output(&flags, frame));
+            }
             let spec = PixelSpec {
                 layer,
                 frame,
@@ -3660,6 +3724,13 @@ fn run() -> Result<()> {
             }
         }
         Command::Palettes { json } => palettes(json),
+        Command::Pixels {
+            bundle,
+            layer,
+            frame,
+            plain,
+            json,
+        } => pixels(&bundle, &layer, frame, plain, json)?,
         Command::Export {
             bundle,
             png: _,
@@ -4349,6 +4420,64 @@ fn palette(path: &Path, as_json: bool) -> Result<()> {
             format!("{i:<3} {:<10} {:<8} {}{ramp}", s.color, s.id, s.name).trim_end()
         );
     });
+    Ok(())
+}
+
+fn pixels(path: &Path, layer: &str, frame: u32, plain: bool, as_json: bool) -> Result<()> {
+    let bundle = Bundle::open(path)?;
+    let doc = &bundle.doc;
+    let owner = doc.find_layer(layer)?;
+    if !owner.pixel() {
+        bail!(
+            "{} is a {} layer: klad pixels reads pixel layers (klad strokes lists what a paint layer holds)",
+            owner.id,
+            owner.kind_name()
+        );
+    }
+    let marks = match owner.content_at(frame) {
+        Some(cel) => bundle.read_marks(&owner.id, &cel.id)?,
+        None => Vec::new(),
+    };
+    let grid = klad_core::pixel::grid_of(&marks, doc.canvas.width, doc.canvas.height);
+    let legend = klad_core::pixel::legend(doc, &grid);
+    if as_json {
+        let named: serde_json::Map<String, serde_json::Value> = legend
+            .iter()
+            .map(|n| {
+                let bound = doc.entry(&n.key).is_some();
+                (
+                    n.sign.to_string(),
+                    serde_json::json!({
+                        "name": n.name,
+                        "color": n.color,
+                        "entry": if bound { serde_json::json!(n.key) } else { serde_json::Value::Null },
+                    }),
+                )
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::json!({
+                "layer": owner.id,
+                "frame": frame,
+                "width": grid.width,
+                "height": grid.height,
+                "empty": klad_core::pixel::EMPTY.to_string(),
+                "legend": named,
+                "rows": klad_core::pixel::rows(&grid, &legend),
+            })
+        );
+        return Ok(());
+    }
+    if plain {
+        println!("{}", klad_core::pixel::plain(&grid, &legend));
+        return Ok(());
+    }
+    println!(
+        "{}x{}  layer {} \"{}\"  frame {frame}",
+        grid.width, grid.height, owner.id, owner.name
+    );
+    println!("{}", klad_core::pixel::ruled(&grid, &legend));
     Ok(())
 }
 

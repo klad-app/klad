@@ -104,23 +104,35 @@ klad lasso art.klad l4 --polygon '...' --cut --rm
 ```
 klad new sprite.klad --pixel 32x32                      a pixel drawing: one pixel layer, l1
 klad add art.klad layer pixel name=sprite               a pixel layer in any drawing
-klad pixel sprite.klad l1 --color '#2b2d42' --cells '3-12,2 3,3-8 12,3-8 3-12,9'
-klad pixel sprite.klad l1 --color skin --cells '4-11,3-8'
-klad pixel sprite.klad l1 --erase --cells '7,5 8,5'
-klad pixel sprite.klad l1 --color '#2b2d42' --path 'M3.5 20.5 C 10 4 22 4 28.5 20.5'   a curve, one pixel thin
+klad palette sprite.klad --add '#22223b' --name ink     name the colours first
+klad pixel sprite.klad l1 --grid - <<'GRID'             a sprite as text: a legend, a blank line, the rows
+i = ink
+b = body
+
+..iiii..
+.ibbbbi.
+.ibbbbi.
+..iiii..
+GRID
+klad pixels sprite.klad l1                              read the layer back as text, with numbered rows and columns
 klad render sprite.klad --overlay grid                  enlarged, with numbered pixel lines
+klad pixel sprite.klad l1 --color ink --cells '3-12,2 3,3-8'      single pixels, runs and blocks
+klad pixel sprite.klad l1 --color ink --path 'M3.5 20.5 C 10 4 22 4 28.5 20.5'   a curve, one pixel thin
+klad pixel sprite.klad l1 --erase --cells '7,5 8,5'
 klad export sprite.klad --scale 8 -o sprite@8x.png      square pixels, to keep
 ```
 
 - A pixel layer is a grid with no soft edges, and one pixel is one canvas pixel: a 32x32 sprite is a 32x32 drawing. Size the drawing in pixels of the art, not of the screen; `klad ls` shows the layer as `pixel`.
-- `--cells` takes `x,y` for one pixel, `x0-x1,y` for a run along a row, `x,y0-y1` for a run down a column and `x0-x1,y0-y1` for a block, separated by spaces. Pixels off the canvas are dropped.
+- Draw a sprite as a grid of characters: `klad pixel <bundle> <layer> --grid <file>` (`-` reads stdin). Legend lines come first (one character, `=`, then a palette name, a colour, `erase` or `empty`), then a blank line, then one row of characters per row of pixels. `.` is empty (it leaves what is there) unless the legend says otherwise; a character the legend does not name is an error that says where. `--at x,y` puts the grid's top left pixel elsewhere, so a part (an eye, a hand) can be a small grid of its own. Each character becomes one mark bound to its colour, so a whole sprite is a handful of marks you can recolour or move.
+- Read before you change: `klad pixels <bundle> <layer>` prints what the layer shows as the same kind of grid, with a legend (each colour's character, name, hex and id) and the pixel numbers along the top and the left. `--plain` prints only the legend and rows, in the form `--grid` reads, so a sprite can be read, edited as text and written to an empty layer or frame; `--json` gives `rows` and `legend`. Reading the text is exact; the picture is for judging how it looks.
+- For a few pixels use `--cells`: `x,y` for one pixel, `x0-x1,y` for a run along a row, `x,y0-y1` for a run down a column and `x0-x1,y0-y1` for a block, separated by spaces. Pixels off the canvas are dropped.
 - `--path` draws SVG path data as a line of pixels, for outlines and curves that would be tedious as cells. A pixel is the square from `x,y` to `x+1,y+1`, so aim at pixel middles (`3.5`, not `3`). Straight segments keep the corners they are given; curves come out one pixel thin with no doubled corners. `--size 2` (1 to 64) makes the pencil a square of that many pixels, for `--cells` and `--path` alike. In `apply`: `"path":"M3.5 3.5 L9.5 3.5"` in place of `cells`, and `"size":2`.
 - `--color` is a palette name, a palette index or `#rrggbb`. Every pixel mark is bound to a palette entry: a colour the palette lacks is added to it, so name the colours first (`klad palette sprite.klad --add '#f0c8a0' --name skin`) and draw with the names. `klad palette` lists the entries with their ids.
 - The palette is the drawing's colours, and changing one changes the picture: `klad palette sprite.klad --recolour skin --to '#e8b796'` (a name, a colour, an index or an id) recolours every pixel mark drawn with it, on every frame. So fix a colour in the palette, not mark by mark. `klad palette sprite.klad --load pico-8` adds a palette that comes with klad (`klad palettes` lists them: pico-8, sweetie-16, dawnbringer-16, dawnbringer-32, endesga-32, resurrect-64, aap-64, gameboy, 1-bit) or a file (`.hex`, one colour per line, or a GIMP `.gpl`); colours the palette holds are not added twice. A ramp is a row of colours for one material, dark to light: `klad palette sprite.klad --ramp wood --base '#8b5a2b' --steps 5` makes `wood-1` (dark, cooler) to `wood-5` (light, warmer) around the base, and `--ramp skin --of skin-dark,skin,skin-light` groups colours it has. Shade a form with the steps of its ramp, not with new colours.
-- Each call makes one mark, `<cel>:s<id>`, that stays editable: `klad set sprite.klad c2:s1 color=shadow` recolours it (and binds it to that entry), `klad transform ... --move 2,0` moves it by whole pixels, `--flip h` and `--rotate 90` keep it hard, `klad rm` removes it. `klad strokes sprite.klad l1` lists the marks with their entry and cell count; `--json` gives each one's `cells`.
-- Later marks cover earlier ones; `--erase` makes a mark that clears what was drawn before it at those pixels (remove that mark and the pixels come back).
+- Each mark, `<cel>:s<id>`, stays editable: `klad set sprite.klad c2:s1 color=shadow` recolours it (and binds it to that entry), `klad transform ... --move 2,0` moves it by whole pixels, `--flip h` and `--rotate 90` keep it hard, `klad rm` removes it. `klad strokes sprite.klad l1` lists the marks with their entry and cell count; `--json` gives each one's `cells`.
+- Later marks cover earlier ones; `--erase` (or `erase` in a grid's legend) makes a mark that clears what was drawn before it at those pixels (remove that mark and the pixels come back).
 - Looking: `klad render` and the `--render` preview of an edit enlarge a pixel drawing by a whole number to about 512 px, so every pixel is a square you can see (`--scale 1` gives the real size, which is how the player sees it: check there too). `--overlay grid` draws a line between pixels and numbers them along the top and the left, so a pixel's `x,y` can be read off the picture: the number is on the line where that column or row starts. `klad export --scale 8` (whole numbers) writes the enlarged PNG to keep.
-- In `apply`: `{"op":"pixel","layer":"l1","color":"skin","cells":[[4,5],[5,5]]}` or `"erase":true`. Brush strokes (`klad stroke`, `ink`, `paint`, ...) and `klad fill` are refused on a pixel layer.
+- In `apply`: `{"op":"pixel","layer":"l1","color":"skin","cells":[[4,5],[5,5]]}`, with `"erase":true`, or a grid: `{"op":"pixel","layer":"l1","rows":["..ii..",".ibbi."],"legend":{"i":"ink","b":"body"},"at":[0,0]}`. Brush strokes (`klad stroke`, `ink`, `paint`, ...) and `klad fill` are refused on a pixel layer.
 
 ## Masks, clipping and lock alpha
 

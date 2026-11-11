@@ -708,6 +708,73 @@ fn the_palette_recolours_its_pixels_loads_palettes_and_groups_ramps_from_the_com
 }
 
 #[test]
+fn a_sprite_is_written_as_a_grid_of_characters_and_read_back_the_same() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let dir = std::env::temp_dir().join(format!("draw-binary-grid-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("sprite.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    draw(&["new", path, "--pixel", "8x6"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    let text = "i = ink\nb = #f2c14e\n\n..iiii..\n.ibbbbi.\n.ibbbbi.\n..iiii..\n";
+    let mut child = Command::new(env!("CARGO_BIN_EXE_klad"))
+        .args(["pixel", path, "l1", "--grid", "-", "--at", "0,1"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(text.as_bytes()).unwrap();
+    let made = child.wait_with_output().unwrap();
+    assert!(made.status.success(), "{}", String::from_utf8_lossy(&made.stderr));
+    assert!(String::from_utf8_lossy(&made.stdout).contains("pixel marks"));
+    let marks: serde_json::Value = serde_json::from_str(&draw(&["strokes", path, "l1", "--json"])).unwrap();
+    assert_eq!(
+        marks["fills"].as_array().unwrap().len(),
+        2,
+        "one mark for each colour of the grid"
+    );
+    let plain = draw(&["pixels", path, "l1", "--plain"]);
+    assert_eq!(
+        plain.trim_end(),
+        ". = empty\ni = ink\na = #f2c14e\n\n........\n..iiii..\n.iaaaai.\n.iaaaai.\n..iiii..\n........"
+    );
+    let ruled = draw(&["pixels", path, "l1"]);
+    assert!(ruled.contains("8x6") && ruled.contains(" 1  ..iiii.."), "{ruled}");
+    let read: serde_json::Value = serde_json::from_str(&draw(&["pixels", path, "l1", "--json"])).unwrap();
+    assert_eq!(read["rows"][2], ".iaaaai.");
+    assert_eq!(read["legend"]["i"]["name"], "ink");
+    assert_eq!((read["width"].as_u64(), read["height"].as_u64()), (Some(8), Some(6)));
+    let copy = dir.join("copy.klad");
+    let copy_path = copy.to_str().unwrap();
+    draw(&["new", copy_path, "--pixel", "8x6"]);
+    draw(&["palette", copy_path, "--add", "#22223b", "--name", "ink"]);
+    let saved = dir.join("sprite.txt");
+    std::fs::write(&saved, &plain).unwrap();
+    draw(&["pixel", copy_path, "l1", "--grid", saved.to_str().unwrap()]);
+    assert_eq!(
+        draw(&["hash", copy_path]),
+        draw(&["hash", path]),
+        "what klad pixels prints draws the same picture again"
+    );
+    std::fs::write(&saved, "i = ink\n\n..q..\n").unwrap();
+    let unknown = run(&["pixel", path, "l1", "--grid", saved.to_str().unwrap()]);
+    assert!(String::from_utf8_lossy(&unknown.stderr).contains("the legend does not name"));
+    draw(&["add", path, "layer", "paint", "name=paint"]);
+    let wrong = run(&["pixels", path, "paint"]);
+    assert!(String::from_utf8_lossy(&wrong.stderr).contains("reads pixel layers"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn recolour_moves_strokes_together_and_keeps_their_shades() {
     let dir = std::env::temp_dir().join(format!("draw-binary-recolour-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

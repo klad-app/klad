@@ -62,6 +62,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad gaps`](#klad-gaps): List closed regions of the lines that no fill on the layer covers
 - [`klad refill`](#klad-refill): Recompute the flood fills of a paint cel after the lines they were made from changed
 - [`klad palette`](#klad-palette): The document palette: list it, --add or --rm a colour, --recolour one, --load a palette, or group colours in a --ramp
+- [`klad pixels`](#klad-pixels): Read a pixel layer as a grid of characters, one per pixel, with a legend of its palette colours
 - [`klad palettes`](#klad-palettes): The palettes that come with klad, to load with klad palette <bundle> --load <name>
 - [`klad export`](#klad-export): Export PNGs, sprite sheets, numbered frames or a Godot SpriteFrames and scene
 - [`klad brushes`](#klad-brushes): List brushes: the library, and with a bundle the ones it embeds
@@ -1658,7 +1659,19 @@ Put whole pixels of one palette colour on a pixel layer, or erase them. A pixel 
   klad pixel sprite.klad l1 --color skin --cells '4-11,5-9'
   klad pixel sprite.klad l1 --erase --cells '7,7 8,7'
 
-Also a pixel op in klad apply: {"op":"pixel","layer":"l1","color":"skin","cells":[[4,5],[5,5]]}, with "path":"M3.5 3.5 L9.5 3.5" in place of cells, "size":2, or "erase":true.
+--grid draws a whole sprite from text, the way klad pixels --plain prints one: legend lines (one character, =, a palette name, a colour, erase or empty), a blank line, then a row of characters per row of pixels. . is empty unless the legend says otherwise. Each character becomes one mark bound to its colour; --at x,y moves the grid's top left.
+
+  klad pixel sprite.klad l1 --grid - <<'GRID'
+  i = ink
+  b = body
+
+  ..iiii..
+  .ibbbbi.
+  .ibbbbi.
+  ..iiii..
+  GRID
+
+Also a pixel op in klad apply: {"op":"pixel","layer":"l1","color":"skin","cells":[[4,5],[5,5]]}, with "path":"M3.5 3.5 L9.5 3.5" in place of cells, "size":2, or "erase":true; and as a grid {"op":"pixel","layer":"l1","rows":["..ii..",".ibbi."],"legend":{"i":"ink","b":"body"},"at":[0,0]}.
 
 Usage: klad pixel [OPTIONS] <BUNDLE> <LAYER>
 
@@ -1672,6 +1685,14 @@ Arguments:
 Options:
       --cells <CELLS>
           The pixels: x,y, a row run x0-x1,y, a column run x,y0-y1 or a block x0-x1,y0-y1, separated by spaces
+
+      --grid <FILE>
+          Draw a grid of characters from a file (- reads stdin): a legend (i = ink), a blank line, then one row of characters per row of pixels
+
+      --at <AT>
+          Where the grid's top left pixel goes: x,y
+
+          [default: 0,0]
 
       --path <PATH>
           SVG path data drawn as a line of pixels, one pixel wide with no doubled corners on curves: 'M3.5 20.5 C 10 4 22 4 28.5 20.5'
@@ -3141,6 +3162,40 @@ Options:
 
       --overlay <OVERLAY>
           Draw on the preview: ids, bbox, grid or all (comma separated)
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## klad pixels
+
+```text
+Read a pixel layer as a grid of characters, one per pixel, with a legend of its palette colours. It is what the layer shows at the frame: later marks over earlier ones, erased pixels empty. Each colour gets a character (the first letter of its palette name where that is free), . is an empty pixel, and the numbers along the top and the left count the pixels.
+
+  klad pixels sprite.klad l1
+  klad pixels sprite.klad l1 --plain > sprite.txt     (the form klad pixel --grid reads back)
+  klad pixels sprite.klad l1 --json
+
+To draw from such a text: klad pixel sprite.klad l1 --grid sprite.txt. Each character of the legend becomes one mark bound to its colour.
+
+Usage: klad pixels [OPTIONS] <BUNDLE> <LAYER>
+
+Arguments:
+  <BUNDLE>
+
+
+  <LAYER>
+
+
+Options:
+      --frame <FRAME>
+          [default: 0]
+
+      --plain
+          Only the legend and the rows, as klad pixel --grid reads them
+
+      --json
+
 
   -h, --help
           Print help (see a summary with '-h')

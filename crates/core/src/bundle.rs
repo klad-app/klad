@@ -657,6 +657,7 @@ pub fn summarize(ops: &[Op]) -> String {
             Op::Fill(spec) => format!("fill on {}", spec.layer),
             Op::Pixel(spec) if spec.erase => format!("erase pixels on {}", spec.layer),
             Op::Pixel(spec) => format!("pixels on {}", spec.layer),
+            Op::PixelGrid(grid) => format!("pixel grid on {}", grid.layer),
             Op::Palette(_) => "palette".to_string(),
             Op::Transform { ids, .. } => format!("transform {}", ids.join(" ")),
             Op::Detach { ids } => format!("detach {}", ids.join(" ")),

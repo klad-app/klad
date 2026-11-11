@@ -1,6 +1,8 @@
+use crate::doc::Document;
 use crate::path;
+use crate::stroke::Mark;
 use anyhow::{Result, bail};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub type Cell = [i64; 2];
 
@@ -142,6 +144,252 @@ pub fn drawn(runs: &[Run], size: u32) -> Vec<Cell> {
         .collect()
 }
 
+pub const EMPTY: char = '.';
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Grid {
+    pub width: u32,
+    pub height: u32,
+    pub cells: Vec<Option<String>>,
+}
+
+impl Grid {
+    pub fn at(&self, x: u32, y: u32) -> Option<&str> {
+        self.cells.get((y * self.width + x) as usize)?.as_deref()
+    }
+
+    pub fn keys(&self) -> Vec<&str> {
+        let mut seen = BTreeSet::new();
+        self.cells
+            .iter()
+            .flatten()
+            .map(String::as_str)
+            .filter(|k| seen.insert(*k))
+            .collect()
+    }
+}
+
+pub fn grid_of(marks: &[Mark], width: u32, height: u32) -> Grid {
+    let mut cells: Vec<Option<String>> = vec![None; width as usize * height as usize];
+    crate::stroke::fills_of(marks).filter(|f| f.on_grid()).for_each(|fill| {
+        let key = match fill.entry() {
+            Some(entry) => entry.to_string(),
+            None => crate::color::to_hex(fill.color()),
+        };
+        fill.coverage
+            .cells()
+            .filter(|c| c[0] < width && c[1] < height)
+            .filter(|c| crate::cut::keeps(&fill.cuts, (c[0] as f32 + 0.5, c[1] as f32 + 0.5)))
+            .for_each(|c| {
+                let at = (c[1] * width + c[0]) as usize;
+                match (fill.erases(), fill.lock) {
+                    (true, _) => cells[at] = None,
+                    (false, true) if cells[at].is_none() => {}
+                    (false, _) => cells[at] = Some(key.clone()),
+                }
+            });
+    });
+    Grid { width, height, cells }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Named {
+    pub sign: char,
+    pub key: String,
+    pub name: String,
+    pub color: String,
+}
+
+const SIGNS: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#@%&*+=~^:;!?$";
+
+pub fn legend(doc: &Document, grid: &Grid) -> Vec<Named> {
+    let used: BTreeSet<&str> = grid.keys().into_iter().collect();
+    let entries: Vec<(String, String, String)> = doc
+        .palette
+        .iter()
+        .filter(|s| !s.id.is_empty() && used.contains(s.id.as_str()))
+        .map(|s| (s.id.clone(), s.name.clone(), s.color.clone()))
+        .chain(
+            grid.keys()
+                .into_iter()
+                .filter(|k| doc.entry(k).is_none())
+                .map(|k| (k.to_string(), String::new(), k.to_string())),
+        )
+        .collect();
+    let mut taken: BTreeSet<char> = BTreeSet::new();
+    entries
+        .into_iter()
+        .map(|(key, name, color)| {
+            let wished = name.chars().find(|c| c.is_ascii_alphanumeric());
+            let sign = wished
+                .into_iter()
+                .chain(wished.map(|c| c.to_ascii_uppercase()))
+                .chain(SIGNS.chars())
+                .find(|c| !taken.contains(c))
+                .unwrap_or('?');
+            taken.insert(sign);
+            Named { sign, key, name, color }
+        })
+        .collect()
+}
+
+pub fn rows(grid: &Grid, legend: &[Named]) -> Vec<String> {
+    (0..grid.height)
+        .map(|y| {
+            (0..grid.width)
+                .map(|x| match grid.at(x, y) {
+                    Some(key) => legend.iter().find(|n| n.key == key).map_or('?', |n| n.sign),
+                    None => EMPTY,
+                })
+                .collect()
+        })
+        .collect()
+}
+
+pub fn plain(grid: &Grid, legend: &[Named]) -> String {
+    let lines = legend.iter().map(|n| {
+        let value = match n.name.is_empty() {
+            true => n.color.as_str(),
+            false => n.name.as_str(),
+        };
+        format!("{} = {value}", n.sign)
+    });
+    std::iter::once(format!("{EMPTY} = empty"))
+        .chain(lines)
+        .chain(std::iter::once(String::new()))
+        .chain(rows(grid, legend))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub fn ruled(grid: &Grid, legend: &[Named]) -> String {
+    let pad = grid.height.saturating_sub(1).to_string().len().max(2);
+    let tens: String = (0..grid.width)
+        .map(|x| match x % 10 {
+            0 => char::from_digit((x / 10) % 10, 10).unwrap_or(' '),
+            _ => ' ',
+        })
+        .collect();
+    let ones: String = (0..grid.width)
+        .map(|x| char::from_digit(x % 10, 10).unwrap_or(' '))
+        .collect();
+    let lines = legend.iter().map(|n| {
+        format!(
+            "  {} {}",
+            n.sign,
+            [n.name.as_str(), n.color.as_str(), n.key.as_str()]
+                .iter()
+                .filter(|part| !part.is_empty())
+                .fold(Vec::<&str>::new(), |mut kept, part| {
+                    if !kept.contains(part) {
+                        kept.push(part);
+                    }
+                    kept
+                })
+                .join(" ")
+        )
+    });
+    std::iter::once(format!("  {EMPTY} empty"))
+        .chain(lines)
+        .chain([
+            String::new(),
+            format!("{:pad$}  {}", "", tens.trim_end()),
+            format!("{:pad$}  {ones}", ""),
+        ])
+        .chain(
+            rows(grid, legend)
+                .into_iter()
+                .enumerate()
+                .map(|(y, row)| format!("{y:>pad$}  {row}")),
+        )
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub fn parse_text(text: &str) -> Result<(BTreeMap<String, String>, Vec<String>)> {
+    let lines: Vec<&str> = text.lines().map(str::trim_end).collect();
+    let first = lines.iter().position(|l| !l.trim().is_empty()).unwrap_or(lines.len());
+    let lines = &lines[first..];
+    let Some(gap) = lines.iter().position(|l| l.trim().is_empty()) else {
+        bail!(
+            "a pixel grid is a legend, a blank line, then the rows: lines like \"i = ink\" first, then rows like \"..iiii..\""
+        );
+    };
+    let legend = lines[..gap]
+        .iter()
+        .map(|line| {
+            let line = line.trim();
+            let sign = line.chars().next().unwrap_or(' ');
+            let rest = line[sign.len_utf8()..].trim_start();
+            match rest.strip_prefix('=') {
+                Some(value) if !sign.is_whitespace() && !value.trim().is_empty() => {
+                    Ok((sign.to_string(), value.trim().to_string()))
+                }
+                _ => bail!(
+                    "{line:?} is not a legend line: one character, =, then a palette name, a colour, erase or empty"
+                ),
+            }
+        })
+        .collect::<Result<BTreeMap<_, _>>>()?;
+    let rows: Vec<String> = lines[gap..]
+        .iter()
+        .skip_while(|l| l.trim().is_empty())
+        .map(|l| l.trim().to_string())
+        .collect();
+    let rows: Vec<String> = rows
+        .iter()
+        .take(rows.iter().rposition(|r| !r.is_empty()).map_or(0, |last| last + 1))
+        .cloned()
+        .collect();
+    if rows.is_empty() {
+        bail!("the pixel grid has a legend but no rows after the blank line");
+    }
+    Ok((legend, rows))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Sign {
+    Empty,
+    Erase,
+    Colour(String),
+}
+
+pub fn meaning(legend: &BTreeMap<String, String>, sign: char) -> Option<Sign> {
+    match legend.get(&sign.to_string()).map(|v| v.trim()) {
+        Some("empty" | "skip") => Some(Sign::Empty),
+        Some("erase") => Some(Sign::Erase),
+        Some(value) => Some(Sign::Colour(value.to_string())),
+        None if sign == EMPTY => Some(Sign::Empty),
+        None => None,
+    }
+}
+
+pub fn placed(rows: &[String], legend: &BTreeMap<String, String>, at: Cell) -> Result<Vec<(char, Sign, Vec<Cell>)>> {
+    let mut found: Vec<(char, Sign, Vec<Cell>)> = Vec::new();
+    rows.iter().enumerate().try_for_each(|(y, row)| {
+        row.chars().enumerate().try_for_each(|(x, sign)| {
+            let cell = [at[0] + x as i64, at[1] + y as i64];
+            match found.iter_mut().find(|(s, _, _)| *s == sign) {
+                Some((_, _, cells)) => cells.push(cell),
+                None => {
+                    let Some(meaning) = meaning(legend, sign) else {
+                        bail!(
+                            "row {y}, column {x} holds {sign:?}, which the legend does not name: it has {}",
+                            legend.keys().map(String::as_str).collect::<Vec<_>>().join(" ")
+                        );
+                    };
+                    found.push((sign, meaning, vec![cell]));
+                }
+            }
+            Ok(())
+        })
+    })?;
+    Ok(found
+        .into_iter()
+        .filter(|(_, meaning, _)| !matches!(meaning, Sign::Empty))
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,5 +467,113 @@ mod tests {
             "a curve has no doubled corners: {cells:?}"
         );
         assert!(of_path("").is_err());
+    }
+
+    #[test]
+    fn a_layer_reads_as_a_grid_of_signs_and_a_grid_text_reads_back_as_the_same_pixels() {
+        use crate::doc::Swatch;
+        use crate::fill::{Coverage, Fill};
+        let swatch = |color: &str, name: &str, id: &str| Swatch {
+            color: color.into(),
+            name: name.into(),
+            id: id.into(),
+            ramp: String::new(),
+        };
+        let mut doc = Document::new(6, 4);
+        doc.palette = vec![
+            swatch("#22223b", "ink", "p1"),
+            swatch("#f2c14e", "iris", "p2"),
+            swatch("#ffffff", "", "p3"),
+            swatch("#000000", "unused", "p4"),
+        ];
+        let cells = |list: &[[u32; 2]]| Coverage::from_cells(list);
+        let colour = |hex: &str| crate::color::parse_hex(hex).unwrap();
+        let mut locked = Fill::cells(4, colour("#ffffff"), "p3", false, cells(&[[1, 1], [5, 3]]));
+        locked.lock = true;
+        let mut cut = Fill::cells(6, colour("#f2c14e"), "p2", false, cells(&[[0, 3], [1, 3], [2, 3]]));
+        cut.cuts = vec![crate::cut::Cut {
+            keep: crate::cut::Keep::Inside,
+            polygon: vec![[0.0, 2.9], [2.0, 2.9], [2.0, 4.1], [0.0, 4.1]],
+        }];
+        let marks: Vec<Mark> = vec![
+            Fill::cells(
+                1,
+                colour("#22223b"),
+                "p1",
+                false,
+                cells(&[[0, 0], [1, 0], [2, 0], [1, 1]]),
+            )
+            .into(),
+            Fill::cells(2, colour("#f2c14e"), "p2", false, cells(&[[2, 0], [3, 0]])).into(),
+            Fill::cells(3, colour("#000000"), "", true, cells(&[[0, 0], [4, 2]])).into(),
+            locked.into(),
+            Fill::cells(5, colour("#ff00ff"), "", false, cells(&[[5, 0]])).into(),
+            cut.into(),
+        ];
+        let grid = grid_of(&marks, 6, 4);
+        assert_eq!(grid.at(0, 0), None, "an erased pixel is empty");
+        assert_eq!(grid.at(2, 0), Some("p2"), "a later mark covers an earlier one");
+        assert_eq!(grid.at(1, 1), Some("p3"), "a locked mark paints where there is paint");
+        assert_eq!(grid.at(5, 3), None, "and nowhere else");
+        assert_eq!(
+            grid.at(5, 0),
+            Some("#ff00ff"),
+            "a mark bound to nothing shows by its colour"
+        );
+        assert_eq!(
+            (grid.at(1, 3), grid.at(2, 3)),
+            (Some("p2"), None),
+            "a cut mark shows only its kept side"
+        );
+        let named = legend(&doc, &grid);
+        let signs: Vec<(char, &str)> = named.iter().map(|n| (n.sign, n.key.as_str())).collect();
+        assert_eq!(
+            signs,
+            [('i', "p1"), ('I', "p2"), ('a', "p3"), ('b', "#ff00ff")],
+            "the first letter of the name, its capital when taken, then the next free sign; unused colours get none"
+        );
+        assert_eq!(rows(&grid, &named), [".iII.b", ".a....", "......", "II...."]);
+        let text = plain(&grid, &named);
+        assert_eq!(
+            text,
+            ". = empty\ni = ink\nI = iris\na = #ffffff\nb = #ff00ff\n\n.iII.b\n.a....\n......\nII...."
+        );
+        let ruled = ruled(&grid, &named);
+        assert!(
+            ruled.contains("  i ink #22223b p1") && ruled.contains(" 0  .iII.b"),
+            "{ruled}"
+        );
+        let (read_legend, read_rows) = parse_text(&format!("\n{text}\n\n")).unwrap();
+        assert_eq!(read_rows, rows(&grid, &named));
+        let placed = placed(&read_rows, &read_legend, [10, 20]).unwrap();
+        let drawn: Vec<(char, usize)> = placed.iter().map(|(sign, _, cells)| (*sign, cells.len())).collect();
+        assert_eq!(drawn, [('i', 1), ('I', 4), ('b', 1), ('a', 1)]);
+        assert_eq!(placed[0].2, [[11, 20]], "the grid lands where it is put");
+        let erasing: BTreeMap<String, String> = [("x", "erase"), ("o", "ink")]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        let both = super::placed(&["xo.".to_string()], &erasing, [0, 0]).unwrap();
+        assert!(matches!(both[0].1, Sign::Erase) && matches!(&both[1].1, Sign::Colour(c) if c == "ink"));
+        let unnamed = super::placed(&["o?".to_string()], &erasing, [0, 0])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            unnamed.contains("row 0, column 1") && unnamed.contains("'?'"),
+            "{unnamed}"
+        );
+        assert!(
+            parse_text("i = ink\n..ii..")
+                .unwrap_err()
+                .to_string()
+                .contains("a blank line")
+        );
+        assert!(
+            parse_text("ink\n\n..ii..")
+                .unwrap_err()
+                .to_string()
+                .contains("not a legend line")
+        );
+        assert!(parse_text("i = ink\n\n\n").unwrap_err().to_string().contains("no rows"));
     }
 }
