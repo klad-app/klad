@@ -3352,7 +3352,7 @@ Animations (each clip, or the whole timeline when there are no clips):
       a PNG holding each distinct picture once, trimmed to its pixels (more pages, art-sheet-2.png ..., when it does not fit --max), plus art-sheet.json in Aseprite's array layout: one entry per exposure with its duration in ms, frameTags for clips
   klad export art.klad --sheet run            one clip; --sheet 0-11 a range
   klad export art.klad --frames run           numbered full-size PNGs, one per frame (run-0000.png ...) in art-run/
-  klad export art.klad --gif [run] [--scale 8]  an animated GIF with each frame's own duration: one per clip (art-run.gif; clips that loop, loop), or art.gif of the whole timeline; up to 255 colours kept exactly, more are reduced to the nearest of 255; transparent unless --background
+  klad export art.klad --gif [run] [--scale 8]  an animated GIF with each frame's own duration: one per clip (art-run.gif; clips that loop, loop), or art.gif of the whole timeline; up to 255 colours kept exactly, more are reduced to the nearest of 255, in flat areas of one colour or, with --dither, mixed in a fine even pattern that keeps gradients smooth; transparent unless --background
   klad export art.klad --godot ../game/art    the sheet, art.tres (SpriteFrames: one animation per clip with its fps, loop and per-frame durations) and art.tscn (an AnimatedSprite2D placed so the timeline's origin sits on the node's position). For a pixel drawing the scenes set texture_filter to nearest, so the sprite stays sharp in the game. The first folder given is kept in the document (export.godot); later exports and the editor's button write there, and Godot uids are kept so scenes using them keep working. --store replaces a kept folder.
 
 Usage: klad export [OPTIONS] <BUNDLE>
@@ -3393,6 +3393,9 @@ Options:
 
       --gif [<GIF>]
           An animated GIF: all (a GIF for each clip, or one of the whole timeline), a clip or a range like 0-11
+
+      --dither
+          With --gif: where a picture has more than 255 colours, mix the nearest ones in a fine even pattern so gradients do not band
 
       --godot [<GODOT>]
           Godot SpriteFrames and AnimatedSprite2D scene into this folder (default: the document's export.godot)

@@ -1211,6 +1211,24 @@ fn a_pixel_drawing_exports_sharp_at_whole_number_scales_as_png_gif_sheet_and_god
         gif.windows(11).any(|w| w == b"NETSCAPE2.0"),
         "the clip loops, so the GIF does"
     );
+    let mixed = dir.join("mixed.gif");
+    draw(&[
+        "export",
+        path,
+        "--gif",
+        "hop",
+        "--scale",
+        "8",
+        "--dither",
+        "-o",
+        mixed.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        std::fs::read(&mixed).unwrap(),
+        gif,
+        "a drawing of a few colours is exact, so dithering changes nothing"
+    );
+    assert!(refused(&["export", path, "--dither"]).contains("--gif"));
     let range = dir.join("first.gif");
     draw(&["export", path, "--gif", "0-1", "-o", range.to_str().unwrap()]);
     assert_eq!(u16::from_le_bytes([std::fs::read(&range).unwrap()[6], 0]), 16);

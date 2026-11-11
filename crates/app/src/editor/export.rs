@@ -21,6 +21,7 @@ pub(super) struct Form {
     pub scale: f32,
     pub background: bool,
     pub deep: bool,
+    pub dither: bool,
     pub range: String,
     pub padding: u32,
     pub max: u32,
@@ -35,6 +36,7 @@ impl Default for Form {
             scale: 1.0,
             background: false,
             deep: false,
+            dither: false,
             range: "all".into(),
             padding: 2,
             max: 4096,
@@ -66,6 +68,9 @@ pub(super) fn args(bundle: &Path, home: &Path, frame: u32, form: &Form) -> Vec<S
     }
     if form.background && matches!(form.what, What::Image | What::Gif) {
         push("--background", None);
+    }
+    if form.dither && form.what == What::Gif {
+        push("--dither", None);
     }
     if form.what == What::Sheet {
         push("--padding", Some(form.padding.to_string()));
@@ -213,6 +218,10 @@ impl Editor {
             ui.checkbox(&mut form.background, "keep the background colour")
                 .hint("off: a transparent picture");
         }
+        if form.what == What::Gif && !pixel {
+            ui.checkbox(&mut form.dither, "dither")
+                .hint("a GIF holds 255 colours: mix them in a fine pattern so soft gradients do not band; off keeps flat areas of one colour");
+        }
         if form.what == What::Sheet {
             ui.add(egui::Slider::new(&mut form.padding, 0..=16).text("padding px"))
                 .hint("space between the cells of the sheet");
@@ -311,12 +320,18 @@ mod tests {
             scale: 8.0,
             deep: true,
             background: true,
+            dither: true,
             ..Form::default()
         };
         assert_eq!(
             args(bundle, home, 0, &gif).join(" "),
-            "export /w/art.klad --gif hop --scale 8 --background"
+            "export /w/art.klad --gif hop --scale 8 --background --dither"
         );
+        let image = Form {
+            dither: true,
+            ..Form::default()
+        };
+        assert!(!args(bundle, home, 0, &image).contains(&"--dither".to_string()));
         assert_eq!(
             written(
                 "/w/art-hop@8x.gif\n",

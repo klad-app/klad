@@ -73,6 +73,62 @@ fn nearest(table: &[[u8; 3]], colour: [u8; 3]) -> usize {
         .map_or(0, |(i, _)| i)
 }
 
+fn spacing(table: &[[u8; 3]]) -> f32 {
+    let gaps: Vec<f32> = table
+        .iter()
+        .enumerate()
+        .filter_map(|(i, a)| {
+            table
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| *j != i)
+                .map(|(_, b)| (0..3).map(|ch| (a[ch] as f32 - b[ch] as f32).powi(2)).sum::<f32>())
+                .min_by(f32::total_cmp)
+        })
+        .map(f32::sqrt)
+        .collect();
+    match gaps.is_empty() {
+        true => 0.0,
+        false => (gaps.iter().sum::<f32>() / gaps.len() as f32).clamp(2.0, 48.0),
+    }
+}
+
+const UNSET: u8 = u8::MAX;
+
+struct Pattern<'a> {
+    table: &'a [[u8; 3]],
+    spread: f32,
+    found: Vec<u8>,
+}
+
+impl<'a> Pattern<'a> {
+    fn new(table: &'a [[u8; 3]], dither: bool) -> Self {
+        Self {
+            table,
+            spread: match dither {
+                true => spacing(table),
+                false => 0.0,
+            },
+            found: vec![UNSET; 1 << 24],
+        }
+    }
+
+    fn pick(&mut self, colour: [u8; 3], x: usize, y: usize) -> usize {
+        let bayer = |x: usize, y: usize| (crate::export::BAYER[(y % 8) * 8 + x % 8] as f32 + 0.5) / 64.0 - 0.5;
+        let thresholds = [bayer(x, y), bayer(y + 3, x + 5), bayer(x + 5, y + 2)];
+        let moved: [u8; 3] = std::array::from_fn(|ch| {
+            (colour[ch] as f32 + thresholds[ch] * self.spread)
+                .round()
+                .clamp(0.0, 255.0) as u8
+        });
+        let key = ((moved[0] as usize) << 16) | ((moved[1] as usize) << 8) | moved[2] as usize;
+        if self.found[key] == UNSET {
+            self.found[key] = nearest(self.table, moved) as u8;
+        }
+        self.found[key] as usize
+    }
+}
+
 struct Bits {
     out: Vec<u8>,
     hold: u32,
@@ -165,7 +221,7 @@ pub fn delays(durations: &[u32]) -> Vec<u16> {
         .collect()
 }
 
-pub fn encode(width: u32, height: u32, shots: &[Shot], looping: bool) -> Result<Vec<u8>> {
+pub fn encode(width: u32, height: u32, shots: &[Shot], looping: bool, dither: bool) -> Result<Vec<u8>> {
     if shots.is_empty() {
         bail!("a GIF needs at least one frame");
     }
@@ -196,7 +252,7 @@ pub fn encode(width: u32, height: u32, shots: &[Shot], looping: bool) -> Result<
         out.extend_from_slice(b"NETSCAPE2.0");
         out.extend_from_slice(&[3, 1, 0, 0, 0]);
     }
-    let mut cache: BTreeMap<[u8; 3], usize> = BTreeMap::new();
+    let mut reduced = (counts.len() > 255).then(|| Pattern::new(&table, dither));
     let ticks = delays(&shots.iter().map(|s| s.ms).collect::<Vec<_>>());
     shots.iter().zip(&ticks).for_each(|(shot, delay)| {
         let indices: Vec<u8> = shot
@@ -204,14 +260,15 @@ pub fn encode(width: u32, height: u32, shots: &[Shot], looping: bool) -> Result<
             .as_chunks::<4>()
             .0
             .iter()
-            .map(|px| match px[3] >= CLEAR_AT as u8 {
+            .enumerate()
+            .map(|(i, px)| match px[3] >= CLEAR_AT as u8 {
                 false => clear as u8,
                 true => {
                     let colour = [px[0], px[1], px[2]];
-                    let at = exact
-                        .get(&colour)
-                        .copied()
-                        .unwrap_or_else(|| *cache.entry(colour).or_insert_with(|| nearest(&table, colour)));
+                    let at = match reduced.as_mut() {
+                        Some(pattern) => pattern.pick(colour, i % width as usize, i / width as usize),
+                        None => exact.get(&colour).copied().unwrap_or(0),
+                    };
                     at as u8
                 }
             })
@@ -329,7 +386,7 @@ mod tests {
                 ms: 84,
             },
         ];
-        let gif = encode(4, 2, &shots, true).unwrap();
+        let gif = encode(4, 2, &shots, true, true).unwrap();
         assert_eq!(&gif[..6], b"GIF89a");
         assert_eq!((gif[6], gif[8]), (4, 2));
         assert_eq!(gif[10] & 0x87, 0x81, "a global table of four slots");
@@ -351,13 +408,13 @@ mod tests {
             [(8, 2), (9, 2), (8, 2)],
             "250 ms over three frames, in hundredths, with index 2 as the clear pixel"
         );
-        assert!(!String::from_utf8_lossy(&encode(4, 2, &shots, false).unwrap()).contains("NETSCAPE"));
+        assert!(!String::from_utf8_lossy(&encode(4, 2, &shots, false, false).unwrap()).contains("NETSCAPE"));
         assert_eq!(
             delays(&[83, 83, 84, 83, 83, 84]).iter().map(|d| *d as u32).sum::<u32>(),
             50
         );
         assert_eq!(delays(&[1]), [1], "no frame is shorter than a hundredth");
-        assert!(encode(4, 2, &[], true).is_err());
+        assert!(encode(4, 2, &[], true, false).is_err());
     }
 
     #[test]
@@ -379,6 +436,7 @@ mod tests {
                 ms: 100,
             }],
             false,
+            false,
         )
         .unwrap();
         let image = Image::from_encoded(Data::new_copy(&gif)).expect("Skia reads the GIF");
@@ -395,6 +453,73 @@ mod tests {
                 0 => assert_eq!(back[3], 0, "pixel {i} stays clear"),
                 _ => assert_eq!(made, back, "pixel {i}"),
             });
+    }
+
+    fn read_back(gif: &[u8], w: usize, h: usize) -> Vec<u8> {
+        use skia_safe::{AlphaType, ColorType, Data, Image, ImageInfo, image::CachingHint};
+        let image = Image::from_encoded(Data::new_copy(gif)).expect("Skia reads the GIF");
+        let info = ImageInfo::new((w as i32, h as i32), ColorType::RGBA8888, AlphaType::Unpremul, None);
+        let mut read = vec![0u8; w * h * 4];
+        assert!(image.read_pixels(&info, &mut read, w * 4, (0, 0), CachingHint::Allow));
+        read
+    }
+
+    #[test]
+    fn dithering_keeps_a_gradient_smooth_on_average_and_leaves_few_colours_exact() {
+        let (w, h) = (256usize, 64usize);
+        let rgba = frame(w, h, |x, y| {
+            [
+                (x as f32 * 0.9) as u8,
+                (40.0 + y as f32 * 3.2) as u8,
+                (230.0 - (x + y * 2) as f32 * 0.55) as u8,
+                255,
+            ]
+        });
+        assert!(
+            colours(&[Shot {
+                rgba: rgba.clone(),
+                ms: 1
+            }])
+            .len()
+                > 4000
+        );
+        let shot = |rgba: &[u8]| {
+            [Shot {
+                rgba: rgba.to_vec(),
+                ms: 100,
+            }]
+        };
+        let plain = read_back(&encode(w as u32, h as u32, &shot(&rgba), false, false).unwrap(), w, h);
+        let dithered = read_back(&encode(w as u32, h as u32, &shot(&rgba), false, true).unwrap(), w, h);
+        let off = |read: &[u8]| -> f32 {
+            let blocks: Vec<f32> = (0..8)
+                .flat_map(|by| (0..32).map(move |bx| (bx, by)))
+                .map(|(bx, by)| {
+                    let sum = |pixels: &[u8], ch: usize| -> f32 {
+                        (0..8)
+                            .flat_map(|y| (0..8).map(move |x| (x, y)))
+                            .map(|(x, y)| pixels[((by * 8 + y) * w + bx * 8 + x) * 4 + ch] as f32)
+                            .sum::<f32>()
+                            / 64.0
+                    };
+                    (0..3).map(|ch| (sum(read, ch) - sum(&rgba, ch)).abs()).sum::<f32>()
+                })
+                .collect();
+            blocks.iter().sum::<f32>() / blocks.len() as f32
+        };
+        let (flat, fine) = (off(&plain), off(&dithered));
+        assert!(
+            fine < flat * 0.5,
+            "8x8 blocks are {fine} levels off with dithering and {flat} without"
+        );
+        assert_ne!(plain, dithered);
+        let few = frame(8, 8, |x, y| [(x * 30) as u8, (y * 30) as u8, 90, 255]);
+        assert_eq!(
+            encode(8, 8, &shot(&few), false, true).unwrap(),
+            encode(8, 8, &shot(&few), false, false).unwrap(),
+            "with 255 colours or fewer nothing is reduced, so nothing is dithered"
+        );
+        assert_eq!(read_back(&encode(8, 8, &shot(&few), false, true).unwrap(), 8, 8), few);
     }
 
     #[test]
@@ -419,6 +544,6 @@ mod tests {
             .max()
             .unwrap_or(0);
         assert!(worst <= 40, "the furthest colour is {worst} levels from its entry");
-        assert!(encode(64, 64, &[Shot { rgba, ms: 100 }], false).is_ok());
+        assert!(encode(64, 64, &[Shot { rgba, ms: 100 }], false, false).is_ok());
     }
 }

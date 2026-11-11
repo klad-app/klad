@@ -377,7 +377,7 @@ pub fn frames(path: &Path, spec: &str, look: &Look, out: Option<PathBuf>) -> Res
     Ok(())
 }
 
-pub fn gif(path: &Path, spec: &str, look: &Look, out: Option<PathBuf>) -> Result<()> {
+pub fn gif(path: &Path, spec: &str, look: &Look, dither: bool, out: Option<PathBuf>) -> Result<()> {
     let start = Instant::now();
     let bundle = Bundle::open(path)?;
     let animations = sprites::animations(&bundle.doc, spec)?;
@@ -419,7 +419,7 @@ pub fn gif(path: &Path, spec: &str, look: &Look, out: Option<PathBuf>) -> Result
                 ms: r.ms,
             })
             .collect();
-        let bytes = klad_render::gif::encode(sw, sh, &shots, animation.looping)?;
+        let bytes = klad_render::gif::encode(sw, sh, &shots, animation.looping, dither)?;
         let name = match animation.clip {
             true => format!("{stem}-{}{}.gif", file_safe(&animation.name), scale_tag(look.scale)),
             false => format!("{stem}{}.gif", scale_tag(look.scale)),
