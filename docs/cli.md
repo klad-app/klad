@@ -3480,7 +3480,7 @@ Options:
 Look over the pixel layers of a drawing for the usual slips of pixel art, and list each with its place:
 
   stray pixel      a single pixel with no neighbour of its colour
-  doubled corner   an L in a one-pixel line, where the line reads thick (a corner whose arms are both two pixels or longer, as on a box, is left alone)
+  doubled corner   a lone L in a one-pixel line, where the line reads thick (a corner whose arms are both two pixels or longer, as on a box, steps that go on all the way, and the edges of shapes are left alone)
   jagged line      a short run between two longer ones in a one-pixel line, a step that breaks its rhythm
   banding          a band one pixel wide, lighter than one side and darker than the other, that follows the edge next to it for four pixels or more
   off the palette  pixels in a colour that is not a palette entry

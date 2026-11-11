@@ -126,22 +126,39 @@ fn strays(field: &Field) -> Vec<Finding> {
         .collect()
 }
 
-fn corners(field: &Field) -> Vec<Finding> {
+fn elbow(field: &Field, cell: Cell, key: &str) -> Option<[Cell; 2]> {
     const BESIDE: [Cell; 4] = [(0, -1), (1, 0), (0, 1), (-1, 0)];
+    let arms: Vec<Cell> = BESIDE
+        .iter()
+        .filter(|(dx, dy)| field.is((cell.0 + dx, cell.1 + dy), key))
+        .copied()
+        .collect();
+    let [a, b] = arms.as_slice() else {
+        return None;
+    };
+    let square = a.0 * b.0 + a.1 * b.1 == 0;
+    let inside = (cell.0 + a.0 + b.0, cell.1 + a.1 + b.1);
+    let meant = field.arm(cell, *a, key) >= ARM && field.arm(cell, *b, key) >= ARM;
+    (square && !field.is(inside, key) && !meant).then_some([(cell.0 + a.0, cell.1 + a.1), (cell.0 + b.0, cell.1 + b.1)])
+}
+
+fn corners(field: &Field) -> Vec<Finding> {
     field
         .cells()
         .filter(|(cell, key)| {
-            let arms: Vec<Cell> = BESIDE
-                .iter()
-                .filter(|(dx, dy)| field.is((cell.0 + dx, cell.1 + dy), key))
-                .copied()
-                .collect();
-            let [a, b] = arms.as_slice() else {
+            let Some(arms) = elbow(field, *cell, key) else {
                 return false;
             };
-            let square = a.0 * b.0 + a.1 * b.1 == 0;
-            let inside = (cell.0 + a.0 + b.0, cell.1 + a.1 + b.1);
-            square && !field.is(inside, key) && !(field.arm(*cell, *a, key) >= ARM && field.arm(*cell, *b, key) >= ARM)
+            let thin = field.same(*cell, key).len() <= 3;
+            let alone = arms.iter().all(|arm| elbow(field, *arm, key).is_none());
+            let goes_on = arms.iter().any(|arm| {
+                field
+                    .same(*arm, key)
+                    .iter()
+                    .map(|(dx, dy)| (arm.0 + dx, arm.1 + dy))
+                    .any(|next| next != *cell && !arms.contains(&next))
+            });
+            thin && alone && goes_on
         })
         .map(|(cell, key)| Finding {
             kind: Kind::Corner,
@@ -441,20 +458,15 @@ mod tests {
 
     #[test]
     fn an_l_in_a_thin_line_is_a_doubled_corner_but_a_box_corner_is_not() {
-        let stairs = ["ii...", ".ii..", "..ii.", "...ii"];
-        assert_eq!(
-            found(&stairs, Kind::Corner),
-            [
-                ([1, 0], [1, 0]),
-                ([1, 1], [1, 1]),
-                ([2, 1], [2, 1]),
-                ([2, 2], [2, 2]),
-                ([3, 2], [3, 2]),
-                ([3, 3], [3, 3])
-            ]
-        );
+        let slip = ["i....", ".ii..", "..i..", "...i."];
+        assert_eq!(found(&slip, Kind::Corner), [([2, 1], [2, 1])]);
         let clean = ["i....", ".i...", "..i..", "...i."];
         assert!(found(&clean, Kind::Corner).is_empty());
+        let stairs = ["ii...", ".ii..", "..ii.", "...ii"];
+        assert!(
+            found(&stairs, Kind::Corner).is_empty(),
+            "steps all the way are a diagonal two pixels wide, not a slip"
+        );
         let boxed = ["iiiii", "i...i", "i...i", "iiiii"];
         assert!(
             found(&boxed, Kind::Corner).is_empty(),
@@ -469,6 +481,16 @@ mod tests {
             found(&hook, Kind::Corner),
             [([4, 0], [4, 0])],
             "a short arm is not a box"
+        );
+        let blob = ["ii.", "i..", "..."];
+        assert!(
+            found(&blob, Kind::Corner).is_empty(),
+            "three pixels are a cluster, not a line"
+        );
+        let wedge = ["..iii", "iii..", "ii...", "i...."];
+        assert!(
+            found(&wedge, Kind::Corner).is_empty(),
+            "the stepped edge of a shape is not a line"
         );
     }
 

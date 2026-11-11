@@ -8,6 +8,7 @@ target/
 __pycache__/
 /samples/*/*.klad/
 /samples/*/*.png
+/samples/*/*.gif
 /samples/*/*-godot/
 /samples/*/*.json
 /dist

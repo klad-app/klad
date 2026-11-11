@@ -1985,9 +1985,10 @@ fn klad_check_lists_the_slips_of_pixel_art_with_their_places() {
          ....i...................\n\
          .....iiii...............\n\
          ........................\n\
-         ii......................\n\
+         i.......................\n\
          .ii.....................\n\
-         ..i.....................\n",
+         ..i.....................\n\
+         ...i....................\n",
     )
     .unwrap();
     draw(&["pixel", path, "body", "--grid", grid.to_str().unwrap()]);
@@ -2006,7 +2007,7 @@ fn klad_check_lists_the_slips_of_pixel_art_with_their_places() {
         line("stray pixel").contains("16,0") && line("stray pixel").contains("ink"),
         "{listed}"
     );
-    assert!(line("doubled corner").contains("1,8"), "{listed}");
+    assert!(line("doubled corner").contains("2,9"), "{listed}");
     assert!(
         line("jagged line").contains("4,5") && line("jagged line").contains("a run of 1 between runs of 4 and 4"),
         "{listed}"

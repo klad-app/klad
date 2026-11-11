@@ -17,5 +17,7 @@ Drawings made from scratch with the `klad` CLI, each from a generator that print
 | `paintover` | Brushwork from a picture: the lemons repainted with `klad paintover`, and the creature's walk painted over once and carried drawing to drawing with `--like` and `--frames`, so the strokes move with the creature and the background stays still |
 | `rig` | Bones instead of a drawing per frame: a figure in a group with a skeleton, weights from the bones with the head, body and hand held rigidly by their parts, a wave posed at four keys and in-betweened on the bones, a lantern floating on keys, a far plane for parallax, and the Godot rig and parallax scene (`rig-godot/`) |
 | `solids` | Painting stroke by stroke: a sphere, a cube and a cylinder built in 3D with `docs/skill/drawkit.py`, lit, painted with natural strokes |
+| `sprout` | Pixel art: a 32 px character on three pixel layers (legs, body, sprout) drawn from text grids with `klad pixel`, a palette of two ramps, an idle of two drawings held and a walk of four, each drawing passing `klad check`, exported as a GIF and a sheet |
+| `ground` | A tileset: a 64x48 pixel drawing cut into 16 px tiles (`--tile 16`), grass over dirt as nine pieces, a floating platform, a stone block and a plant, exported as a Godot TileSet |
 
 The generated `.klad` bundles and pictures stay out of git.

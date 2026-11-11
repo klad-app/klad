@@ -1,4 +1,4 @@
-_Last updated: 2026-11-08 14:50_
+_Last updated: 2026-11-12 23:55_
 
 # Working with an agent
 
@@ -7,7 +7,7 @@ Let an agent you already use, such as Claude Code or Codex, paint into the drawi
 ## Set it up
 
 1. In the document menu at the foot of the tool strip, click **install the klad command**.
-2. Ask your agent to run `klad skill` and read what it prints.
+2. Ask your agent to run `klad skill` and read what it prints. For pixel art, ask it to run `klad skill pixel` too.
 3. Copy the drawing's path from the File menu and tell the agent what you want: "Paint a lantern on its own layer in art.klad, lit from the left."
 
 ## Point at something

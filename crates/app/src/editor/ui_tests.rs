@@ -1848,15 +1848,19 @@ fn checking_the_pixels_marks_the_places_and_follows_edits_until_it_is_turned_off
     );
     h.state_mut()
         .apply(vec![pixel(
-            serde_json::json!([[12, 10], [13, 10], [13, 11], [14, 11], [14, 12], [15, 12]]),
+            serde_json::json!([[12, 10], [13, 11], [14, 11], [14, 12], [15, 13]]),
             "#ef233c",
         )])
         .unwrap();
     h.run_steps(3);
     assert_eq!(
-        kinds(&h).iter().filter(|(kind, _)| *kind == Kind::Corner).count(),
-        4,
-        "a staircase drawn with doubles is marked at each of its corners: {:?}",
+        kinds(&h)
+            .iter()
+            .filter(|(kind, _)| *kind == Kind::Corner)
+            .map(|(_, at)| *at)
+            .collect::<Vec<_>>(),
+        [[14, 11]],
+        "a diagonal line with one L in it is marked at the corner: {:?}",
         kinds(&h)
     );
     h.state_mut().invoke(Cmd::CheckPixels).unwrap();
