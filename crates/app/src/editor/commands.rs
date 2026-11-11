@@ -7,7 +7,6 @@ use crate::layout::Pane;
 use crate::messages::Tone;
 use crate::stats::{Stats, lock};
 use crate::theme::{self, Hint};
-use crate::view::View;
 use anyhow::Result;
 use egui::RichText;
 use klad_core::doc::{Kind as LayerKind, MASK, Shape};
@@ -163,6 +162,8 @@ impl Editor {
                 .view
                 .is_none()
                 .then(|| "the canvas is not shown yet: wait a moment".to_string()),
+            Cmd::PixelGrid => (!self.scene.bundle.doc.pixel_art())
+                .then(|| "this drawing has no pixel layer: Layer > New pixel layer adds one".to_string()),
             Cmd::Corner | Cmd::Smooth => direct
                 .filter(|d| !d.points.is_empty())
                 .is_none()
@@ -382,6 +383,8 @@ impl Editor {
             Cmd::Brush => self.tool == Tool::Brush && !erasing,
             Cmd::Eraser => self.tool == Tool::Brush && erasing,
             Cmd::FlipView => self.view.is_some_and(|v| v.flip),
+            Cmd::PixelGrid => self.settings.pixel_grid,
+            Cmd::PreviewPane => layout.dock && layout.is_open(Pane::Preview),
             Cmd::Fill => self.tool == Tool::Fill,
             Cmd::Shapes => self.tool == Tool::Select,
             Cmd::Strokes => self.tool == Tool::Strokes,
@@ -545,8 +548,12 @@ impl Editor {
             Cmd::Note => self.tool = Tool::Note,
             Cmd::Smaller => self.size = (self.size / 1.25).max(0.5),
             Cmd::Bigger => self.size = (self.size * 1.25).min(800.0),
-            Cmd::Fit => self.view = Some(View::fit(self.canvas_size(), area)),
+            Cmd::Fit => {
+                self.view = Some(self.fitted(area));
+                self.zoom_wanted = None;
+            }
             Cmd::ActualSize => {
+                self.zoom_wanted = None;
                 let ppp = self.ctx.pixels_per_point();
                 if let Some(view) = self.view.as_mut() {
                     view.zoom_at(1.0 / (view.zoom * ppp), area / 2.0, area);
@@ -896,6 +903,11 @@ impl Editor {
             Cmd::InspectorPane => self.pane(Pane::Inspector),
             Cmd::NotesPane => self.pane(Pane::Notes),
             Cmd::HistoryPane => self.pane(Pane::History),
+            Cmd::PreviewPane => self.pane(Pane::Preview),
+            Cmd::PixelGrid => {
+                self.settings.pixel_grid = !self.settings.pixel_grid;
+                self.settings_dirty = true;
+            }
             Cmd::Timeline => {
                 self.settings.layout.timeline = !self.settings.layout.timeline;
                 self.settings_dirty = true;

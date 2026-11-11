@@ -1421,7 +1421,7 @@ Options:
           [default: 0]
 
       --scale <SCALE>
-          Scale (default 1, or longest side 1024 px with --focus)
+          Scale (default 1, or longest side 1024 px with --focus; a pixel drawing is enlarged by a whole number to about 512 px)
 
       --region <REGION>
           Only this canvas region: x,y,w,h

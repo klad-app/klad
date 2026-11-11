@@ -1055,6 +1055,10 @@ impl Document {
         }
     }
 
+    pub fn pixel_art(&self) -> bool {
+        self.all_layers().iter().any(|l| l.pixel())
+    }
+
     pub fn all_layers(&self) -> Vec<&Layer> {
         let mut out = Vec::new();
         walk_layers(&self.layers, &mut out);

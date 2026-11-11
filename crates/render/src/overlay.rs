@@ -116,6 +116,7 @@ pub struct Overlay {
     pub boxes: bool,
     pub ids: bool,
     pub grid: bool,
+    pub cells: bool,
     pub arcs: Vec<Arc>,
     pub frame: Option<u32>,
     pub numbers: bool,
@@ -308,6 +309,64 @@ fn grid_step(scale: f32) -> f32 {
         .unwrap_or(4096.0)
 }
 
+fn cell_steps(scale: f32) -> (f32, f32) {
+    let step = |least: f32| {
+        [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0]
+            .into_iter()
+            .find(|s| s * scale >= least)
+            .unwrap_or(128.0)
+    };
+    (step(6.0), step(26.0))
+}
+
+fn draw_cells(canvas: &Canvas, origin: (f32, f32), scale: f32, size: (f32, f32), px: f32) {
+    let (step, labelled) = cell_steps(scale);
+    let stroke = |rgb: [f32; 3], alpha: f32, dashed: bool| {
+        let mut paint = color(rgb, alpha);
+        paint.set_style(PaintStyle::Stroke);
+        paint.set_stroke_width(1.0);
+        if dashed {
+            paint.set_path_effect(skia_safe::PathEffect::dash(&[2.0, 2.0], 0.0));
+        }
+        paint
+    };
+    let first = |o: f32| (o / step).ceil() * step;
+    let named = |v: f32| (v / labelled).fract() == 0.0;
+    let xs: Vec<f32> = std::iter::successors(Some(first(origin.0)), |v| Some(v + step))
+        .take_while(|v| (v - origin.0) * scale < size.0)
+        .collect();
+    let ys: Vec<f32> = std::iter::successors(Some(first(origin.1)), |v| Some(v + step))
+        .take_while(|v| (v - origin.1) * scale < size.1)
+        .collect();
+    let lines = |v: f32| match named(v) {
+        true => [stroke([0.0, 0.0, 0.0], 0.55, false), stroke([1.0, 1.0, 1.0], 0.8, true)],
+        false => [stroke([0.0, 0.0, 0.0], 0.3, false), stroke([1.0, 1.0, 1.0], 0.45, true)],
+    };
+    xs.iter().for_each(|v| {
+        let x = ((v - origin.0) * scale).round() + 0.5;
+        lines(*v).iter().for_each(|paint| {
+            canvas.draw_line((x, 0.0), (x, size.1), paint);
+        });
+    });
+    ys.iter().for_each(|v| {
+        let y = ((v - origin.1) * scale).round() + 0.5;
+        lines(*v).iter().for_each(|paint| {
+            canvas.draw_line((0.0, y), (size.0, y), paint);
+        });
+    });
+    let tag = |text: String, x: f32, y: f32| {
+        let (w, h) = (text_width(&text, px) + 2.0 * px + 1.0, 9.0 * px);
+        canvas.draw_rect(Rect::from_xywh(x, y, w, h), &color([0.05, 0.06, 0.08], 0.82));
+        draw_text(canvas, &text, x + px, y + px, px, [1.0, 1.0, 1.0]);
+    };
+    xs.iter().filter(|v| named(**v)).for_each(|v| {
+        tag(format!("{v:.0}"), ((v - origin.0) * scale).round() + 1.0, 0.0);
+    });
+    ys.iter().filter(|v| named(**v) && **v > origin.1).for_each(|v| {
+        tag(format!("{v:.0}"), 0.0, ((v - origin.1) * scale).round() + 1.0);
+    });
+}
+
 fn draw_grid(canvas: &Canvas, origin: (f32, f32), scale: f32, size: (f32, f32), px: f32) {
     let step = grid_step(scale);
     let mut line = color([1.0, 1.0, 1.0], 0.35);
@@ -344,7 +403,9 @@ pub fn apply(image: &skia_safe::Image, overlay: &Overlay, view: &View) -> Result
     let origin = view.region.map_or((0.0, 0.0), |[x, y, _, _]| (x as f32, y as f32));
     let s = view.scale;
     let px = if w.max(h) >= 1400 { 2.0 } else { 1.0 };
-    if overlay.grid {
+    if overlay.grid && overlay.cells {
+        draw_cells(canvas, origin, s, (w as f32, h as f32), px);
+    } else if overlay.grid {
         draw_grid(canvas, origin, s, (w as f32, h as f32), px);
     }
     let to_out = |r: [f32; 4]| [(r[0] - origin.0) * s, (r[1] - origin.1) * s, r[2] * s, r[3] * s];
@@ -812,5 +873,36 @@ mod tests {
         let pair = side_by_side(&[(&plain, "before"), (&marked, "after")]).unwrap();
         assert_eq!(pair.width, 816);
         assert!(text_width("ab", 1.0) > 0.0);
+    }
+
+    #[test]
+    fn a_pixel_grid_lines_every_pixel_once_enlarged_and_names_them_where_the_numbers_fit() {
+        assert_eq!(cell_steps(21.0), (1.0, 2.0));
+        assert_eq!(cell_steps(32.0), (1.0, 1.0));
+        assert_eq!(cell_steps(8.0), (1.0, 4.0));
+        assert_eq!(
+            cell_steps(2.0),
+            (4.0, 16.0),
+            "too small to tell pixels apart: fewer lines"
+        );
+        let d = doc();
+        let view = View::scaled(8.0);
+        let plain = compose_view(&d, 0, &Rasters::new(), view, None, None).unwrap();
+        let cells = Overlay {
+            grid: true,
+            cells: true,
+            ..Overlay::default()
+        };
+        let marked = compose_view(&d, 0, &Rasters::new(), view, Some(&cells), None).unwrap();
+        assert_ne!(
+            marked.pixel(8 * 30, 8 * 20 + 3),
+            plain.pixel(8 * 30, 8 * 20 + 3),
+            "a line between pixels 29 and 30"
+        );
+        assert_eq!(
+            marked.pixel(8 * 30 + 4, 8 * 20 + 4),
+            plain.pixel(8 * 30 + 4, 8 * 20 + 4),
+            "the pixel itself is untouched"
+        );
     }
 }

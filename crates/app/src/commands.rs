@@ -127,6 +127,8 @@ pub enum Cmd {
     InspectorPane,
     NotesPane,
     HistoryPane,
+    PreviewPane,
+    PixelGrid,
     Timeline,
     Numbers,
     Settings,
@@ -507,7 +509,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 180] = [
+    pub const ALL: [Cmd; 182] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -631,6 +633,8 @@ impl Cmd {
         Cmd::InspectorPane,
         Cmd::NotesPane,
         Cmd::HistoryPane,
+        Cmd::PreviewPane,
+        Cmd::PixelGrid,
         Cmd::Timeline,
         Cmd::Numbers,
         Cmd::Settings,
@@ -1871,6 +1875,24 @@ impl Cmd {
                 R::No,
                 "start the measurements again",
             ),
+            Cmd::PreviewPane => spec(
+                "panel.real-size",
+                "real size panel",
+                icon::IMAGE,
+                G::Panels,
+                T::None,
+                R::No,
+                "show or hide the drawing at its real size in the dock: one pixel of the drawing on one pixel of the screen, or 2 or 4",
+            ),
+            Cmd::PixelGrid => spec(
+                "view.pixel-grid",
+                "pixel grid",
+                icon::PIXELS,
+                G::View,
+                T::None,
+                R::No,
+                "lines between the pixels of a pixel drawing once it is zoomed in far enough to tell them apart",
+            ),
             Cmd::FlipView => spec(
                 "view.flip",
                 "flip the view left-right",
@@ -2434,6 +2456,8 @@ impl Cmd {
             Cmd::InspectorPane => "Layer settings",
             Cmd::NotesPane => "Notes",
             Cmd::HistoryPane => "History",
+            Cmd::PreviewPane => "Real size",
+            Cmd::PixelGrid => "Pixel grid",
             Cmd::Timeline => "Timeline",
             Cmd::Numbers => "Show numbers",
             Cmd::Settings => "Settings…",
@@ -2774,6 +2798,7 @@ pub const MENUS: [Menu; 9] = [
             Run(Cmd::TurnLeft),
             Run(Cmd::ResetRotation),
             Run(Cmd::FlipView),
+            Run(Cmd::PixelGrid),
             Line,
             Run(Cmd::CompareReference),
         ],
@@ -2790,6 +2815,7 @@ pub const MENUS: [Menu; 9] = [
             Run(Cmd::InspectorPane),
             Run(Cmd::NotesPane),
             Run(Cmd::HistoryPane),
+            Run(Cmd::PreviewPane),
             Run(Cmd::Timeline),
             Line,
             Run(Cmd::MessageLog),

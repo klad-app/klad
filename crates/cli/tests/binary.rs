@@ -575,6 +575,26 @@ fn a_pixel_drawing_is_made_drawn_listed_and_edited_from_the_command_line() {
     assert!(String::from_utf8_lossy(&refused.stderr).contains("pixel layer"));
     let bad = run(&["pixel", path, &layer, "--color", "skin", "--cells", "3;4"]);
     assert!(String::from_utf8_lossy(&bad.stderr).contains("is not x,y"));
+    let shown = run(&["render", path]);
+    assert!(
+        String::from_utf8_lossy(&shown.stderr).contains("512x384"),
+        "a pixel drawing renders enlarged by a whole number: {}",
+        String::from_utf8_lossy(&shown.stderr)
+    );
+    let hash = |out: &std::process::Output| {
+        String::from_utf8_lossy(&out.stderr)
+            .split_whitespace()
+            .skip_while(|word| *word != "hash")
+            .nth(1)
+            .map(String::from)
+    };
+    let gridded = run(&["render", path, "--overlay", "grid"]);
+    assert!(
+        gridded.status.success() && hash(&gridded) != hash(&shown),
+        "the grid overlay draws its lines"
+    );
+    let real = run(&["render", path, "--scale", "1"]);
+    assert!(String::from_utf8_lossy(&real.stderr).contains("16x12"));
     draw(&["add", path, "layer", "pixel", "name=shade"]);
     assert_eq!(json(&["ls", path, "--json"])["layers"][0]["kind"], "pixel");
     std::fs::remove_dir_all(&dir).unwrap();

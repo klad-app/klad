@@ -30,6 +30,26 @@ impl View {
         }
     }
 
+    pub fn whole(zoom: f32, pixels_per_point: f32) -> f32 {
+        let px = zoom * pixels_per_point;
+        match px >= 1.0 {
+            true => px.round().clamp(1.0, 64.0) / pixels_per_point,
+            false => zoom,
+        }
+    }
+
+    pub fn fit_whole(canvas: Vec2, area: Vec2, pixels_per_point: f32) -> Self {
+        let fit = Self::fit(canvas, area);
+        let px = fit.zoom * pixels_per_point;
+        Self {
+            zoom: match px >= 1.0 {
+                true => px.floor().clamp(1.0, 64.0) / pixels_per_point,
+                false => fit.zoom,
+            },
+            ..fit
+        }
+    }
+
     pub fn to_screen(self, canvas: Vec2, area: Vec2) -> Vec2 {
         rotate(mirror(canvas - self.center, self.flip), self.angle) * self.zoom + area / 2.0
     }
@@ -106,6 +126,33 @@ mod tests {
         view.angle = 0.7;
         let p = Vec2::new(321.0, 654.0);
         assert!(close(view.to_canvas(view.to_screen(p, area), area), p));
+    }
+
+    #[test]
+    fn a_pixel_drawing_fits_and_zooms_at_whole_screen_pixels_per_pixel() {
+        let area = Vec2::new(900.0, 700.0);
+        let fit = View::fit_whole(Vec2::new(64.0, 64.0), area, 2.0);
+        assert_eq!(
+            fit.zoom * 2.0,
+            20.0,
+            "the largest whole number under 700 * 0.92 * 2 / 64"
+        );
+        assert_eq!(fit.center, Vec2::new(32.0, 32.0));
+        let large = View::fit_whole(Vec2::new(4096.0, 4096.0), area, 2.0);
+        assert_eq!(
+            large.zoom,
+            View::fit(Vec2::new(4096.0, 4096.0), area).zoom,
+            "under real size it fits freely"
+        );
+        assert_eq!(View::whole(3.4, 1.0), 3.0);
+        assert_eq!(View::whole(3.6, 1.0), 4.0);
+        assert_eq!(
+            View::whole(1.3, 2.0),
+            1.5,
+            "on a dense screen half steps are whole screen pixels"
+        );
+        assert_eq!(View::whole(0.4, 1.0), 0.4);
+        assert_eq!(View::whole(200.0, 1.0), 64.0);
     }
 
     #[test]

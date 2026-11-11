@@ -107,7 +107,8 @@ klad add art.klad layer pixel name=sprite               a pixel layer in any dra
 klad pixel sprite.klad l1 --color '#2b2d42' --cells '3-12,2 3,3-8 12,3-8 3-12,9'
 klad pixel sprite.klad l1 --color skin --cells '4-11,3-8'
 klad pixel sprite.klad l1 --erase --cells '7,5 8,5'
-klad export sprite.klad --scale 8 -o sprite@8x.png      square pixels, to look at
+klad render sprite.klad --overlay grid                  enlarged, with numbered pixel lines
+klad export sprite.klad --scale 8 -o sprite@8x.png      square pixels, to keep
 ```
 
 - A pixel layer is a grid with no soft edges, and one pixel is one canvas pixel: a 32x32 sprite is a 32x32 drawing. Size the drawing in pixels of the art, not of the screen; `klad ls` shows the layer as `pixel`.
@@ -115,7 +116,7 @@ klad export sprite.klad --scale 8 -o sprite@8x.png      square pixels, to look a
 - `--color` is a palette name, a palette index or `#rrggbb`. Every pixel mark is bound to a palette entry: a colour the palette lacks is added to it, so name the colours first (`klad palette sprite.klad --add '#f0c8a0' --name skin`) and draw with the names. `klad palette` lists the entries with their ids.
 - Each call makes one mark, `<cel>:s<id>`, that stays editable: `klad set sprite.klad c2:s1 color=shadow` recolours it (and binds it to that entry), `klad transform ... --move 2,0` moves it by whole pixels, `--flip h` and `--rotate 90` keep it hard, `klad rm` removes it. `klad strokes sprite.klad l1` lists the marks with their entry and cell count; `--json` gives each one's `cells`.
 - Later marks cover earlier ones; `--erase` makes a mark that clears what was drawn before it at those pixels (remove that mark and the pixels come back).
-- Look at a sprite enlarged: `klad export --scale 8` (whole numbers) keeps every pixel a square. At real size a 32 px picture is too small to judge.
+- Looking: `klad render` and the `--render` preview of an edit enlarge a pixel drawing by a whole number to about 512 px, so every pixel is a square you can see (`--scale 1` gives the real size, which is how the player sees it: check there too). `--overlay grid` draws a line between pixels and numbers them along the top and the left, so a pixel's `x,y` can be read off the picture: the number is on the line where that column or row starts. `klad export --scale 8` (whole numbers) writes the enlarged PNG to keep.
 - In `apply`: `{"op":"pixel","layer":"l1","color":"skin","cells":[[4,5],[5,5]]}` or `"erase":true`. Brush strokes (`klad stroke`, `ink`, `paint`, ...) and `klad fill` are refused on a pixel layer.
 
 ## Masks, clipping and lock alpha

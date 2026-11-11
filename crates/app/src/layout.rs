@@ -20,6 +20,7 @@ pub enum Pane {
     Inspector,
     Notes,
     History,
+    Preview,
 }
 
 impl Pane {
@@ -31,6 +32,7 @@ impl Pane {
             Pane::Inspector => "Layer settings",
             Pane::Notes => "Notes for the agent",
             Pane::History => "History",
+            Pane::Preview => "Real size",
         }
     }
 
@@ -42,6 +44,7 @@ impl Pane {
             Pane::Inspector => 110.0,
             Pane::Notes => 60.0,
             Pane::History => 60.0,
+            Pane::Preview => 110.0,
         }
     }
 
@@ -53,6 +56,7 @@ impl Pane {
             Pane::Inspector => 220.0,
             Pane::Notes => 90.0,
             Pane::History => 80.0,
+            Pane::Preview => 170.0,
         }
     }
 }
@@ -91,17 +95,18 @@ impl Default for Layout {
             timeline_folded: false,
             numbers: false,
             panes: [
-                (Pane::Tool, false),
-                (Pane::Brush, false),
-                (Pane::Layers, false),
-                (Pane::Inspector, false),
-                (Pane::Notes, true),
-                (Pane::History, true),
+                (Pane::Tool, true, false),
+                (Pane::Preview, false, false),
+                (Pane::Brush, true, false),
+                (Pane::Layers, true, false),
+                (Pane::Inspector, true, false),
+                (Pane::Notes, true, true),
+                (Pane::History, true, true),
             ]
             .into_iter()
-            .map(|(pane, collapsed)| PaneState {
+            .map(|(pane, open, collapsed)| PaneState {
                 pane,
-                open: true,
+                open,
                 collapsed,
                 body: pane.default_body(),
             })
@@ -335,7 +340,11 @@ mod tests {
         )
         .unwrap()
         .repaired();
-        assert_eq!(old.panes.len(), 6);
+        assert_eq!(old.panes.len(), 7);
+        assert!(
+            !old.is_open(Pane::Preview),
+            "a pane that is new to old settings keeps its default"
+        );
         assert_eq!(old.panes[0].pane, Pane::Layers);
         assert_eq!(old.panes[0].body, Pane::Layers.min_body());
     }

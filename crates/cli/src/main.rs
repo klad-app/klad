@@ -707,7 +707,10 @@ enum Command {
         out: Option<PathBuf>,
         #[arg(long, default_value_t = 0)]
         frame: u32,
-        #[arg(long, help = "Scale (default 1, or longest side 1024 px with --focus)")]
+        #[arg(
+            long,
+            help = "Scale (default 1, or longest side 1024 px with --focus; a pixel drawing is enlarged by a whole number to about 512 px)"
+        )]
         scale: Option<f32>,
         #[arg(long, value_parser = parse_region, help = "Only this canvas region: x,y,w,h")]
         region: Option<[i32; 4]>,
@@ -3874,11 +3877,16 @@ fn render(
     let bundle = Bundle::open(path)?;
     let view = match &look.focus {
         Some(id) => agent::focus_view(&bundle, id, frame, scale)?,
-        None => View {
-            scale: scale.unwrap_or(1.0),
-            region,
-            references: false,
-        },
+        None => {
+            let longest = region.map_or(bundle.doc.canvas.width.max(bundle.doc.canvas.height) as f32, |r| {
+                r[2].max(r[3]) as f32
+            });
+            View {
+                scale: scale.or_else(|| agent::pixel_scale(&bundle, longest)).unwrap_or(1.0),
+                region,
+                references: false,
+            }
+        }
     };
     let done = agent::render_look(&bundle, frame, view, look, out, use_cache)?;
     println!("{}", done.path.display());

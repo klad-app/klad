@@ -1513,6 +1513,119 @@ fn a_pixel_layer_is_added_shows_its_marks_hard_and_keeps_brush_strokes_out() {
     let _ = std::fs::remove_dir_all(&path);
 }
 
+fn pixel_sample(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("draw-ui-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut bundle = Bundle::blank(
+        &dir,
+        &klad_core::bundle::Blank {
+            width: 32,
+            height: 24,
+            pixel: true,
+            ..klad_core::bundle::Blank::default()
+        },
+        "cli",
+    )
+    .unwrap();
+    let layer = bundle.doc.layers[0].id.clone();
+    bundle
+        .apply(
+            &parse_lines(&format!(
+                "{}\n{}",
+                format_args!(
+                    r##"{{"op":"pixel","layer":"{layer}","color":"#2b2d42","cells":[[4,4],[5,4],[6,4],[4,5],[6,5],[4,6],[5,6],[6,6]]}}"##
+                ),
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"#ef233c","cells":[[5,5]]}}"##),
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+    dir
+}
+
+#[test]
+fn a_pixel_drawing_zooms_in_whole_steps_and_shows_its_grid_the_pointers_pixel_and_its_real_size() {
+    let path = pixel_sample("sharp");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    let ppp = h.ctx.pixels_per_point();
+    let whole = |h: &Harness<'static, Editor>| {
+        let px = h.state().view.unwrap().zoom * ppp;
+        assert!(
+            (px - px.round()).abs() < 1e-4,
+            "{px} screen pixels per pixel is not a whole number"
+        );
+        px.round() as u32
+    };
+    assert!(whole(&h) >= 8, "a 32 pixel drawing opens enlarged");
+    h.state_mut().invoke(Cmd::Fit).unwrap();
+    h.run_steps(2);
+    let fitted = whole(&h);
+    let rect = h.state().canvas_rect;
+    assert!(fitted >= 8, "and fits enlarged: {fitted}");
+    assert!(
+        32.0 * fitted as f32 / ppp <= rect.width() && 24.0 * fitted as f32 / ppp <= rect.height(),
+        "and whole on the canvas"
+    );
+    assert!(h.state().grid_shows(), "zoomed in this far the grid shows");
+    h.hover_at(rect.center());
+    h.run_steps(1);
+    (0..6).for_each(|_| {
+        h.event(egui::Event::Zoom(0.9));
+        h.run_steps(1);
+        whole(&h);
+    });
+    let smaller = whole(&h);
+    assert!(smaller < fitted, "pinching zooms out: {smaller} from {fitted}");
+    (0..40).for_each(|_| {
+        h.event(egui::Event::Zoom(0.8));
+        h.run_steps(1);
+    });
+    assert!(
+        h.state().view.unwrap().zoom * ppp < 1.0,
+        "below real size the zoom is free again"
+    );
+    assert!(!h.state().grid_shows(), "and the grid is gone");
+    h.state_mut().invoke(Cmd::Fit).unwrap();
+    h.run_steps(2);
+    assert_eq!(whole(&h), fitted, "fit comes back to the largest whole zoom");
+    let at = on_screen(&h, 5.5, 7.5);
+    h.hover_at(at);
+    h.run_steps(2);
+    assert_eq!(h.state().hover_cell, Some([5, 7]));
+    assert!(
+        h.query_by_label("5, 7").is_some(),
+        "the status line names the pixel under the pointer"
+    );
+    h.state_mut().invoke(Cmd::PixelGrid).unwrap();
+    h.run_steps(1);
+    assert!(!h.state().grid_shows() && h.state().is_on(Cmd::PixelGrid) == Some(false));
+    h.state_mut().invoke(Cmd::PixelGrid).unwrap();
+    assert!(!h.state().settings.layout.is_open(Pane::Preview));
+    h.state_mut().invoke(Cmd::PreviewPane).unwrap();
+    h.run_steps(3);
+    assert!(h.query_by_label("Real size").is_some() && h.query_by_label("32 x 24").is_some());
+    let (_, texture) = h.state().real.as_ref().expect("the drawing at its real size");
+    assert_eq!(texture.size(), [32, 24]);
+    h.get_by_label("2x").click();
+    h.run_steps(2);
+    assert_eq!(h.state().settings.real_size_scale, 2);
+    let painting = sample("no-grid");
+    let plain = harness(editor(&painting), vec2(1440.0, 900.0));
+    assert!(
+        plain
+            .state()
+            .can_run(Cmd::PixelGrid)
+            .is_some_and(|why| why.contains("no pixel layer"))
+    );
+    let px = plain.state().view.unwrap().zoom * ppp;
+    assert!(
+        (px - px.round()).abs() > 1e-3,
+        "a painting still fits at any zoom: {px}"
+    );
+    let _ = std::fs::remove_dir_all(&path);
+    let _ = std::fs::remove_dir_all(&painting);
+}
+
 #[test]
 fn a_tap_that_wobbles_selects_and_a_drag_past_three_points_moves() {
     let path = sample("tap");

@@ -82,6 +82,10 @@ const FINISH_WAIT: Duration = Duration::from_secs(2);
 const DRAG_SLOP: f32 = 3.0;
 const KNOB: f32 = 30.0;
 const IDENTITY: [f32; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+const GRID_FROM: f32 = 8.0;
+pub(crate) const REAL_MAX: u32 = 512;
+
+type RealKey = (u64, u32, u64);
 
 fn raw_of(e: &PenEvent, c: Vec2, dt_ms: f32) -> Raw {
     Raw {
@@ -700,6 +704,10 @@ pub(crate) struct Editor {
     preview: Option<PreviewState>,
     outbox: Arc<Mutex<Outbox>>,
     zoom_px: f32,
+    zoom_wanted: Option<f32>,
+    hover_cell: Option<[i32; 2]>,
+    painted: u64,
+    real: Option<(RealKey, egui::TextureHandle)>,
     picked: Option<Picked>,
     also: Vec<String>,
     direct: Option<Direct>,
@@ -743,7 +751,14 @@ impl Editor {
                 .ok_or_else(|| crate::report::bug("the ink brush is missing from the library"))?,
         );
         let settings_path = settings::default_path();
-        let settings = settings_path.as_deref().map(Settings::load).unwrap_or_default();
+        let mut settings = settings_path.as_deref().map(Settings::load).unwrap_or_default();
+        let offered = scene.bundle.doc.pixel_art() && !settings.real_size_shown;
+        if offered {
+            settings.real_size_shown = true;
+            if !settings.layout.is_open(crate::layout::Pane::Preview) {
+                settings.layout.toggle(crate::layout::Pane::Preview);
+            }
+        }
         let open = format!(
             "{} layers, opened in {:.0} ms",
             scene.bundle.doc.all_layers().len(),
@@ -786,7 +801,7 @@ impl Editor {
             flow: 1.0,
             settings,
             settings_path,
-            settings_dirty: false,
+            settings_dirty: offered,
             update: None,
             update_feed: crate::updates::feed(),
             update_check: None,
@@ -882,6 +897,10 @@ impl Editor {
             preview: None,
             outbox: Arc::default(),
             zoom_px: 1.0,
+            zoom_wanted: None,
+            hover_cell: None,
+            painted: 0,
+            real: None,
             picked: None,
             also: Vec::new(),
             direct: None,
@@ -3358,7 +3377,14 @@ impl Editor {
         };
         let at = hover.filter(|p| rect.contains(*p)).map_or(area / 2.0, |p| p - rect.min);
         if response.hovered() || response.dragged() {
-            if zoom != 1.0 {
+            if zoom != 1.0 && self.scene.bundle.doc.pixel_art() {
+                let wanted = (self.zoom_wanted.unwrap_or(view.zoom) * zoom).clamp(0.02, 64.0);
+                self.zoom_wanted = Some(wanted);
+                let target = View::whole(wanted, ui.ctx().pixels_per_point());
+                if target != view.zoom {
+                    view.zoom_at(target / view.zoom, at, area);
+                }
+            } else if zoom != 1.0 {
                 view.zoom_at(zoom, at, area);
             }
             if scroll != Vec2::ZERO {
@@ -3384,7 +3410,9 @@ impl Editor {
         self.canvas_rect = rect;
         let area = rect.size();
         let canvas = self.canvas_size();
-        self.view.get_or_insert_with(|| View::fit(canvas, area));
+        if self.view.is_none() {
+            self.view = Some(self.fitted(area));
+        }
         self.navigate(ui, &response, rect);
         self.keep_typing_focus(ui, &response)?;
         self.typing_keys(ui)?;
@@ -3415,7 +3443,7 @@ impl Editor {
         {
             self.select_pin(view.to_canvas(p - rect.min, rect.size()))?;
         }
-        let view = self.view.unwrap_or_else(|| View::fit(canvas, area));
+        let view = self.view.unwrap_or_else(|| self.fitted(area));
         self.double_click_text(&response, view, rect)?;
         self.zoom_px = view.zoom * ctx.pixels_per_point();
         self.refresh_box();
@@ -3474,6 +3502,9 @@ impl Editor {
             stats.tiles.push(uploads.len() as f32);
         }
         let uploads: Tiles = previewed.into_iter().chain(uploads).collect();
+        if !uploads.is_empty() {
+            self.painted += 1;
+        }
         let (frame_uploads, frame_drops) = self.frames.take();
         lock(&self.outbox).send(uploads, frame_uploads, frame_drops);
         ui.painter().add(egui_wgpu::Callback::new_paint_callback(
@@ -3490,11 +3521,16 @@ impl Editor {
         ));
         self.parallax(ui, view, rect);
         self.prepare_typing(&ctx, view, rect);
-        self.decorate(ui, view, rect);
         let hover = ui
             .input(|i| i.pointer.hover_pos())
             .filter(|p| rect.contains(*p))
             .map(|p| view.to_canvas(p - rect.min, rect.size()));
+        self.hover_cell = hover
+            .filter(|_| self.scene.bundle.doc.pixel_art())
+            .filter(|p| p.x >= 0.0 && p.y >= 0.0 && p.x < canvas.x && p.y < canvas.y)
+            .map(|p| [p.x.floor() as i32, p.y.floor() as i32]);
+        self.decorate_grid(ui, view, rect);
+        self.decorate(ui, view, rect);
         let painter = ui.painter().with_clip_rect(rect);
         self.decorate_bones(&painter, |c| rect.min + view.to_screen(c, rect.size()), hover);
         if self.live.is_some()
@@ -3511,6 +3547,59 @@ impl Editor {
         }
         self.share_selection();
         Ok(())
+    }
+
+    pub(super) fn fitted(&self, area: Vec2) -> View {
+        match self.scene.bundle.doc.pixel_art() {
+            true => View::fit_whole(self.canvas_size(), area, self.ctx.pixels_per_point()),
+            false => View::fit(self.canvas_size(), area),
+        }
+    }
+
+    pub(super) fn grid_shows(&self) -> bool {
+        self.settings.pixel_grid && self.zoom_px >= GRID_FROM && self.scene.bundle.doc.pixel_art()
+    }
+
+    fn decorate_grid(&self, ui: &egui::Ui, view: View, rect: Rect) {
+        let painter = ui.painter().with_clip_rect(rect);
+        let canvas = self.canvas_size();
+        if self.grid_shows() {
+            let corners = [
+                rect.left_top(),
+                rect.right_top(),
+                rect.right_bottom(),
+                rect.left_bottom(),
+            ]
+            .map(|p| view.to_canvas(p - rect.min, rect.size()));
+            let low = |f: fn(&Vec2) -> f32| corners.iter().map(f).fold(f32::MAX, f32::min);
+            let high = |f: fn(&Vec2) -> f32| corners.iter().map(f).fold(f32::MIN, f32::max);
+            let (x0, x1) = (low(|p| p.x).floor().max(0.0), high(|p| p.x).ceil().min(canvas.x));
+            let (y0, y1) = (low(|p| p.y).floor().max(0.0), high(|p| p.y).ceil().min(canvas.y));
+            let dark = egui::Stroke::new(1.0, Color32::from_black_alpha(70));
+            let light = egui::Stroke::new(1.0, Color32::from_white_alpha(90));
+            let to_screen = |x: f32, y: f32| self.screen(view, rect, vec2(x, y));
+            let rule = |a: Pos2, b: Pos2| {
+                painter.line_segment([a, b], dark);
+                painter.extend(egui::Shape::dashed_line(&[a, b], light, 2.0, 2.0));
+            };
+            (x0 as i32..=x1 as i32)
+                .map(|x| x as f32)
+                .for_each(|x| rule(to_screen(x, y0), to_screen(x, y1)));
+            (y0 as i32..=y1 as i32)
+                .map(|y| y as f32)
+                .for_each(|y| rule(to_screen(x0, y), to_screen(x1, y)));
+        }
+        if let Some([x, y]) = self.hover_cell.filter(|_| self.scene.on_grid() && self.zoom_px >= 3.0) {
+            let (x, y) = (x as f32, y as f32);
+            let cell = [(x, y), (x + 1.0, y), (x + 1.0, y + 1.0), (x, y + 1.0)]
+                .map(|(x, y)| self.screen(view, rect, vec2(x, y)))
+                .to_vec();
+            painter.add(egui::Shape::closed_line(
+                cell.clone(),
+                egui::Stroke::new(3.0, Color32::from_black_alpha(150)),
+            ));
+            painter.add(egui::Shape::closed_line(cell, egui::Stroke::new(1.0, Color32::WHITE)));
+        }
     }
 
     fn decorate(&self, ui: &egui::Ui, view: View, rect: Rect) {
