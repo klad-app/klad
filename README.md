@@ -1,12 +1,10 @@
 # klad
 
-![The klad editor with a round green sprout creature open, painted by an agent in visible oil strokes, with the brush, colour and layer panes beside it](docs/images/editor-creature.png)
+![The hero of klad.studio: a terminal beside the klad editor. An agent paints a sprout creature stroke by stroke through the klad command line; in the editor its leaves are recoloured, its mouth bent into a smile, a smudge moved and its blush blended; then the agent puts its parts in groups, keys them, and the creature walks while the editor's timeline plays](docs/images/creature-hero.gif)
 
 **Give your agent real brushes.** klad is a 2D painting and animation app you share with a coding agent. You paint in the editor with a pen. The agent paints through the `klad` command line, with the same brushes, on the same drawing, and each of you sees the other's strokes instantly.
 
 **There is no image model in klad.** Your agent (Claude Code, Codex, anything that can run commands) decides what to paint; klad gives it brushes, layers and a timeline. Whatever either of you puts down stays what it was: a stroke with its path, pressure, brush and colour, a shape with its points, a fill with its region. So there's no rerolling and hoping for the best: if one leaf looks off, you fix that leaf.
-
-![The hero of klad.studio: a terminal beside the klad editor. An agent paints a sprout creature stroke by stroke through the klad command line; in the editor its leaves are recoloured, its mouth bent into a smile, a smudge moved and its blush blended; then the agent puts its parts in groups, keys them, and the creature walks while the editor's timeline plays](docs/images/creature-hero.gif)
 
 *Asked for "a little sprout creature for my game", the agent paints 4,344 strokes and fills. You change them: recolour the leaves, bend the mouth, move a smudge, blend the blush. Then the agent animates it: the creature's parts go into five groups, 205 keys move them, and no frame is painted again.*
 
