@@ -2321,7 +2321,7 @@ enum Command {
     },
     #[command(
         about = "Print an agent skill: how an agent draws with klad, or the craft of drawing itself",
-        long_about = "Print an agent skill, to hand to an agent as its instructions.\n\n  klad skill            how an agent draws with klad: the commands, layers, brushes and traps (docs/skill/SKILL.md)\n  klad skill drawing    the craft: planning a picture, light on form, values, edges, colour, materials, line, a painting method and a critique checklist (docs/skill/drawing/SKILL.md)\n\nBoth are under the MIT licence."
+        long_about = "Print an agent skill, to hand to an agent as its instructions.\n\n  klad skill            how an agent draws with klad: the commands, layers, brushes and traps (docs/skill/SKILL.md)\n  klad skill drawing    the craft: planning a picture, light on form, values, edges, colour, materials, line, a painting method and a critique checklist (docs/skill/drawing/SKILL.md)\n  klad skill pixel      the craft of pixel art: size and palette, silhouette, clusters, clean lines, outlines, ramps with hue shift, shading without pillows or banding, anti-aliasing by hand, tiles, animation and a checklist at real size (docs/skill/pixel/SKILL.md)\n\nAll three are under the MIT licence."
     )]
     Skill {
         #[arg(help = "Which skill: klad (the default) or drawing")]
@@ -4557,8 +4557,9 @@ fn run() -> Result<()> {
         Command::Skill { which } => match which.as_deref() {
             None | Some("klad") => print!("{}", include_str!("../../../docs/skill/SKILL.md")),
             Some("drawing") => print!("{}", include_str!("../../../docs/skill/drawing/SKILL.md")),
+            Some("pixel") => print!("{}", include_str!("../../../docs/skill/pixel/SKILL.md")),
             Some(other) => bail!(
-                "there is no skill named {other}: klad skill prints the klad skill, klad skill drawing the craft of drawing"
+                "there is no skill named {other}: klad skill prints the klad skill, klad skill drawing the craft of drawing, klad skill pixel the craft of pixel art"
             ),
         },
         Command::Samples { copy, into, json } => samples(copy.as_deref(), into, json)?,

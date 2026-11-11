@@ -37,7 +37,7 @@ An image generator hands you pixels, and the only edit left is another roll of t
 3. **Point.** Pin a note on the canvas or select the part you mean ("more moss on this side"). The agent reads both.
 4. **Take over.** Repaint whatever you like by hand, the agent's strokes as much as your own. Its strokes are marked as its own and every change is one step in a shared history, so you can undo any of it.
 
-The prompt to start with is under [Try it](#try-it). `klad skill` prints the agent skill in `docs/skill/SKILL.md`: how to look at a drawing, change it and check the result. A second one, `klad skill drawing` (`docs/skill/drawing/SKILL.md`), teaches the craft: planning a picture, light on form, values, edges, colour, materials and how to judge the result. Both are MIT, so use them with any agent and any tool. Open the drawing to watch and draw along:
+The prompt to start with is under [Try it](#try-it). `klad skill` prints the agent skill in `docs/skill/SKILL.md`: how to look at a drawing, change it and check the result. A second one, `klad skill drawing` (`docs/skill/drawing/SKILL.md`), teaches the craft: planning a picture, light on form, values, edges, colour, materials and how to judge the result. A third, `klad skill pixel` (`docs/skill/pixel/SKILL.md`), does the same for pixel art. All are MIT, so use them with any agent and any tool. Open the drawing to watch and draw along:
 
 What an agent paints depends on the agent and on how much you steer it. The skills teach it the tool and some craft; the pen in your hand does the rest.
 

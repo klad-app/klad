@@ -8,7 +8,7 @@ description: Make and edit 2D art with the klad CLI (`klad`) in a `.klad` bundle
 
 A `.klad` bundle is a folder: `doc.json` (layers, cels, vector nodes, palette), `strokes/<layer>/<cel>.strokes` (paint strokes and fills as data), `brushes/<id>.json` (every brush its strokes use) and `.cache/` (renders, history, notes, tiles). The `klad` CLI edits it; the user edits the same bundle in the editor (`klad open`, or the klad app). Both see each other's changes within a second. The user starts and opens drawings from the editor's start window (cmd N, cmd O, recent) and can copy a drawing's path from File (the menu bar) or the document menu at the bottom of the tool strip to hand it to you. To start one yourself: `klad new art.klad --width 1600 --height 1200 --background '#e9e4da' --sketch` (one paint layer, `l1`, and a vector layer named sketch on top, `l3`). If `klad` is not on the path, the user can run "install the klad command" from that menu (or `klad install` from the folder they unpacked); `klad skill` prints these instructions, matching the version installed. When klad itself fails (an error that starts "klad hit a bug"), tell the user and offer `klad report --drawing <bundle>`: it prints a report for an issue and zips the drawing to attach. `klad solo art.klad <layer>` hides every other layer, as an alt click on its eye does in the editor; it changes what the user sees, so use it when asked, and look at one layer alone with `klad export art.klad --layer <layer> -o one.png` instead. `klad samples` lists the sample drawings that come with klad, and `klad samples --copy lantern` copies one into the current folder to read, render or draw on: a quick way to see how a finished piece is layered.
 
-This skill is the tool. The craft of drawing itself (planning a picture, light on form, values, edges, colour, materials, line, a painting method and a checklist to judge the result) is a second skill: `klad skill drawing`, the text of `docs/skill/drawing/SKILL.md`. Read it before you draw or paint anything, and before you critique a picture.
+This skill is the tool. The craft of drawing itself (planning a picture, light on form, values, edges, colour, materials, line, a painting method and a checklist to judge the result) is a second skill: `klad skill drawing`, the text of `docs/skill/drawing/SKILL.md`. Read it before you draw or paint anything, and before you critique a picture. Pixel art has a craft of its own, a third skill: `klad skill pixel` (`docs/skill/pixel/SKILL.md`). Read it before you draw on a pixel layer.
 
 Working on klad itself: the repository's `CLAUDE.md`, `CONTRIBUTING.md` and `docs/DESIGN.md` are the source of truth. Build the CLI with `just compile` (`just build` also counts the version up, for the person making a build); the binary is `target/release/klad` on macOS and `target/linux/release/klad` on Linux.
 
@@ -100,6 +100,8 @@ klad lasso art.klad l4 --polygon '...' --cut --rm
 - In `apply`: `{"op":"lasso","layer":"l4","polygon":[[600,600],[1400,560],[1450,1300]],"cut":true,"x":40,"y":-25}` (also `rotate`, `sx`, `sy`, `scale`, `pivot`, or `"rm":true`).
 
 ## Pixel art
+
+The commands are here. The craft (size and palette, silhouette, clusters, clean lines, outlines, ramps, shading, anti-aliasing by hand, tiles, animation) is `klad skill pixel`: read it first.
 
 ```
 klad new sprite.klad --pixel 32x32                      a pixel drawing: one pixel layer, l1

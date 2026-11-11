@@ -11,7 +11,7 @@ fn the_binary_runs() {
 }
 
 #[test]
-fn skill_prints_the_klad_skill_and_the_drawing_skill() {
+fn skill_prints_the_klad_skill_and_the_drawing_and_pixel_skills() {
     let skill = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_klad"))
             .arg("skill")
@@ -25,6 +25,46 @@ fn skill_prints_the_klad_skill_and_the_drawing_skill() {
     let drawing = said(&["drawing"]);
     assert!(drawing.starts_with("---\nname: klad-drawing\n"));
     assert!(drawing.contains("## The order of work"));
+    let pixel = said(&["pixel"]);
+    assert!(pixel.starts_with("---\nname: klad-pixel\n"));
+    assert!(pixel.contains("## Clusters") && pixel.contains("## Before you show it"));
+    assert!(said(&[]).contains("klad skill pixel"), "the klad skill points to it");
+    let reference = String::from_utf8_lossy(
+        &Command::new(env!("CARGO_BIN_EXE_klad"))
+            .arg("reference")
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .to_string();
+    let words = |text: &str, lead: &str| -> std::collections::BTreeSet<String> {
+        text.match_indices(lead)
+            .map(|(at, _)| {
+                text[at + lead.len()..]
+                    .chars()
+                    .take_while(|c| c.is_ascii_lowercase() || *c == '-')
+                    .collect::<String>()
+            })
+            .filter(|word| word.starts_with(|c: char| c.is_ascii_lowercase()))
+            .map(|word| word.trim_end_matches('-').to_string())
+            .collect()
+    };
+    let commands = words(&pixel, "`klad ");
+    assert!(commands.len() >= 8, "{commands:?}");
+    commands.iter().for_each(|command| {
+        assert!(
+            reference.contains(&format!("## klad {command}")) || reference.contains(&format!("klad {command} ")),
+            "the pixel skill names klad {command}, which klad does not have"
+        );
+    });
+    let flags = words(&pixel, "--");
+    assert!(flags.len() >= 12, "{flags:?}");
+    flags.iter().for_each(|flag| {
+        assert!(
+            reference.contains(&format!("--{flag}")),
+            "the pixel skill names --{flag}, which no command has"
+        );
+    });
     let unknown = skill(&["painting"]);
     assert!(!unknown.status.success());
     assert!(String::from_utf8_lossy(&unknown.stderr).contains("no skill named painting"));
