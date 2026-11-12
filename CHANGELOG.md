@@ -4,6 +4,7 @@
 
 The first builds, and klad's licences.
 
+- `klad export -o` takes a folder that exists for every kind of export and puts the export in it under its usual name; a sheet used to land next to the folder.
 - A new icon, painted in klad: a K in two brush strokes.
 - Two pixel art samples, `sprout` (a 32 px character with an idle and a walk) and `ground` (a tileset of 16 px tiles), in the start window and `klad samples`, and a guide, Drawing pixel art.
 - A third agent skill, `klad skill pixel`: the craft of pixel art (size and palette, silhouette, clusters, clean lines, outlines, ramps with hue shift, shading without pillow shading or banding, anti-aliasing by hand, tiles, and a checklist at real size), and animating a sprite frame by frame: the four poses of a walk, heights and holds, what moves with the body and what trails it, the idle, and how to judge it. Under the MIT licence, like the other two.

@@ -289,18 +289,23 @@ pub fn sheet(path: &Path, spec: &str, look: &Look, packing: &Packing, out: Optio
     let bundle = Bundle::open(path)?;
     let animations = sprites::animations(&bundle.doc, spec)?;
     let stem = stem_for(&bundle, look);
+    let usual = format!(
+        "{stem}-{}{}",
+        if spec == "all" { "sheet".into() } else { file_safe(spec) },
+        scale_tag(look.scale)
+    );
     let name = match out {
+        Some(folder) if folder.is_dir() => Name {
+            dir: folder,
+            stem: usual,
+        },
         Some(out) => Name {
             dir: out.parent().map_or(PathBuf::from("."), Path::to_path_buf),
             stem: file_name(&out).trim_end_matches(".png").to_string(),
         },
         None => Name {
             dir: bundle_dir(&bundle),
-            stem: format!(
-                "{stem}-{}{}",
-                if spec == "all" { "sheet".into() } else { file_safe(spec) },
-                scale_tag(look.scale)
-            ),
+            stem: usual,
         },
     };
     let pics = pictures(&bundle, animations, look)?;
@@ -453,6 +458,7 @@ pub fn gif(path: &Path, spec: &str, look: &Look, dither: bool, out: Option<PathB
         };
         let file = match (&out, folder) {
             (_, Some(dir)) => dir.join(name),
+            (Some(given), None) if given.is_dir() => given.join(name),
             (Some(given), None) => given.clone(),
             (None, None) => bundle_dir(&bundle).join(name),
         };

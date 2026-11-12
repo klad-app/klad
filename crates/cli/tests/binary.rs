@@ -1312,6 +1312,34 @@ fn a_pixel_drawing_exports_sharp_at_whole_number_scales_as_png_gif_sheet_and_god
         scene.contains("type=\"AnimatedSprite2D\"") && scene.contains("texture_filter = 1\n"),
         "{scene}"
     );
+
+    let folder = dir.join("into");
+    std::fs::create_dir_all(&folder).unwrap();
+    let into = folder.to_str().unwrap();
+    draw(&["export", path, "--sheet", "all", "-o", into]);
+    draw(&["export", path, "--gif", "hop", "--scale", "2", "-o", into]);
+    draw(&["export", path, "--frame", "2", "--scale", "2", "-o", into]);
+    draw(&["export", path, "--aseprite", "-o", into]);
+    let mut inside: Vec<String> = std::fs::read_dir(&folder)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+        .collect();
+    inside.sort();
+    assert_eq!(
+        inside,
+        [
+            "hop-f2@2x.png",
+            "hop-hop@2x.gif",
+            "hop-sheet.json",
+            "hop-sheet.png",
+            "hop.aseprite"
+        ],
+        "a folder that exists takes every kind of export under its usual name"
+    );
+    assert!(
+        !dir.join("into.png").exists() && !dir.join("into.json").exists(),
+        "nothing lands next to the folder"
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

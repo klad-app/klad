@@ -3627,7 +3627,7 @@ Options:
           [default: 4096]
 
   -o, --out <OUT>
-
+          Where the export goes: a file name, or a folder that exists, which takes the export under its usual name (frames and Godot exports always take a folder)
 
   -h, --help
           Print help (see a summary with '-h')

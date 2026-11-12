@@ -89,9 +89,12 @@ pub fn run(path: &Path, opts: Export) -> Result<()> {
             l.name.as_str()
         }
     });
-    let out = opts
-        .out
-        .unwrap_or_else(|| default_path(&bundle, name, opts.frame, opts.scale, opts.variant.as_deref()));
+    let usual = default_path(&bundle, name, opts.frame, opts.scale, opts.variant.as_deref());
+    let out = match opts.out {
+        Some(folder) if folder.is_dir() => folder.join(usual.file_name().unwrap_or_default()),
+        Some(file) => file,
+        None => usual,
+    };
     write_atomic(&out, &bytes)?;
     println!("{}", out.display());
     eprintln!(

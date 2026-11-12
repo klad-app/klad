@@ -2119,7 +2119,11 @@ enum Command {
         padding: u32,
         #[arg(long, default_value_t = 4096, help = "Sheets: largest page side in px")]
         max: u32,
-        #[arg(short, long)]
+        #[arg(
+            short,
+            long,
+            help = "Where the export goes: a file name, or a folder that exists, which takes the export under its usual name (frames and Godot exports always take a folder)"
+        )]
         out: Option<PathBuf>,
     },
     #[command(
@@ -4367,7 +4371,7 @@ fn run() -> Result<()> {
             names.into_iter().try_for_each(|variant| {
                 let tag = layers::variant_tag(variant.as_deref());
                 let out = match (&out, several && !tag.is_empty() && godot.is_none()) {
-                    (Some(given), true) => Some(sprites::tagged(given, &tag)),
+                    (Some(given), true) if !given.is_dir() => Some(sprites::tagged(given, &tag)),
                     _ => out.clone(),
                 };
                 let look = sprites::Look {

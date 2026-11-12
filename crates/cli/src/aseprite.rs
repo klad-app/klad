@@ -629,9 +629,12 @@ pub fn export(path: &Path, out: Option<PathBuf>, variant: Option<&str>) -> Resul
     let bundle = Bundle::open(path)?;
     let (sprite, notes) = sprite_of(&bundle, variant)?;
     let bytes = klad_render::aseprite::write(&sprite)?;
-    let file = out.unwrap_or_else(|| {
-        bundle_dir(&bundle).join(format!("{}{}.aseprite", bundle_stem(&bundle), variant_tag(variant)))
-    });
+    let usual = format!("{}{}.aseprite", bundle_stem(&bundle), variant_tag(variant));
+    let file = match out {
+        Some(folder) if folder.is_dir() => folder.join(usual),
+        Some(file) => file,
+        None => bundle_dir(&bundle).join(usual),
+    };
     write_atomic(&file, &bytes)?;
     println!("{}", file.display());
     eprintln!(
