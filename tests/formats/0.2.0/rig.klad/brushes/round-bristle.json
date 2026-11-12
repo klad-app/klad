@@ -1,0 +1,35 @@
+{
+  "format": "klad-brush/1",
+  "name": "Round bristle",
+  "tip": {
+    "image": {
+      "image": "bristle-round"
+    }
+  },
+  "spacing": 0.12,
+  "angle": "follow",
+  "flow": 0.4,
+  "dynamics": {
+    "size": {
+      "pressure": {
+        "min": 0.5
+      }
+    },
+    "flow": {
+      "pressure": {
+        "min": 0.3
+      }
+    }
+  },
+  "grain": {
+    "paper": {
+      "seed": 43,
+      "feature": 2
+    },
+    "strength": 0.15,
+    "pressure": 0.5
+  },
+  "color": {
+    "value": 0.03
+  }
+}

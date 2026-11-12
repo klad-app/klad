@@ -43,7 +43,7 @@ klad is source-available, not open source (`LICENSE`): its licence lets you send
 
 The Mac and Windows builds are sold on itch.io (and later Steam); Linux is built from source. GitHub has the release notes, not downloads.
 
-1. `just build minor` (or `major`) sets the release's version; move the changes under "Unreleased" in `CHANGELOG.md` to a section `## x.y.z (date)` with that version.. `just formats x.y.z` saves the samples with their hashes into `tests/formats/x.y.z/` (after `just samples`). Commit.
+1. `just build minor` (or `major`) sets the release's version; move the changes under "Unreleased" in `CHANGELOG.md` to a section `## x.y.z (date)` with that version.. `just formats x.y.z` saves seven samples with their hashes into `tests/formats/x.y.z/` (after `just samples`; `packaging/formats.sh <klad> x.y.z <folder>` takes them from another folder, laid out as `<name>/<name>.klad`). Commit.
 2. On a Mac with [butler](https://itch.io/docs/butler/) logged in: `ITCH_TARGET=<user>/<page> just itch-mac` builds the app (arm64 and x86_64 in one) and pushes it to the page's `mac` channel.
 3. Tag `vx.y.z` and push the tag. The `release` workflow runs the checks, builds the Windows version and pushes it to the `windows` channel (with the `BUTLER_API_KEY` secret and the `ITCH_TARGET` variable set in the repository), then publishes that changelog section as the release notes, which the editor's update check reads.
 4. The builds are not signed yet.

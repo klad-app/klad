@@ -1,0 +1,1230 @@
+{
+  "format": "klad/7",
+  "canvas": {
+    "width": 1024,
+    "height": 1024,
+    "background": "#e9e4d8"
+  },
+  "timeline": {
+    "fps": 12,
+    "frames": 28,
+    "origin": [
+      512.0,
+      820.0
+    ],
+    "clips": [
+      {
+        "name": "idle",
+        "from": 0,
+        "to": 11,
+        "loop": true
+      },
+      {
+        "name": "walk",
+        "from": 12,
+        "to": 27,
+        "loop": true
+      }
+    ]
+  },
+  "palette": [
+    {
+      "color": "#17161d",
+      "name": "ink"
+    },
+    {
+      "color": "#5f7d4c",
+      "name": "moss"
+    },
+    {
+      "color": "#6b5643",
+      "name": "bark"
+    },
+    {
+      "color": "#20263a",
+      "name": "dusk"
+    },
+    {
+      "color": "#bff2ff",
+      "name": "glow"
+    },
+    {
+      "color": "#8dbb6a",
+      "name": "leaf"
+    },
+    {
+      "color": "#45372c",
+      "name": "root"
+    },
+    {
+      "color": "#2a211b",
+      "name": "far"
+    },
+    {
+      "color": "#44405a",
+      "name": "shade"
+    },
+    {
+      "color": "#eef6cf",
+      "name": "rim"
+    },
+    {
+      "color": "#3a3428",
+      "name": "ground"
+    }
+  ],
+  "layers": [
+    {
+      "id": "shadow",
+      "name": "shadow",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "shadow0",
+          "frame": 0,
+          "hold": 3,
+          "parts": {
+            "shadow": [
+              1
+            ]
+          }
+        },
+        {
+          "id": "c1",
+          "frame": 3,
+          "hold": 3,
+          "tween": {
+            "from": "shadow0",
+            "to": "shadow2",
+            "t": 0.5,
+            "made": "51876540056fce64"
+          },
+          "parts": {
+            "shadow": [
+              1
+            ]
+          }
+        },
+        {
+          "id": "shadow2",
+          "frame": 6,
+          "hold": 3,
+          "parts": {
+            "shadow": [
+              1
+            ]
+          }
+        },
+        {
+          "id": "c31",
+          "frame": 9,
+          "link": "c1"
+        },
+        {
+          "id": "shadow3",
+          "frame": 12,
+          "hold": 2,
+          "parts": {
+            "shadow": [
+              1
+            ]
+          }
+        },
+        {
+          "id": "c7",
+          "frame": 14,
+          "hold": 2,
+          "tween": {
+            "from": "shadow3",
+            "to": "shadow5",
+            "t": 0.5,
+            "made": "8402b5e2b6265768"
+          },
+          "parts": {
+            "shadow": [
+              1
+            ]
+          }
+        },
+        {
+          "id": "shadow5",
+          "frame": 16,
+          "hold": 2,
+          "parts": {
+            "shadow": [
+              1
+            ]
+          }
+        },
+        {
+          "id": "c13",
+          "frame": 18,
+          "hold": 2,
+          "tween": {
+            "from": "shadow5",
+            "to": "shadow7",
+            "t": 0.5,
+            "made": "9be79d31b545c86a"
+          },
+          "parts": {
+            "shadow": [
+              1
+            ]
+          }
+        },
+        {
+          "id": "shadow7",
+          "frame": 20,
+          "hold": 2,
+          "parts": {
+            "shadow": [
+              1
+            ]
+          }
+        },
+        {
+          "id": "c19",
+          "frame": 22,
+          "hold": 2,
+          "tween": {
+            "from": "shadow7",
+            "to": "shadow9",
+            "t": 0.5,
+            "made": "8402b5e2b6265768"
+          },
+          "parts": {
+            "shadow": [
+              1
+            ]
+          }
+        },
+        {
+          "id": "shadow9",
+          "frame": 24,
+          "hold": 2,
+          "parts": {
+            "shadow": [
+              1
+            ]
+          }
+        },
+        {
+          "id": "c25",
+          "frame": 26,
+          "hold": 2,
+          "tween": {
+            "from": "shadow9",
+            "to": "shadow3",
+            "t": 0.5,
+            "made": "9be79d31b545c86a"
+          },
+          "parts": {
+            "shadow": [
+              1
+            ]
+          }
+        }
+      ],
+      "opacity": 0.35,
+      "blend": "multiply",
+      "visible": true
+    },
+    {
+      "id": "far",
+      "name": "far",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "far0",
+          "frame": 0,
+          "hold": 3,
+          "parts": {
+            "far leg": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "c2",
+          "frame": 3,
+          "hold": 3,
+          "tween": {
+            "from": "far0",
+            "to": "far2",
+            "t": 0.5,
+            "made": "9a57de971433b686"
+          },
+          "parts": {
+            "far leg": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "far2",
+          "frame": 6,
+          "hold": 3,
+          "parts": {
+            "far leg": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "c32",
+          "frame": 9,
+          "link": "c2"
+        },
+        {
+          "id": "far3",
+          "frame": 12,
+          "hold": 2,
+          "parts": {
+            "far leg": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "c8",
+          "frame": 14,
+          "hold": 2,
+          "tween": {
+            "from": "far3",
+            "to": "far5",
+            "t": 0.5,
+            "made": "9de874eaef709c38"
+          },
+          "parts": {
+            "far leg": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "far5",
+          "frame": 16,
+          "hold": 2,
+          "parts": {
+            "far leg": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "c14",
+          "frame": 18,
+          "hold": 2,
+          "tween": {
+            "from": "far5",
+            "to": "far7",
+            "t": 0.5,
+            "made": "3b12d69187412608"
+          },
+          "parts": {
+            "far leg": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "far7",
+          "frame": 20,
+          "hold": 2,
+          "parts": {
+            "far leg": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "c20",
+          "frame": 22,
+          "hold": 2,
+          "tween": {
+            "from": "far7",
+            "to": "far9",
+            "t": 0.5,
+            "made": "c82c79695126e791"
+          },
+          "parts": {
+            "far leg": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "far9",
+          "frame": 24,
+          "hold": 2,
+          "parts": {
+            "far leg": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "c26",
+          "frame": 26,
+          "hold": 2,
+          "tween": {
+            "from": "far9",
+            "to": "far3",
+            "t": 0.5,
+            "made": "a81840c2ee9493e3"
+          },
+          "parts": {
+            "far leg": [
+              1,
+              2
+            ]
+          }
+        }
+      ],
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": true
+    },
+    {
+      "id": "colour",
+      "name": "colour",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "colour0",
+          "frame": 0,
+          "hold": 3
+        },
+        {
+          "id": "c3",
+          "frame": 3,
+          "hold": 3,
+          "tween": {
+            "from": "colour0",
+            "to": "colour2",
+            "t": 0.5,
+            "made": "3654674d9535ad0d"
+          }
+        },
+        {
+          "id": "colour2",
+          "frame": 6,
+          "hold": 3
+        },
+        {
+          "id": "c33",
+          "frame": 9,
+          "link": "c3"
+        },
+        {
+          "id": "colour3",
+          "frame": 12,
+          "hold": 2
+        },
+        {
+          "id": "c9",
+          "frame": 14,
+          "hold": 2,
+          "tween": {
+            "from": "colour3",
+            "to": "colour5",
+            "t": 0.5,
+            "made": "bd75018314da8106"
+          }
+        },
+        {
+          "id": "colour5",
+          "frame": 16,
+          "hold": 2
+        },
+        {
+          "id": "c15",
+          "frame": 18,
+          "hold": 2,
+          "tween": {
+            "from": "colour5",
+            "to": "colour7",
+            "t": 0.5,
+            "made": "5011eab7fbfc5646"
+          }
+        },
+        {
+          "id": "colour7",
+          "frame": 20,
+          "hold": 2
+        },
+        {
+          "id": "c21",
+          "frame": 22,
+          "hold": 2,
+          "tween": {
+            "from": "colour7",
+            "to": "colour9",
+            "t": 0.5,
+            "made": "3c072411a1f625dd"
+          }
+        },
+        {
+          "id": "colour9",
+          "frame": 24,
+          "hold": 2
+        },
+        {
+          "id": "c27",
+          "frame": 26,
+          "hold": 2,
+          "tween": {
+            "from": "colour9",
+            "to": "colour3",
+            "t": 0.5,
+            "made": "a8e77fd5e8e88d5d"
+          }
+        }
+      ],
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": true
+    },
+    {
+      "id": "shade",
+      "name": "shade",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "shade0",
+          "frame": 0,
+          "hold": 3,
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "c4",
+          "frame": 3,
+          "hold": 3,
+          "tween": {
+            "from": "shade0",
+            "to": "shade2",
+            "t": 0.5,
+            "made": "936db3508f9a4a45"
+          },
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "shade2",
+          "frame": 6,
+          "hold": 3,
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "c34",
+          "frame": 9,
+          "link": "c4"
+        },
+        {
+          "id": "shade3",
+          "frame": 12,
+          "hold": 2,
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "c10",
+          "frame": 14,
+          "hold": 2,
+          "tween": {
+            "from": "shade3",
+            "to": "shade5",
+            "t": 0.5,
+            "made": "f4d8a93e9544af42"
+          },
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "shade5",
+          "frame": 16,
+          "hold": 2,
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "c16",
+          "frame": 18,
+          "hold": 2,
+          "tween": {
+            "from": "shade5",
+            "to": "shade7",
+            "t": 0.5,
+            "made": "9f9393a57a8d0f7c"
+          },
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "shade7",
+          "frame": 20,
+          "hold": 2,
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "c22",
+          "frame": 22,
+          "hold": 2,
+          "tween": {
+            "from": "shade7",
+            "to": "shade9",
+            "t": 0.5,
+            "made": "ab5384bce1e26bd5"
+          },
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "shade9",
+          "frame": 24,
+          "hold": 2,
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "c28",
+          "frame": 26,
+          "hold": 2,
+          "tween": {
+            "from": "shade9",
+            "to": "shade3",
+            "t": 0.5,
+            "made": "ac7773f64002b1a3"
+          },
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        }
+      ],
+      "opacity": 0.7,
+      "blend": "multiply",
+      "visible": true,
+      "clip": true
+    },
+    {
+      "id": "rim",
+      "name": "rim",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "rim0",
+          "frame": 0,
+          "hold": 3,
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "c5",
+          "frame": 3,
+          "hold": 3,
+          "tween": {
+            "from": "rim0",
+            "to": "rim2",
+            "t": 0.5,
+            "made": "5823a107e28df127"
+          },
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "rim2",
+          "frame": 6,
+          "hold": 3,
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "c35",
+          "frame": 9,
+          "link": "c5"
+        },
+        {
+          "id": "rim3",
+          "frame": 12,
+          "hold": 2,
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "c11",
+          "frame": 14,
+          "hold": 2,
+          "tween": {
+            "from": "rim3",
+            "to": "rim5",
+            "t": 0.5,
+            "made": "ec0d50f76fe8de78"
+          },
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "rim5",
+          "frame": 16,
+          "hold": 2,
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "c17",
+          "frame": 18,
+          "hold": 2,
+          "tween": {
+            "from": "rim5",
+            "to": "rim7",
+            "t": 0.5,
+            "made": "6d74b146ec025c82"
+          },
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "rim7",
+          "frame": 20,
+          "hold": 2,
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "c23",
+          "frame": 22,
+          "hold": 2,
+          "tween": {
+            "from": "rim7",
+            "to": "rim9",
+            "t": 0.5,
+            "made": "7c0968407bd25413"
+          },
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "rim9",
+          "frame": 24,
+          "hold": 2,
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "id": "c29",
+          "frame": 26,
+          "hold": 2,
+          "tween": {
+            "from": "rim9",
+            "to": "rim3",
+            "t": 0.5,
+            "made": "e5ebab34c8860c82"
+          },
+          "parts": {
+            "body": [
+              1,
+              2
+            ]
+          }
+        }
+      ],
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": true,
+      "clip": true
+    },
+    {
+      "id": "lines",
+      "name": "lines",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "lines0",
+          "frame": 0,
+          "hold": 3,
+          "parts": {
+            "body": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "leaf": [
+              11,
+              12
+            ],
+            "near leg": [
+              13
+            ],
+            "second leaf": [
+              14,
+              15
+            ],
+            "sprout": [
+              10
+            ]
+          }
+        },
+        {
+          "id": "c6",
+          "frame": 3,
+          "hold": 3,
+          "tween": {
+            "from": "lines0",
+            "to": "lines2",
+            "t": 0.5,
+            "made": "d31172bd0460b221"
+          },
+          "parts": {
+            "body": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "leaf": [
+              11,
+              12
+            ],
+            "near leg": [
+              13
+            ],
+            "second leaf": [
+              14,
+              15
+            ],
+            "sprout": [
+              10
+            ]
+          }
+        },
+        {
+          "id": "lines2",
+          "frame": 6,
+          "hold": 3,
+          "parts": {
+            "body": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "leaf": [
+              11,
+              12
+            ],
+            "near leg": [
+              13
+            ],
+            "second leaf": [
+              14,
+              15
+            ],
+            "sprout": [
+              10
+            ]
+          }
+        },
+        {
+          "id": "c36",
+          "frame": 9,
+          "link": "c6"
+        },
+        {
+          "id": "lines3",
+          "frame": 12,
+          "hold": 2,
+          "parts": {
+            "body": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "leaf": [
+              11,
+              12
+            ],
+            "near leg": [
+              13
+            ],
+            "second leaf": [
+              14,
+              15
+            ],
+            "sprout": [
+              10
+            ]
+          }
+        },
+        {
+          "id": "c12",
+          "frame": 14,
+          "hold": 2,
+          "tween": {
+            "from": "lines3",
+            "to": "lines5",
+            "t": 0.5,
+            "made": "b6f6d7e46a5bc84f"
+          },
+          "parts": {
+            "body": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "leaf": [
+              11,
+              12
+            ],
+            "near leg": [
+              13
+            ],
+            "second leaf": [
+              14,
+              15
+            ],
+            "sprout": [
+              10
+            ]
+          }
+        },
+        {
+          "id": "lines5",
+          "frame": 16,
+          "hold": 2,
+          "parts": {
+            "body": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "leaf": [
+              11,
+              12
+            ],
+            "near leg": [
+              13
+            ],
+            "second leaf": [
+              14,
+              15
+            ],
+            "sprout": [
+              10
+            ]
+          }
+        },
+        {
+          "id": "c18",
+          "frame": 18,
+          "hold": 2,
+          "tween": {
+            "from": "lines5",
+            "to": "lines7",
+            "t": 0.5,
+            "made": "6b63605395c718d2"
+          },
+          "parts": {
+            "body": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "leaf": [
+              11,
+              12
+            ],
+            "near leg": [
+              13
+            ],
+            "second leaf": [
+              14,
+              15
+            ],
+            "sprout": [
+              10
+            ]
+          }
+        },
+        {
+          "id": "lines7",
+          "frame": 20,
+          "hold": 2,
+          "parts": {
+            "body": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "leaf": [
+              13,
+              14
+            ],
+            "near leg": [
+              15
+            ],
+            "second leaf": [
+              10,
+              11
+            ],
+            "sprout": [
+              12
+            ]
+          }
+        },
+        {
+          "id": "c24",
+          "frame": 22,
+          "hold": 2,
+          "tween": {
+            "from": "lines7",
+            "to": "lines9",
+            "t": 0.5,
+            "made": "2004d2c67192e021"
+          },
+          "parts": {
+            "body": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "leaf": [
+              13,
+              14
+            ],
+            "near leg": [
+              15
+            ],
+            "second leaf": [
+              10,
+              11
+            ],
+            "sprout": [
+              12
+            ]
+          }
+        },
+        {
+          "id": "lines9",
+          "frame": 24,
+          "hold": 2,
+          "parts": {
+            "body": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "leaf": [
+              13,
+              14
+            ],
+            "near leg": [
+              15
+            ],
+            "second leaf": [
+              10,
+              11
+            ],
+            "sprout": [
+              12
+            ]
+          }
+        },
+        {
+          "id": "c30",
+          "frame": 26,
+          "hold": 2,
+          "tween": {
+            "from": "lines9",
+            "to": "lines3",
+            "t": 0.5,
+            "made": "eab52949135edf38"
+          },
+          "parts": {
+            "body": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "leaf": [
+              13,
+              14
+            ],
+            "near leg": [
+              15
+            ],
+            "second leaf": [
+              10,
+              11
+            ],
+            "sprout": [
+              12
+            ]
+          }
+        }
+      ],
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": true
+    }
+  ]
+}

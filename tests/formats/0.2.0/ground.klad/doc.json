@@ -1,0 +1,101 @@
+{
+  "format": "klad/7",
+  "canvas": {
+    "width": 64,
+    "height": 48,
+    "tile": [
+      16,
+      16
+    ]
+  },
+  "timeline": {
+    "fps": 12,
+    "frames": 1
+  },
+  "palette": [
+    {
+      "color": "#231d2b",
+      "name": "ink",
+      "id": "p12"
+    },
+    {
+      "color": "#2c5a45",
+      "name": "grass-1",
+      "id": "p4",
+      "ramp": "grass"
+    },
+    {
+      "color": "#4a8a3c",
+      "name": "grass-2",
+      "id": "p2",
+      "ramp": "grass"
+    },
+    {
+      "color": "#8cc24a",
+      "name": "grass-3",
+      "id": "p3",
+      "ramp": "grass"
+    },
+    {
+      "color": "#4b2f2d",
+      "name": "dirt-1",
+      "id": "p5",
+      "ramp": "dirt"
+    },
+    {
+      "color": "#7d5136",
+      "name": "dirt-2",
+      "id": "p6",
+      "ramp": "dirt"
+    },
+    {
+      "color": "#b07f4f",
+      "name": "dirt-3",
+      "id": "p7",
+      "ramp": "dirt"
+    },
+    {
+      "color": "#3c3f52",
+      "name": "stone-1",
+      "id": "p10",
+      "ramp": "stone"
+    },
+    {
+      "color": "#6b7084",
+      "name": "stone-2",
+      "id": "p9",
+      "ramp": "stone"
+    },
+    {
+      "color": "#a7adbd",
+      "name": "stone-3",
+      "id": "p8",
+      "ramp": "stone"
+    },
+    {
+      "color": "#f2c14e",
+      "name": "petal",
+      "id": "p11"
+    }
+  ],
+  "layers": [
+    {
+      "id": "l-tiles",
+      "name": "tiles",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "c1",
+          "frame": 0
+        }
+      ],
+      "pixel": true,
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": true
+    }
+  ],
+  "export": {
+    "godot": "ground-godot"
+  }
+}
