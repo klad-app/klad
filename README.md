@@ -4,7 +4,7 @@
 
 **Give your agent real brushes.** klad is a 2D painting and animation app you share with a coding agent. You paint in the editor with a pen. The agent paints through the `klad` command line, with the same brushes, on the same drawing, and each of you sees the other's strokes instantly.
 
-*don't want to build it? Sign up for the pre-built app release at [klad.studio](https://klad.studio)*
+*Don't want to build it? Sign up for the pre-built app release at [klad.studio](https://klad.studio).*
 
 **There is no image model in klad.** Your agent (Claude Code, Codex, anything that can run commands) decides what to paint; klad gives it brushes, layers and a timeline. Whatever either of you puts down stays what it was: a stroke with its path, pressure, brush and colour, a shape with its points, a fill with its region. So there's no rerolling and hoping for the best: if one leaf looks off, you fix that leaf.
 
@@ -19,8 +19,8 @@
 - **Site and guides:** [klad.studio](https://klad.studio), with these drawings replayed stroke by stroke.
 - **Made with klad:** made something? [Send it in](https://github.com/klad-app/klad/issues/new?template=made-with-klad.yml) for the gallery on klad.studio.
 - **Licence:** source-available, not open source. Free to build and use for yourself, and inside a company with less than 500,000 euros a year in revenue. See [Licence](#licence).
-- **Runs on:** macOS (pen pressure and tilt). It also builds and passes its tests on Linux and Windows, checked on every change; the editor starts on Linux with the mouse for now, and nobody has drawn with it on Windows yet.
-- **Status:** early. This is the first public version, and you build it yourself: see [From source](#from-source).
+- **Runs on:** macOS, with pen pressure and tilt. It also builds and passes its tests on Linux and Windows, checked on every change: see [What's rough](#whats-rough).
+- **Status:** early, and you build it yourself: see [Try it](#try-it).
 
 ## Why not just generate the picture?
 
@@ -28,17 +28,22 @@ An image generator hands you pixels, and the only edit left is another roll of t
 
 - **It's paint, not just vectors.** A stroke keeps its path and pressure like a vector does, and still lands as paint. Loaded oil leaves ridges that catch the light, and smudge drags the paint already on the layer. The smudge stays a stroke too: move it later and klad blends it again where it lands.
 - **It can also do just vectors.** Shapes with editable points, gradients, glows and real text in about fifty open fonts that come with it, for posters, covers and cards.
-- **It's a full painting and animation app.** Two dozen brushes and a brush editor, layers, masks, clipping, effects, a timeline with onion skins and clips, in-betweens made from your key drawings, bones with IK, and exports as PNGs, sprite sheets or straight into Godot.
+- **It's a full painting and animation app.** Two dozen brushes and a brush editor, layers, masks, clipping, effects, a timeline with onion skins and clips, in-betweens made from your key drawings, bones with IK, and exports as PNGs, sprite sheets, GIFs or straight into Godot.
+- **It does pixel art on a real grid.** Whole pixels in the colours of a palette, with tiles, palette variants and Aseprite files in and out: see [Pixel art](#pixel-art).
 - **Your drawings stay yours.** A drawing is a folder of plain files on your computer, and klad needs no account. It only looks for a new version once a day, and you can turn that off. An edit changes only the files of what it edits, so drawings live well in git.
 
 ## Working with your agent
 
 1. **Ask.** Tell your agent what the drawing needs, in plain words: a lantern for the inn, lit from the left, on its own layer.
-2. **Watch.** It paints through the `klad` command line, and its strokes show up in your editor about a second later.
+2. **Watch.** It paints through the `klad` command line, and its strokes show up in your editor as it works.
 3. **Point.** Pin a note on the canvas or select the part you mean ("more moss on this side"). The agent reads both.
 4. **Take over.** Repaint whatever you like by hand, the agent's strokes as much as your own. Its strokes are marked as its own and every change is one step in a shared history, so you can undo any of it.
 
-The prompt to start with is under [Try it](#try-it). `klad skill` prints the agent skill in `docs/skill/SKILL.md`: how to look at a drawing, change it and check the result. A second one, `klad skill drawing` (`docs/skill/drawing/SKILL.md`), teaches the craft: planning a picture, light on form, values, edges, colour, materials and how to judge the result. A third, `klad skill pixel` (`docs/skill/pixel/SKILL.md`), does the same for pixel art. All are MIT, so use them with any agent and any tool. Open the drawing to watch and draw along:
+The prompt to start with is under [Try it](#then-let-your-agent-paint). klad comes with three agent skills, all in `docs/skill/` and all MIT, so use them with any agent and any tool:
+
+- `klad skill`: the tool. How to look at a drawing, change it and check the result.
+- `klad skill drawing`: the craft. Planning a picture, light on form, values, edges, colour, materials and how to judge the result.
+- `klad skill pixel`: the same for pixel art, and for animating a sprite.
 
 What an agent paints depends on the agent and on how much you steer it. The skills teach it the tool and some craft; the pen in your hand does the rest.
 
@@ -52,6 +57,7 @@ Everything you can do in the editor has a `klad` command too, so a script or an 
 | Change a stroke later | **S** to pick it, then recolour, resize or move; **A** bends its path | `klad set art.klad c4:s12 size=3.5 color=#3355aa` |
 | Read what is there | Point at it with **S** | `klad strokes art.klad l4 --json` |
 | Flat colour | **G**, filling against the lines layer | `klad fill art.klad l2 --at 820,640 --ref lines --gap 4 --color skin` |
+| Pixels | **B** on a pixel layer | `klad pixel sprite.klad l1 --grid sprite.txt` |
 | Point at something | **N** pins a note, **S** selects | `klad notes art.klad`, `klad selection art.klad` |
 | In-betweens | The in-between window | `klad inbetween art.klad --layers lines,colour --from 0 --to 6` |
 | Export | **cmd E**, or export to Godot from a clip | `klad export art.klad --godot ../game/art` |
@@ -71,44 +77,76 @@ klad arcs creature.klad --track 'lines:near leg' --clip walk --check
 klad export creature.klad --godot ../game/art
 ```
 
-## Try it
+## Pixel art
+
+A pixel layer holds whole pixels, each one bound to a palette colour: change the colour and every pixel drawn with it follows. The editor zooms in whole steps, shows a grid between the pixels and keeps a panel with the sprite at its real size.
+
+![The sprout's walk, four drawings](docs/images/sprout-walk.gif) ![The sprout's idle, two drawings held](docs/images/sprout-idle.gif) ![A tileset: grass over earth in nine pieces, a floating platform, a stone block and a flower](docs/images/ground.png)
+
+*The pixel samples that come with klad: `sprout`, 32 pixels with a walk and an idle, and `ground`, twelve tiles of 16 pixels.*
+
+- **Draw on the grid.** A pencil and an eraser, fill, rectangles, ellipses and lines, a mirror line, and a box that selects pixels to move, flip, turn or recolour.
+- **Shade.** Ramps of five steps, lighter and darker inks that step a pixel along its ramp, dithering, and a one-pixel outline.
+- **Animate.** Frames, holds, clips and onion skins. Every frame is a drawing of its own.
+- **Recolour.** Palette variants give one sprite several colourings, like a blue team beside a red one.
+- **Check.** `klad check` marks stray pixels, doubled corners, jagged lines, banding and colours outside the palette.
+- **Bring it in, take it out.** Aseprite files in both directions, pictures turned into pixels, and exports at whole-number sizes that stay sharp: PNGs, sprite sheets, GIFs and a Godot `TileSet`.
+
+An agent draws a sprite from text, one character per pixel, and reads it back the same way:
 
 ```sh
-git clone https://github.com/klad-app/klad && cd klad
-just compile                  # about ten minutes the first time
-target/release/klad open      # on Linux: target/linux/release/klad open
+klad new sprite.klad --pixel 32x32
+klad pixel sprite.klad l1 --grid sprite.txt      # a legend of colours, then rows of characters
+klad pixels sprite.klad l1                       # the layer as text again
+klad check sprite.klad
+klad export sprite.klad --gif --scale 8
+klad export ground.klad --tileset ../game/art    # a drawing cut into tiles, as a Godot TileSet
 ```
 
-### Then let your agent paint
+The steps in the editor are in [Drawing pixel art](docs/guide/pixel-art.md).
 
-1. Put `klad` on your path, for you and for your agent: `target/release/klad install` (on Linux `target/linux/release/klad install`; on a Mac it may ask for your password).
-2. Start your coding agent (Claude Code, Codex, or anything else that can run commands) in the folder where the drawing should go, and paste:
+## Try it
 
-   > Run `klad skill` and `klad skill drawing` and read what they print. Then make scene.klad and paint a night scene: a hooded traveller holding a lantern out to a ruined arch, a small creature following, flat shaded and lit by the lantern.
-
-3. Once it has made `scene.klad`, open it in another terminal to watch the strokes land, and draw along: `klad open scene.klad`.
-4. Then steer it. Press **N** to pin a note on the canvas ("more moss on this side") and tell the agent to read your notes, or pick any stroke with **S** and change it yourself.
-
-Every build holds the `klad` command line tool, the editor, the fonts, the licences, the agent skill and six sample drawings to look at and draw on (the start window shows them; `klad samples` lists them and copies one out). The first start offers first steps: draw a shape, fill it and hand the drawing to an agent. The guides in `docs/guide/` show how to paint, select, fill, animate, rig and export in the editor, one recipe at a time, starting with [Getting started](docs/guide/getting-started.md).
+There are no installers yet, so you build klad yourself. It takes about ten minutes the first time.
 
 ### From source
 
-Building takes about ten minutes the first time.
-
 1. Install Rust with [rustup](https://rustup.rs) and [`just`](https://github.com/casey/just) (`brew install just`, or `cargo install just`). On Linux also `pkg-config`, `libfreetype-dev`, `libfontconfig1-dev`, `libxkbcommon-dev` and `libwayland-dev`.
-2. `git clone https://github.com/klad-app/klad && cd klad`, then `just compile` makes `klad` and `klad-editor` for the machine you are on, in `target/release/` (on Linux in `target/linux/release/`). What you build is for your own use, or your company's if it had less than 500,000 euros in revenue last year (see [Licence](#licence)).
-3. `target/release/klad open` starts the editor on its start window: make a drawing and start painting, or take first steps (Help > First steps in the editor).
-4. `target/release/klad install` puts `klad` on your terminal's path, for you and for agents (the editor's document menu has the same as "install the klad command").
-5. `just samples` builds the sample drawings in `samples/` (a lantern, a walking creature, a running courier, an underground ruin, an inn sign, a tree, a meadow, painted solids, a bowl of lemons and the same painted over with brushwork, a bouncing ball, ink examples, a pixel art character and a tileset); open one with `target/release/klad open samples/lantern/lantern.klad`. The eight listed in `samples/shipped.json` show in the start window and go into every build (`packaging/samples.sh`).
-6. On a Mac, `just app` makes `klad.app` and a disk image in `dist/`; `just dist` packs this machine's build as an archive. Each machine builds for itself: a Mac builds the Mac version, Linux the Linux one.
+2. Build it and open the editor:
+
+   ```sh
+   git clone https://github.com/klad-app/klad && cd klad
+   just compile
+   target/release/klad open      # on Linux: target/linux/release/klad open
+   ```
+
+   The editor opens on its start window: make a drawing and start painting, open a sample, or take first steps (**Help > First steps**).
+3. Put `klad` on your path, for you and for your agent: `target/release/klad install` (on Linux `target/linux/release/klad install`; on a Mac it may ask for your password).
+
+What you build is for your own use, or your company's if it had less than 500,000 euros in revenue last year (see [Licence](#licence)).
+
+### Then let your agent paint
+
+1. Start your coding agent (Claude Code, Codex, or anything else that can run commands) in the folder where the drawing should go, and paste:
+
+   > Run `klad skill` and `klad skill drawing` and read what they print. Then make scene.klad and paint a night scene: a hooded traveller holding a lantern out to a ruined arch, a small creature following, flat shaded and lit by the lantern.
+
+2. Once it has made `scene.klad`, open it in another terminal to watch the strokes land, and draw along: `klad open scene.klad`.
+3. Then steer it. Press **N** to pin a note on the canvas ("more moss on this side") and tell the agent to read your notes, or pick any stroke with **S** and change it yourself.
+
+### What comes with it
+
+- **Samples.** Eight drawings to look at and draw on, from a lantern to a walking creature and a pixel art tileset. The start window shows them; `klad samples` lists them and copies one out. `just samples` builds every drawing in `samples/` from its generator; the eight in `samples/shipped.json` go into every build.
+- **Guides.** `docs/guide/` shows how to paint, select, fill, draw pixel art, animate, rig and export in the editor, one recipe at a time, starting with [Getting started](docs/guide/getting-started.md).
+- **A Mac app.** On a Mac, `just app` makes `klad.app` and a disk image in `dist/`; `just dist` packs this machine's build as an archive. Each machine builds for itself: a Mac builds the Mac version, Linux the Linux one.
 
 ## What's rough
 
-- **You build it yourself.** There are no installers yet. Signed builds for macOS, Windows and Linux are planned, under the same licence as the source; [leave your email on klad.studio](https://klad.studio/pricing) to hear when they are ready.
+- **You build it yourself.** Signed builds for macOS, Windows and Linux are planned, under the same licence as the source; [leave your email on klad.studio](https://klad.studio/pricing) to hear when they are ready.
 - **The editor is made on a Mac.** On Linux it starts and you draw with the mouse: tablets give no pressure there yet. On Windows it builds and its tests pass, but nobody has drawn with it there, so tell us what you see.
-- **Some illustration basics are missing:** selecting several shapes at once, align and distribute, snapping, a grid, and SVG import and export.
+- **Some illustration basics are missing:** snapping, a grid for shapes, and SVG import and export.
 - **Bones are a preview:** their commands may still change.
-- Drawings keep opening as klad changes: a new format version comes with a migration.
+- **The file format still moves.** Drawings keep opening as klad changes: a new format version comes with a migration.
 
 ## Building on it
 
