@@ -6,6 +6,7 @@ Thank you for looking. klad is young and changes fast; issues with a drawing tha
 
 - Bugs: open an issue with what you did, what you saw (run the command again with `KLAD_BACKTRACE=1` for the details of an error), `klad --version`, your OS, and if you can the `.klad` folder (zipped) or the commands that make it.
 - Larger changes: open an issue first, so we can agree on the shape before you build it.
+- Something you made with klad: send it in through the "Made with klad" issue form, and it can go in the gallery on klad.studio. The site reads the form's answers by their headings, so a change to a field's label there goes together with `scripts/lib/showcase.mjs` in klad-site.
 - Security problems: see `SECURITY.md`, not the issue tracker.
 
 ## Building

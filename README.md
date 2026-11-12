@@ -17,6 +17,7 @@
 *Drawings made with Claude Fable 5.2: the creature, the scene and the prop kit were painted stroke by stroke through the `klad` command line.*
 
 - **Site and guides:** [klad.studio](https://klad.studio), with these drawings replayed stroke by stroke.
+- **Made with klad:** made something? [Send it in](https://github.com/klad-app/klad/issues/new?template=made-with-klad.yml) for the gallery on klad.studio.
 - **Licence:** source-available, not open source. Free to build and use for yourself, and inside a company with less than 500,000 euros a year in revenue. See [Licence](#licence).
 - **Runs on:** macOS (pen pressure and tilt). It also builds and passes its tests on Linux and Windows, checked on every change; the editor starts on Linux with the mouse for now, and nobody has drawn with it on Windows yet.
 - **Status:** early. This is the first public version, and you build it yourself: see [From source](#from-source).

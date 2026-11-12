@@ -1,0 +1,61 @@
+name: Made with klad
+description: Show a drawing, an animation or a game you made with klad on klad.studio
+title: "Made with klad: "
+labels: ["made with klad"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Send in something you made with klad. When it fits the rules, it goes up on [klad.studio](https://klad.studio) with your name and your line on how it was made.
+
+        The rules:
+
+        - klad did the drawing: by your hand, by your agent, or both.
+        - No pictures from an image generator, traced over or pasted in.
+        - Games count when their art was made in klad. Send a screenshot.
+        - We choose what goes up, and we take yours down when you ask.
+  - type: input
+    id: title
+    attributes:
+      label: Title
+      description: The name of the piece, as it reads under the picture. 80 characters at most.
+    validations:
+      required: true
+  - type: textarea
+    id: picture
+    attributes:
+      label: Picture
+      description: Drag one PNG, JPEG, GIF or WebP in here. Export pixel art enlarged, such as 8 times its size.
+    validations:
+      required: true
+  - type: input
+    id: maker
+    attributes:
+      label: Your name
+      description: The name to show with the piece. A nickname is fine. 60 characters at most.
+    validations:
+      required: true
+  - type: input
+    id: link
+    attributes:
+      label: Link
+      description: Optional. Your site, your profile or the game's page.
+  - type: textarea
+    id: how
+    attributes:
+      label: How it was made
+      description: One or two sentences, 280 characters at most. Which agent, if any, and how much you did by hand.
+    validations:
+      required: true
+  - type: textarea
+    id: drawing
+    attributes:
+      label: The drawing
+      description: Optional. Zip the .klad folder and drag it in here, and we may replay it stroke by stroke on the site later.
+  - type: checkboxes
+    id: permission
+    attributes:
+      label: Permission
+      options:
+        - label: I made this, and klad may show it on klad.studio and in this repository. I keep the rights.
+          required: true
