@@ -4525,7 +4525,10 @@ fn paint_cel_at(doc: &mut Document, layer: &str, frame: u32, out: &mut Applied) 
             target.kind().name()
         );
     }
-    if let Some(cel) = target.cel_at(frame).filter(|_| frame < doc.timeline.frames) {
+    if let Some(cel) = target
+        .cel_at(frame)
+        .filter(|c| frame < doc.timeline.frames || c.frame == frame)
+    {
         if let Some(source) = &cel.link {
             bail!(
                 "cel {} at frame {frame} links to {source}; paint into {source} instead",

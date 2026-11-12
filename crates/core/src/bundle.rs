@@ -2168,6 +2168,39 @@ mod tests {
     }
 
     #[test]
+    fn a_grid_of_several_colours_lands_on_one_new_drawing_past_the_last_frame() {
+        use crate::ops::parse_lines;
+        let dir = scratch("pixel-grid-frame");
+        let mut bundle = Bundle::blank(
+            &dir,
+            &Blank {
+                width: 8,
+                height: 8,
+                pixel: true,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let layer = bundle.doc.layers[0].id.clone();
+        let grid = |frame: u32| {
+            format!(
+                r##"{{"op":"pixel","layer":"{layer}","frame":{frame},"rows":["ab","ba"],"legend":{{"a":"#112233","b":"#aabbcc"}}}}"##
+            )
+        };
+        bundle.apply(&parse_lines(&grid(0)).unwrap()).unwrap();
+        bundle.apply(&parse_lines(&grid(3)).unwrap()).unwrap();
+        let cels = bundle.doc.layers[0].cels();
+        assert_eq!(
+            cels.iter().map(|c| c.frame).collect::<Vec<_>>(),
+            [0, 3],
+            "both colours of the grid go on one drawing at frame 3"
+        );
+        assert_eq!(bundle.read_marks(&layer, &cels[1].id).unwrap().len(), 2);
+        assert_eq!(bundle.doc.timeline.frames, 4);
+    }
+
+    #[test]
     fn an_eraser_on_a_pixel_layer_waits_for_nothing() {
         use crate::fill::{Coverage, Fill};
         use crate::ops::parse_lines;
