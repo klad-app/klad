@@ -4,7 +4,7 @@ klad := target_dir / "release" / "klad" + if os() == "windows" { ".exe" } else {
 export CARGO_TARGET_DIR := target_dir
 export KLAD_TARGET_DIR := target_dir
 
-default: build
+default: compile
 
 build part="patch":
     bash packaging/bump.sh {{part}}

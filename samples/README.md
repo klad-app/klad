@@ -1,6 +1,6 @@
 # Samples
 
-Drawings made from scratch with the `klad` CLI, each from a generator that prints ops as JSON lines into `klad apply`. They show how the pieces fit and give the tests and the parity checks something real to draw. `just samples` builds all of them (after `just build`); each `build.sh` also takes an output path, and refuses to overwrite a drawing that may hold edits unless `FORCE=1`.
+Drawings made from scratch with the `klad` CLI, each from a generator that prints ops as JSON lines into `klad apply`. They show how the pieces fit and give the tests and the parity checks something real to draw. `just samples` builds all of them (after `just compile`); each `build.sh` also takes an output path, and refuses to overwrite a drawing that may hold edits unless `FORCE=1`.
 
 | Sample | Shows |
 |---|---|

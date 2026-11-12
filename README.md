@@ -119,7 +119,7 @@ Building takes about ten minutes the first time.
 - `samples/`: generators that make drawings from scratch, the best place to see the ops in use.
 
 ```sh
-just build      # release build of the klad CLI and the editor
+just compile    # release build of the klad CLI and the editor (plain `just` does the same)
 just test       # every test, and the drawkit check
 just lint       # rustfmt and clippy, warnings as errors
 just audit      # licences, RustSec advisories, sources, and the notices are current
