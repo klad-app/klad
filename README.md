@@ -37,7 +37,7 @@ An image generator hands you pixels, and the only edit left is another roll of t
 3. **Point.** Pin a note on the canvas or select the part you mean ("more moss on this side"). The agent reads both.
 4. **Take over.** Repaint whatever you like by hand, the agent's strokes as much as your own. Its strokes are marked as its own and every change is one step in a shared history, so you can undo any of it.
 
-The prompt to start with is under [Try it](#try-it). `klad skill` prints the agent skill in `docs/skill/SKILL.md`: how to look at a drawing, change it and check the result. A second one, `klad skill drawing` (`docs/skill/drawing/SKILL.md`), teaches the craft: planning a picture, light on form, values, edges, colour, materials and how to judge the result. Both are MIT, so use them with any agent and any tool. Open the drawing to watch and draw along:
+The prompt to start with is under [Try it](#try-it). `klad skill` prints the agent skill in `docs/skill/SKILL.md`: how to look at a drawing, change it and check the result. A second one, `klad skill drawing` (`docs/skill/drawing/SKILL.md`), teaches the craft: planning a picture, light on form, values, edges, colour, materials and how to judge the result. A third, `klad skill pixel` (`docs/skill/pixel/SKILL.md`), does the same for pixel art. All are MIT, so use them with any agent and any tool. Open the drawing to watch and draw along:
 
 What an agent paints depends on the agent and on how much you steer it. The skills teach it the tool and some craft; the pen in your hand does the rest.
 
@@ -98,7 +98,7 @@ Building takes about ten minutes the first time.
 2. `git clone https://github.com/klad-app/klad && cd klad`, then `just compile` makes `klad` and `klad-editor` for the machine you are on, in `target/release/` (on Linux in `target/linux/release/`). What you build is for your own use, or your company's if it had less than 500,000 euros in revenue last year (see [Licence](#licence)).
 3. `target/release/klad open` starts the editor on its start window: make a drawing and start painting, or take first steps (Help > First steps in the editor).
 4. `target/release/klad install` puts `klad` on your terminal's path, for you and for agents (the editor's document menu has the same as "install the klad command").
-5. `just samples` builds the sample drawings in `samples/` (a lantern, a walking creature, a running courier, an underground ruin, an inn sign, a tree, a meadow, painted solids, a bowl of lemons and the same painted over with brushwork, a bouncing ball, ink examples); open one with `target/release/klad open samples/lantern/lantern.klad`. The six listed in `samples/shipped.json` show in the start window and go into every build (`packaging/samples.sh`).
+5. `just samples` builds the sample drawings in `samples/` (a lantern, a walking creature, a running courier, an underground ruin, an inn sign, a tree, a meadow, painted solids, a bowl of lemons and the same painted over with brushwork, a bouncing ball, ink examples, a pixel art character and a tileset); open one with `target/release/klad open samples/lantern/lantern.klad`. The eight listed in `samples/shipped.json` show in the start window and go into every build (`packaging/samples.sh`).
 6. On a Mac, `just app` makes `klad.app` and a disk image in `dist/`; `just dist` packs this machine's build as an archive. Each machine builds for itself: a Mac builds the Mac version, Linux the Linux one.
 
 ## What's rough
@@ -119,7 +119,7 @@ Building takes about ten minutes the first time.
 - `samples/`: generators that make drawings from scratch, the best place to see the ops in use.
 
 ```sh
-just build      # release build of the klad CLI and the editor
+just compile    # release build of the klad CLI and the editor (plain `just` does the same)
 just test       # every test, and the drawkit check
 just lint       # rustfmt and clippy, warnings as errors
 just audit      # licences, RustSec advisories, sources, and the notices are current

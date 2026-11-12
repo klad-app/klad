@@ -11,7 +11,7 @@ fn the_binary_runs() {
 }
 
 #[test]
-fn skill_prints_the_klad_skill_and_the_drawing_skill() {
+fn skill_prints_the_klad_skill_and_the_drawing_and_pixel_skills() {
     let skill = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_klad"))
             .arg("skill")
@@ -25,6 +25,46 @@ fn skill_prints_the_klad_skill_and_the_drawing_skill() {
     let drawing = said(&["drawing"]);
     assert!(drawing.starts_with("---\nname: klad-drawing\n"));
     assert!(drawing.contains("## The order of work"));
+    let pixel = said(&["pixel"]);
+    assert!(pixel.starts_with("---\nname: klad-pixel\n"));
+    assert!(pixel.contains("## Clusters") && pixel.contains("## Before you show it"));
+    assert!(said(&[]).contains("klad skill pixel"), "the klad skill points to it");
+    let reference = String::from_utf8_lossy(
+        &Command::new(env!("CARGO_BIN_EXE_klad"))
+            .arg("reference")
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .to_string();
+    let words = |text: &str, lead: &str| -> std::collections::BTreeSet<String> {
+        text.match_indices(lead)
+            .map(|(at, _)| {
+                text[at + lead.len()..]
+                    .chars()
+                    .take_while(|c| c.is_ascii_lowercase() || *c == '-')
+                    .collect::<String>()
+            })
+            .filter(|word| word.starts_with(|c: char| c.is_ascii_lowercase()))
+            .map(|word| word.trim_end_matches('-').to_string())
+            .collect()
+    };
+    let commands = words(&pixel, "`klad ");
+    assert!(commands.len() >= 8, "{commands:?}");
+    commands.iter().for_each(|command| {
+        assert!(
+            reference.contains(&format!("## klad {command}")) || reference.contains(&format!("klad {command} ")),
+            "the pixel skill names klad {command}, which klad does not have"
+        );
+    });
+    let flags = words(&pixel, "--");
+    assert!(flags.len() >= 12, "{flags:?}");
+    flags.iter().for_each(|flag| {
+        assert!(
+            reference.contains(&format!("--{flag}")),
+            "the pixel skill names --{flag}, which no command has"
+        );
+    });
     let unknown = skill(&["painting"]);
     assert!(!unknown.status.success());
     assert!(String::from_utf8_lossy(&unknown.stderr).contains("no skill named painting"));
@@ -501,6 +541,1602 @@ fn shapes_align_spread_and_centre_on_the_canvas_from_the_command_line() {
     let refused = run(&["align", path, &a, "--x", "left"]);
     assert!(!refused.status.success());
     assert!(String::from_utf8_lossy(&refused.stderr).contains("nothing to line up with"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_pixel_drawing_is_made_drawn_listed_and_edited_from_the_command_line() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-pixel-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("sprite.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let json = |args: &[&str]| -> serde_json::Value { serde_json::from_str(&draw(args)).unwrap() };
+    draw(&["new", path, "--pixel", "16x12"]);
+    let tree = json(&["ls", path, "--json"]);
+    assert_eq!(
+        (tree["canvas"]["width"].as_u64(), tree["canvas"]["height"].as_u64()),
+        (Some(16), Some(12))
+    );
+    let layer = tree["layers"][0]["id"].as_str().unwrap().to_string();
+    assert_eq!(tree["layers"][0]["kind"], "pixel");
+    draw(&["palette", path, "--add", "#f0c8a0", "--name", "skin"]);
+    let made = draw(&[
+        "pixel",
+        path,
+        &layer,
+        "--color",
+        "#2b2d42",
+        "--cells",
+        "3-12,2 3,3-8 12,3-8 3-12,9",
+    ]);
+    assert!(
+        made.contains("pixel marks") && made.contains("changed palette"),
+        "{made}"
+    );
+    draw(&["pixel", path, &layer, "--color", "skin", "--cells", "4-11,3-8"]);
+    draw(&["pixel", path, &layer, "--erase", "--cells", "7,5 8,5"]);
+    let listed = json(&["strokes", path, &layer, "--json"]);
+    let marks = listed["fills"].as_array().unwrap();
+    assert_eq!(marks.len(), 2, "the eraser leaves no mark of its own");
+    assert_eq!(marks[0]["cells"].as_array().unwrap().len(), 32);
+    assert_eq!(
+        marks[1]["cells"].as_array().unwrap().len(),
+        46,
+        "it takes its two pixels out of the mark under it"
+    );
+    let palette = json(&["palette", path, "--json"]);
+    assert_eq!(palette.as_array().unwrap().len(), 2);
+    assert_eq!(
+        marks[1]["entry"], palette[0]["id"],
+        "the mark is bound to the skin entry"
+    );
+    assert_eq!(marks[0]["entry"], palette[1]["id"]);
+    let text = draw(&["strokes", path, &layer]);
+    assert!(
+        text.contains("2 pixel marks, 78 cells") && text.contains("skin") && !text.contains("erases"),
+        "{text}"
+    );
+    let first = marks[0]["address"].as_str().unwrap().to_string();
+    draw(&["set", path, &first, "color=skin"]);
+    draw(&["transform", path, &first, "--move", "1,0"]);
+    let after = json(&["strokes", path, &layer, "--json"]);
+    assert_eq!(after["fills"][0]["entry"], palette[0]["id"]);
+    assert_eq!(after["fills"][0]["bounds"][0].as_f64(), Some(4.0));
+    assert!(draw(&["ls", path]).contains("2 pixel marks"));
+    let refused = run(&["stroke", path, &layer, "--path", "M1 1 L9 9"]);
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("pixel layer"));
+    let bad = run(&["pixel", path, &layer, "--color", "skin", "--cells", "3;4"]);
+    assert!(String::from_utf8_lossy(&bad.stderr).contains("is not x,y"));
+    let added = draw(&["add", path, "layer", "pixel", "name=lines"]);
+    let lines_id = added
+        .lines()
+        .find_map(|line| line.strip_prefix("added "))
+        .unwrap_or_else(|| panic!("an id in: {added}"))
+        .to_string();
+    draw(&[
+        "pixel",
+        path,
+        "lines",
+        "--color",
+        "skin",
+        "--path",
+        "M0.5 11.5 C 4 2 11 2 15.5 11.5",
+    ]);
+    draw(&[
+        "pixel",
+        path,
+        &lines_id,
+        "--color",
+        "skin",
+        "--path",
+        "M1.5 1.5 L5.5 1.5 L5.5 4.5",
+    ]);
+    let lines = json(&["strokes", path, &lines_id, "--json"]);
+    let cells = |at: usize| -> Vec<(i64, i64)> {
+        lines["fills"][at]["cells"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| (c[0].as_i64().unwrap(), c[1].as_i64().unwrap()))
+            .collect()
+    };
+    let curve = cells(0);
+    assert!(curve.contains(&(0, 11)) && curve.contains(&(15, 11)), "{curve:?}");
+    let doubled = curve.iter().any(|&(x, y)| {
+        let has = |dx: i64, dy: i64| curve.contains(&(x + dx, y + dy));
+        (has(1, 0) || has(-1, 0))
+            && (has(0, 1) || has(0, -1))
+            && !(has(1, 0) && has(-1, 0))
+            && !(has(0, 1) && has(0, -1))
+    });
+    assert!(!doubled, "a curve is one pixel thin with no corner doubled: {curve:?}");
+    assert_eq!(cells(1).len(), 8, "a path's own corner is kept");
+    draw(&["pixel", path, &lines_id, "--erase", "--size", "3", "--cells", "5,1"]);
+    let erased = json(&["strokes", path, &lines_id, "--json"]);
+    assert_eq!(
+        (
+            erased["fills"].as_array().unwrap().len(),
+            erased["fills"][1]["cells"].as_array().unwrap().len()
+        ),
+        (2, 5),
+        "a size is a square of whole pixels: the eraser takes three of the path's and leaves no mark"
+    );
+    draw(&["rm", path, &lines_id]);
+    let wide = run(&[
+        "pixel", path, &layer, "--color", "skin", "--cells", "1,1", "--size", "99",
+    ]);
+    assert!(String::from_utf8_lossy(&wide.stderr).contains("from 1 to 64"));
+    let shown = run(&["render", path]);
+    assert!(
+        String::from_utf8_lossy(&shown.stderr).contains("512x384"),
+        "a pixel drawing renders enlarged by a whole number: {}",
+        String::from_utf8_lossy(&shown.stderr)
+    );
+    let hash = |out: &std::process::Output| {
+        String::from_utf8_lossy(&out.stderr)
+            .split_whitespace()
+            .skip_while(|word| *word != "hash")
+            .nth(1)
+            .map(String::from)
+    };
+    let gridded = run(&["render", path, "--overlay", "grid"]);
+    assert!(
+        gridded.status.success() && hash(&gridded) != hash(&shown),
+        "the grid overlay draws its lines"
+    );
+    let real = run(&["render", path, "--scale", "1"]);
+    assert!(String::from_utf8_lossy(&real.stderr).contains("16x12"));
+    draw(&["add", path, "layer", "pixel", "name=shade"]);
+    assert_eq!(json(&["ls", path, "--json"])["layers"][0]["kind"], "pixel");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_palette_recolours_its_pixels_loads_palettes_and_groups_ramps_from_the_command_line() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-palette-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("sprite.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let json = |args: &[&str]| -> serde_json::Value { serde_json::from_str(&draw(args)).unwrap() };
+    draw(&["new", path, "--pixel", "8"]);
+    draw(&["palette", path, "--add", "#f0c8a0", "--name", "skin"]);
+    draw(&["pixel", path, "l1", "--color", "skin", "--cells", "1-3,1-3"]);
+    draw(&["palette", path, "--recolour", "skin", "--to", "#e8b796"]);
+    let marks = json(&["strokes", path, "l1", "--json"]);
+    assert_eq!(
+        marks["fills"][0]["color"], "#e8b796ff",
+        "the pixels follow their palette colour"
+    );
+    draw(&["palette", path, "--ramp", "skin", "--base", "#e8b796", "--steps", "3"]);
+    let palette = json(&["palette", path, "--json"]);
+    let ramp: Vec<(&str, &str)> = palette
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| (s["name"].as_str().unwrap_or(""), s["ramp"].as_str().unwrap_or("")))
+        .collect();
+    assert_eq!(
+        ramp,
+        [("skin-1", "skin"), ("skin", "skin"), ("skin-3", "skin")],
+        "the colour the palette has takes its place in the middle of its ramp"
+    );
+    assert!(draw(&["palettes"]).contains("pico-8"));
+    assert_eq!(json(&["palettes", "--json"])[2]["colors"].as_array().unwrap().len(), 16);
+    draw(&["palette", path, "--load", "four-greens"]);
+    let file = dir.join("mine.hex");
+    std::fs::write(&file, "081820\nabcdef\n").unwrap();
+    draw(&["palette", path, "--load", file.to_str().unwrap()]);
+    assert_eq!(
+        json(&["palette", path, "--json"]).as_array().unwrap().len(),
+        8,
+        "three of the ramp, the four greens, one new from the file"
+    );
+    draw(&["palette", path, "--ramp", "greens", "--of", "#081820,#346856,#88c070"]);
+    assert!(draw(&["palette", path]).contains("ramp greens"));
+    let refused = run(&["palette", path, "--load", "nope"]);
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("comes with klad"));
+    let lonely = run(&["palette", path, "--ramp", "x"]);
+    assert!(String::from_utf8_lossy(&lonely.stderr).contains("--base"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_sprite_is_written_as_a_grid_of_characters_and_read_back_the_same() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let dir = std::env::temp_dir().join(format!("draw-binary-grid-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("sprite.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    draw(&["new", path, "--pixel", "8x6"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    let text = "i = ink\nb = #f2c14e\n\n..iiii..\n.ibbbbi.\n.ibbbbi.\n..iiii..\n";
+    let mut child = Command::new(env!("CARGO_BIN_EXE_klad"))
+        .args(["pixel", path, "l1", "--grid", "-", "--at", "0,1"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(text.as_bytes()).unwrap();
+    let made = child.wait_with_output().unwrap();
+    assert!(made.status.success(), "{}", String::from_utf8_lossy(&made.stderr));
+    assert!(String::from_utf8_lossy(&made.stdout).contains("pixel marks"));
+    let marks: serde_json::Value = serde_json::from_str(&draw(&["strokes", path, "l1", "--json"])).unwrap();
+    assert_eq!(
+        marks["fills"].as_array().unwrap().len(),
+        2,
+        "one mark for each colour of the grid"
+    );
+    let plain = draw(&["pixels", path, "l1", "--plain"]);
+    assert_eq!(
+        plain.trim_end(),
+        ". = empty\ni = ink\na = #f2c14e\n\n........\n..iiii..\n.iaaaai.\n.iaaaai.\n..iiii..\n........"
+    );
+    let ruled = draw(&["pixels", path, "l1"]);
+    assert!(ruled.contains("8x6") && ruled.contains(" 1  ..iiii.."), "{ruled}");
+    let read: serde_json::Value = serde_json::from_str(&draw(&["pixels", path, "l1", "--json"])).unwrap();
+    assert_eq!(read["rows"][2], ".iaaaai.");
+    assert_eq!(read["legend"]["i"]["name"], "ink");
+    assert_eq!((read["width"].as_u64(), read["height"].as_u64()), (Some(8), Some(6)));
+    let copy = dir.join("copy.klad");
+    let copy_path = copy.to_str().unwrap();
+    draw(&["new", copy_path, "--pixel", "8x6"]);
+    draw(&["palette", copy_path, "--add", "#22223b", "--name", "ink"]);
+    let saved = dir.join("sprite.txt");
+    std::fs::write(&saved, &plain).unwrap();
+    draw(&["pixel", copy_path, "l1", "--grid", saved.to_str().unwrap()]);
+    assert_eq!(
+        draw(&["hash", copy_path]),
+        draw(&["hash", path]),
+        "what klad pixels prints draws the same picture again"
+    );
+    std::fs::write(&saved, "i = ink\n\n..q..\n").unwrap();
+    let unknown = run(&["pixel", path, "l1", "--grid", saved.to_str().unwrap()]);
+    assert!(String::from_utf8_lossy(&unknown.stderr).contains("the legend does not name"));
+    draw(&["add", path, "layer", "paint", "name=paint"]);
+    let wrong = run(&["pixels", path, "paint"]);
+    assert!(String::from_utf8_lossy(&wrong.stderr).contains("reads pixel layers"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn lines_rectangles_ellipses_and_fills_go_on_the_grid_from_the_command_line() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-shapes-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("sprite.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    draw(&["new", path, "--pixel", "16x12"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&["palette", path, "--add", "#f2c14e", "--name", "body"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--ellipse", "1,1,9,7"]);
+    draw(&["pixel", path, "l1", "--color", "body", "--fill", "5,4"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--rect", "11,1,4,4"]);
+    draw(&["pixel", path, "l1", "--color", "body", "--rect", "11,6,4,3", "--filled"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--line", "0,11,15,9"]);
+    let rows: Vec<String> = draw(&["pixels", path, "l1", "--plain"])
+        .lines()
+        .skip_while(|line| !line.is_empty())
+        .skip(1)
+        .map(String::from)
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            "................",
+            "...iiiii...iiii.",
+            "..ibbbbbi..i..i.",
+            ".ibbbbbbbi.i..i.",
+            ".ibbbbbbbi.iiii.",
+            ".ibbbbbbbi......",
+            "..ibbbbbi..bbbb.",
+            "...iiiii...bbbb.",
+            "...........bbbb.",
+            "............iiii",
+            "....iiiiiiii....",
+            "iiii............",
+        ]
+    );
+    draw(&["add", path, "layer", "pixel", "name=under", "--below", "l1"]);
+    draw(&[
+        "pixel", path, "under", "--color", "#8ecae6", "--fill", "12,2", "--ref", "l1",
+    ]);
+    let under: serde_json::Value = serde_json::from_str(&draw(&["pixels", path, "under", "--json"])).unwrap();
+    assert_eq!(
+        under["rows"][2], "............aa..",
+        "a fill on another layer stops at the lines it reads"
+    );
+    assert_eq!(under["rows"][5], "................");
+    let both = run(&[
+        "pixel", path, "l1", "--color", "ink", "--rect", "0,0,2,2", "--line", "0,0,3,3",
+    ]);
+    assert!(!both.status.success());
+    let flat = run(&["pixel", path, "l1", "--color", "ink", "--rect", "0,0,0,2"]);
+    assert!(String::from_utf8_lossy(&flat.stderr).contains("at least 1 pixel"));
+    let off = run(&["pixel", path, "l1", "--color", "ink", "--fill", "40,40"]);
+    assert!(String::from_utf8_lossy(&off.stderr).contains("off the 16x12 canvas"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn pixel_marks_are_listed_by_colour_cut_by_a_box_and_recoloured_exactly() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-pixel-edit-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("sprite.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let rows = |layer: &str| -> Vec<String> {
+        draw(&["pixels", path, layer, "--plain"])
+            .lines()
+            .skip_while(|line| !line.is_empty())
+            .skip(1)
+            .map(String::from)
+            .collect()
+    };
+    draw(&["new", path, "--pixel", "12x6"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&["palette", path, "--add", "#f2c14e", "--name", "body"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--rect", "0,0,6,4"]);
+    draw(&["pixel", path, "l1", "--color", "body", "--rect", "1,1,4,2", "--filled"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--cells", "0,5"]);
+    let ink: serde_json::Value =
+        serde_json::from_str(&draw(&["strokes", path, "l1", "--entry", "ink", "--json"])).unwrap();
+    assert_eq!(
+        ink["fills"].as_array().unwrap().len(),
+        2,
+        "the two ink marks, not the body"
+    );
+    assert!(draw(&["strokes", path, "l1", "--entry", "body"]).contains("1 pixel marks, 8 cells"));
+    let moved = draw(&["lasso", path, "pixel 1", "--box", "3,0,3,4", "--cut", "--move", "5,1"]);
+    assert!(moved.contains("moved"), "{moved}");
+    assert_eq!(
+        rows("l1"),
+        [
+            "iii.........",
+            "ibb.....iii.",
+            "ibb.....bbi.",
+            "iii.....bbi.",
+            "........iii.",
+            "i..........."
+        ],
+        "the right half of the box moved 5 across and 1 down, between whole pixels"
+    );
+    let marks: serde_json::Value = serde_json::from_str(&draw(&["strokes", path, "l1", "--json"])).unwrap();
+    let pieces = marks["fills"].as_array().unwrap();
+    assert_eq!(pieces.len(), 5, "the two marks the box crossed are four now");
+    assert!(
+        pieces.iter().all(|m| m.get("cuts").is_none()),
+        "with no cut left on them"
+    );
+    let body_moved = pieces
+        .iter()
+        .find(|m| m["color"] == "#f2c14eff" && m["bounds"][0].as_f64() == Some(8.0))
+        .map(|m| m["address"].as_str().unwrap().to_string())
+        .expect("the moved half of the body");
+    draw(&["recolour", path, &body_moved, "--to", "ink"]);
+    assert_eq!(
+        rows("l1")[2],
+        "ibb.....iii.",
+        "a recoloured pixel mark takes exactly the palette colour"
+    );
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&draw(&["palette", path, "--json"]))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        2,
+        "and no shade is added to the palette"
+    );
+    draw(&["lasso", path, "l1", "--box", "8,1,3,4", "--flip", "h"]);
+    assert_eq!(rows("l1")[2], "ibb.....iii.");
+    draw(&["lasso", path, "l1", "--box", "0,0,3,4", "--rotate", "90"]);
+    let turned = rows("l1");
+    let count = |sign: char| turned.iter().flat_map(|r| r.chars()).filter(|c| *c == sign).count();
+    assert_eq!(
+        (count('i'), count('b')),
+        (8 + 12 + 1, 4),
+        "a quarter turn keeps every pixel: {turned:?}"
+    );
+    assert_eq!(&turned[1][..4], "iiii", "and the 3 by 4 piece now lies 4 by 3");
+    let missing = run(&["strokes", path, "l1", "--entry", "teal"]);
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("the palette has no"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn pixels_are_shaded_dithered_outlined_and_replaced_from_the_command_line() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-shade-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("sprite.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let rows = || -> Vec<String> {
+        draw(&["pixels", path, "l1", "--plain"])
+            .lines()
+            .skip_while(|line| !line.is_empty())
+            .skip(1)
+            .map(String::from)
+            .collect()
+    };
+    draw(&["new", path, "--pixel", "12x8"]);
+    draw(&["palette", path, "--ramp", "green", "--base", "#4c9a54", "--steps", "3"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&[
+        "pixel", path, "l1", "--color", "green-2", "--rect", "4,3,3,2", "--filled",
+    ]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--outline"]);
+    assert_eq!(
+        rows()[2..6],
+        ["....iii.....", "...iGGGi....", "...iGGGi....", "....iii....."],
+        "a one-pixel outline around the block"
+    );
+    draw(&["pixel", path, "l1", "--shade", "-1", "--rect", "4,4,3,1"]);
+    draw(&["pixel", path, "l1", "--shade", "1", "--cells", "4,3"]);
+    assert_eq!(
+        rows()[3..5],
+        ["...iaGGi....", "...igggi...."],
+        "a highlight and a darker foot"
+    );
+    let first = serde_json::from_str::<serde_json::Value>(&draw(&["strokes", path, "l1", "--json"])).unwrap()["fills"]
+        [0]["address"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    draw(&["recolour", path, &first, "--step", "1"]);
+    assert_eq!(
+        rows()[3],
+        "...iaaai....",
+        "the block itself stepped lighter along its ramp"
+    );
+    draw(&["recolour", path, "--from", "ink", "--to", "green-1"]);
+    assert_eq!(rows()[2], "....ggg.....", "every ink mark is the dark green now");
+    draw(&[
+        "pixel", path, "l1", "--color", "ink", "--second", "green-3", "--dither", "50", "--rect", "8,0,4,2", "--filled",
+    ]);
+    assert_eq!(
+        rows()[..2],
+        ["........iaia", "........aiai"],
+        "a checkerboard of two colours"
+    );
+    let none = run(&["recolour", path, &first, "--step", "5"]);
+    assert!(String::from_utf8_lossy(&none.stderr).contains("already at its end"));
+    let both = run(&["pixel", path, "l1", "--shade", "1", "--color", "ink", "--cells", "1,1"]);
+    assert!(!both.status.success());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_tile_wraps_at_its_edges_mirrors_and_renders_repeated_from_the_command_line() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-tile-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("tile.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let rows = || -> Vec<String> {
+        draw(&["pixels", path, "l1", "--plain"])
+            .lines()
+            .skip_while(|line| !line.is_empty())
+            .skip(1)
+            .map(String::from)
+            .collect()
+    };
+    draw(&["new", path, "--pixel", "8x4", "--wrap"]);
+    assert!(draw(&["canvas", path]).contains("wraps at its edges"));
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--rect", "6,3,4,2", "--filled"]);
+    assert_eq!(
+        rows(),
+        ["ii....ii", "........", "........", "ii....ii"],
+        "a block over the corner shows in all four corners"
+    );
+    draw(&[
+        "pixel",
+        path,
+        "l1",
+        "--color",
+        "ink",
+        "--cells",
+        "1,1",
+        "--mirror-x",
+        "4",
+        "--mirror-y",
+        "2",
+    ]);
+    assert_eq!(rows()[1..3], [".i....i.", ".i....i."]);
+    let shown = run(&["render", path, "--repeat", "3", "--scale", "4"]);
+    assert!(
+        String::from_utf8_lossy(&shown.stderr).contains("96x48"),
+        "three tiles across and down at 4x: {}",
+        String::from_utf8_lossy(&shown.stderr)
+    );
+    draw(&["canvas", path, "--wrap", "off"]);
+    assert!(draw(&["canvas", path]).contains("stops at its edges"));
+    let json: serde_json::Value = serde_json::from_str(&draw(&["canvas", path, "--json"])).unwrap();
+    assert_eq!((json["width"].as_u64(), json.get("wrap")), (Some(8), None));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_pixel_layer_animates_frame_by_frame_moves_by_whole_pixels_and_refuses_in_betweens_and_bones() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-pixel-anim-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("hop.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let refused = |args: &[&str]| {
+        let out = run(args);
+        assert!(!out.status.success(), "{args:?} went through");
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    draw(&["new", path, "--pixel", "12x6", "--frames", "4", "--fps", "8"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--rect", "1,3,2,2", "--filled"]);
+    draw(&["add", path, "cel", "--in", "l1", "frame=2"]);
+    draw(&[
+        "pixel", path, "l1", "--frame", "2", "--color", "ink", "--rect", "1,1,2,2", "--filled",
+    ]);
+    let row = |frame: &str, at: usize| -> String {
+        draw(&["pixels", path, "l1", "--frame", frame, "--plain"])
+            .lines()
+            .skip_while(|line| !line.is_empty())
+            .skip(1)
+            .nth(at)
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(
+        (row("0", 3), row("1", 3), row("2", 3), row("2", 1)),
+        (
+            ".ii.........".to_string(),
+            ".ii.........".to_string(),
+            "............".to_string(),
+            ".ii.........".to_string()
+        ),
+        "each drawing holds until the next: frames 0 and 1 show the first, 2 and 3 the second"
+    );
+    draw(&["clip", path, "--add", "hop", "--from", "0", "--to", "3", "--loop"]);
+    assert!(draw(&["frames", path]).contains("hop"));
+    draw(&["key", path, "l1", "--frame", "0", "x=0"]);
+    draw(&["key", path, "l1", "--frame", "3", "x=4"]);
+    let hashes = draw(&["hash", path, "--all"]);
+    assert_eq!(hashes.lines().count(), 4);
+    let shown = |frame: &str| {
+        let out = dir.join(format!("f{frame}.png"));
+        draw(&["export", path, "--frame", frame, "-o", out.to_str().unwrap()]);
+        std::fs::read(&out).unwrap()
+    };
+    assert_ne!(shown("0"), shown("1"), "the key moves the drawing between frames");
+    let onion = run(&["render", path, "--frame", "2", "--overlay", "onion"]);
+    assert!(onion.status.success(), "{}", String::from_utf8_lossy(&onion.stderr));
+    let between = refused(&["inbetween", path, "--layers", "l1", "--from", "0", "--to", "2"]);
+    assert!(
+        between.contains("pixel layer") && between.contains("Draw the frames"),
+        "{between}"
+    );
+    draw(&["add", path, "layer", "bones", "name=bones"]);
+    let attached = refused(&["attach", path, "l1", "--bend", "--skeleton", "bones"]);
+    assert!(
+        attached.contains("pixel layer") && attached.contains("off the grid"),
+        "{attached}"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn klad_check_lists_what_stands_out_and_counts_the_details() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-check-quiet-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("stud.klad");
+    let path = bundle.to_str().unwrap();
+    let draw = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    draw(&["new", path, "--pixel", "8x6"]);
+    let grid = dir.join("stud.txt");
+    std::fs::write(
+        &grid,
+        "a = #20222e\nb = #6a7088\nc = #c8cedc\ns = #ffcc33\n\naabbb...\naasbb...\nccccc...\n........\n........\n.......s\n",
+    )
+    .unwrap();
+    draw(&["pixel", path, "l1", "--grid", grid.to_str().unwrap()]);
+    let listed = draw(&["check", path]);
+    assert!(
+        listed.contains("frame 0: 1 to look at, 1 small one left out"),
+        "{listed}"
+    );
+    assert!(
+        listed.contains("7,5") && listed.contains("alone, outside the shape"),
+        "{listed}"
+    );
+    assert!(
+        listed.contains("1 left out: single pixels among other colours") && !listed.contains("2,1 "),
+        "{listed}"
+    );
+    let found: serde_json::Value = serde_json::from_str(&draw(&["check", path, "--json"])).unwrap();
+    let small: Vec<&serde_json::Value> = found["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["minor"] == true)
+        .collect();
+    assert_eq!(small.len(), 1, "{found}");
+    assert_eq!(small[0]["at"], serde_json::json!([2, 1]));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_pixel_drawing_exports_sharp_at_whole_number_scales_as_png_gif_sheet_and_godot_scene() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-pixel-export-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("hop.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let refused = |args: &[&str]| {
+        let out = run(args);
+        assert!(!out.status.success(), "{args:?} went through");
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    draw(&["new", path, "--pixel", "16x12", "--frames", "4", "--fps", "8"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&["palette", path, "--add", "#ef233c", "--name", "red"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--rect", "2,6,4,4", "--filled"]);
+    draw(&["pixel", path, "l1", "--color", "red", "--cells", "3,7 4,7"]);
+    draw(&["add", path, "cel", "--in", "l1", "frame=2"]);
+    draw(&[
+        "pixel", path, "l1", "--frame", "2", "--color", "ink", "--rect", "2,2,4,4", "--filled",
+    ]);
+    draw(&["clip", path, "--add", "hop", "--from", "0", "--to", "3", "--loop"]);
+
+    let between = refused(&["export", path, "--scale", "2.5"]);
+    assert!(
+        between.contains("whole-number scales") && between.contains("not 2.5"),
+        "{between}"
+    );
+    assert!(refused(&["export", path, "--scale", "0.5"]).contains("whole-number scales"));
+    assert!(refused(&["export", path, "--scale", "65"]).contains("past 64"));
+    assert!(refused(&["export", path, "--gif", "--scale", "1.5"]).contains("whole-number scales"));
+    let size = |file: &std::path::Path| {
+        let png = std::fs::read(file).unwrap();
+        (
+            u32::from_be_bytes(png[16..20].try_into().unwrap()),
+            u32::from_be_bytes(png[20..24].try_into().unwrap()),
+        )
+    };
+    let big = dir.join("big.png");
+    draw(&["export", path, "--scale", "32", "-o", big.to_str().unwrap()]);
+    assert_eq!(size(&big), (512, 384), "past the old limit of 8");
+
+    let named = draw(&["export", path, "--gif", "--scale", "8"]);
+    let gif_path = std::path::PathBuf::from(named.trim());
+    assert_eq!(
+        gif_path.file_name().unwrap(),
+        "hop-hop@8x.gif",
+        "one GIF per clip, named for it"
+    );
+    let gif = std::fs::read(&gif_path).unwrap();
+    assert_eq!(&gif[..6], b"GIF89a");
+    assert_eq!(
+        (
+            u16::from_le_bytes([gif[6], gif[7]]),
+            u16::from_le_bytes([gif[8], gif[9]])
+        ),
+        (128, 96)
+    );
+    assert_eq!(
+        &gif[13..19],
+        [0x22, 0x22, 0x3b, 0xef, 0x23, 0x3c],
+        "the drawing's two colours, exactly"
+    );
+    let delays: Vec<u16> = gif
+        .windows(8)
+        .filter(|w| w[0] == 0x21 && w[1] == 0xf9 && w[2] == 4 && w[7] == 0)
+        .map(|w| u16::from_le_bytes([w[4], w[5]]))
+        .collect();
+    assert_eq!(delays, [25, 25], "two drawings, each held two frames at 8 a second");
+    assert!(
+        gif.windows(11).any(|w| w == b"NETSCAPE2.0"),
+        "the clip loops, so the GIF does"
+    );
+    let mixed = dir.join("mixed.gif");
+    draw(&[
+        "export",
+        path,
+        "--gif",
+        "hop",
+        "--scale",
+        "8",
+        "--dither",
+        "-o",
+        mixed.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        std::fs::read(&mixed).unwrap(),
+        gif,
+        "a drawing of a few colours is exact, so dithering changes nothing"
+    );
+    assert!(refused(&["export", path, "--dither"]).contains("--gif"));
+    let range = dir.join("first.gif");
+    draw(&["export", path, "--gif", "0-1", "-o", range.to_str().unwrap()]);
+    assert_eq!(u16::from_le_bytes([std::fs::read(&range).unwrap()[6], 0]), 16);
+
+    let sheet = dir.join("sheet.png");
+    draw(&[
+        "export",
+        path,
+        "--sheet",
+        "all",
+        "--scale",
+        "3",
+        "-o",
+        sheet.to_str().unwrap(),
+    ]);
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("sheet.json")).unwrap()).unwrap();
+    let first = &json["frames"][0];
+    assert_eq!(
+        (
+            first["sourceSize"]["w"].as_u64(),
+            first["frame"]["w"].as_u64(),
+            first["frame"]["h"].as_u64()
+        ),
+        (Some(48), Some(12), Some(12)),
+        "the sheet's cells are the drawing three times over: {first}"
+    );
+
+    let game = dir.join("game");
+    draw(&["export", path, "--godot", game.to_str().unwrap(), "--scale", "2"]);
+    let scene = std::fs::read_to_string(game.join("hop.tscn")).unwrap();
+    assert!(
+        scene.contains("type=\"AnimatedSprite2D\"") && scene.contains("texture_filter = 1\n"),
+        "{scene}"
+    );
+
+    let folder = dir.join("into");
+    std::fs::create_dir_all(&folder).unwrap();
+    let into = folder.to_str().unwrap();
+    draw(&["export", path, "--sheet", "all", "-o", into]);
+    draw(&["export", path, "--gif", "hop", "--scale", "2", "-o", into]);
+    draw(&["export", path, "--frame", "2", "--scale", "2", "-o", into]);
+    draw(&["export", path, "--aseprite", "-o", into]);
+    let mut inside: Vec<String> = std::fs::read_dir(&folder)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+        .collect();
+    inside.sort();
+    assert_eq!(
+        inside,
+        [
+            "hop-f2@2x.png",
+            "hop-hop@2x.gif",
+            "hop-sheet.json",
+            "hop-sheet.png",
+            "hop.aseprite"
+        ],
+        "a folder that exists takes every kind of export under its usual name"
+    );
+    assert!(
+        !dir.join("into.png").exists() && !dir.join("into.json").exists(),
+        "nothing lands next to the folder"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn palette_variants_are_made_shown_and_exported_one_by_one() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-variants-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("team.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let refused = |args: &[&str]| {
+        let out = run(args);
+        assert!(!out.status.success(), "{args:?} went through");
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    draw(&["new", path, "--pixel", "8x8", "--frames", "2", "--fps", "8"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&["palette", path, "--add", "#c0392b", "--name", "team"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--rect", "1,1,6,6"]);
+    draw(&["pixel", path, "l1", "--color", "team", "--rect", "2,2,4,4", "--filled"]);
+    let row = |at: usize| -> String {
+        draw(&["pixels", path, "l1", "--plain"])
+            .lines()
+            .skip_while(|line| !line.is_empty())
+            .skip(1)
+            .nth(at)
+            .unwrap()
+            .to_string()
+    };
+    let before = row(3);
+
+    draw(&["palette", path, "--new-variant", "blue"]);
+    draw(&["palette", path, "--recolour", "team", "--to", "#2a6fdb"]);
+    let listed = draw(&["palette", path]);
+    assert!(listed.starts_with("showing blue\n"), "{listed}");
+    assert!(
+        listed.contains("#2a6fdb") && listed.contains("variant blue: team #2a6fdb"),
+        "{listed}"
+    );
+    assert_eq!(row(3), before, "the pixels are the same pixels, in another colour");
+    draw(&["palette", path, "--variant", "base"]);
+    let listed = draw(&["palette", path]);
+    assert!(
+        listed.starts_with("showing base\n") && listed.contains("#c0392b"),
+        "{listed}"
+    );
+    assert!(refused(&["palette", path, "--variant", "pink"]).contains("base, blue"));
+    assert!(refused(&["palette", path, "--to", "navy"]).contains("--rename-variant"));
+
+    let pixel = |file: &std::path::Path| -> Vec<u8> { std::fs::read(file).unwrap() };
+    let named: Vec<String> = draw(&["export", path, "--variants"])
+        .lines()
+        .map(String::from)
+        .collect();
+    let names: Vec<String> = named
+        .iter()
+        .map(|p| {
+            std::path::Path::new(p)
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(names, ["team-f0.png", "team-blue-f0.png"]);
+    assert_ne!(
+        pixel(std::path::Path::new(&named[0])),
+        pixel(std::path::Path::new(&named[1]))
+    );
+    let alone = dir.join("alone.png");
+    draw(&["export", path, "--variant", "blue", "-o", alone.to_str().unwrap()]);
+    assert_eq!(
+        pixel(&alone),
+        pixel(std::path::Path::new(&named[1])),
+        "one variant by name, while the base is shown"
+    );
+    draw(&["palette", path, "--variant", "blue"]);
+    let shown = dir.join("shown.png");
+    draw(&["export", path, "-o", shown.to_str().unwrap()]);
+    assert_eq!(
+        pixel(&shown),
+        pixel(&alone),
+        "the same picture as showing the variant and exporting"
+    );
+    let base = dir.join("base.png");
+    draw(&["export", path, "--variant", "base", "-o", base.to_str().unwrap()]);
+    assert_eq!(
+        pixel(&base),
+        pixel(std::path::Path::new(&named[0])),
+        "and the base while blue is shown"
+    );
+
+    let sheet = dir.join("out").join("sheet.png");
+    std::fs::create_dir_all(sheet.parent().unwrap()).unwrap();
+    let sheets = draw(&[
+        "export",
+        path,
+        "--sheet",
+        "all",
+        "--variants",
+        "-o",
+        sheet.to_str().unwrap(),
+    ]);
+    assert!(
+        sheets.contains("sheet.png") && sheets.contains("sheet-blue.png"),
+        "{sheets}"
+    );
+    assert!(dir.join("out").join("sheet-blue.json").exists());
+    let gifs = draw(&["export", path, "--gif", "--variants", "--scale", "2"]);
+    assert!(
+        gifs.contains("team@2x.gif") && gifs.contains("team-blue@2x.gif"),
+        "{gifs}"
+    );
+    let table = |file: &str| std::fs::read(file.trim()).unwrap()[13..19].to_vec();
+    let both: Vec<Vec<u8>> = gifs.lines().map(table).collect();
+    assert_eq!(both[0], [0x22, 0x22, 0x3b, 0xc0, 0x39, 0x2b]);
+    assert_eq!(both[1], [0x22, 0x22, 0x3b, 0x2a, 0x6f, 0xdb]);
+    let game = dir.join("game");
+    let godot = draw(&["export", path, "--godot", game.to_str().unwrap(), "--variants"]);
+    assert!(
+        godot.contains("team.tscn") && godot.contains("team-blue.tscn") && godot.contains("team-blue.png"),
+        "{godot}"
+    );
+
+    draw(&["palette", path, "--rename-variant", "blue", "--to", "navy"]);
+    assert!(draw(&["palette", path]).contains("variant navy: team #2a6fdb"));
+    draw(&["palette", path, "--rm-variant", "navy"]);
+    let listed = draw(&["palette", path]);
+    assert!(!listed.contains("showing") && listed.contains("#c0392b"), "{listed}");
+    assert!(refused(&["export", path, "--variant", "navy"]).contains("no palette variant"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_pixel_drawing_goes_out_to_an_aseprite_file_and_comes_back_the_same() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-aseprite-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("hero.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let both = |args: &[&str]| {
+        let out = run(args);
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        (
+            String::from_utf8_lossy(&out.stdout).to_string(),
+            String::from_utf8_lossy(&out.stderr).to_string(),
+        )
+    };
+    let draw = |args: &[&str]| both(args).0;
+    let refused = |args: &[&str]| {
+        let out = run(args);
+        assert!(!out.status.success(), "{args:?} went through");
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    draw(&["new", path, "--pixel", "12x8", "--frames", "6", "--fps", "10"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&["palette", path, "--add", "#ef233c", "--name", "red"]);
+    draw(&["palette", path, "--add", "#f0c8a080", "--name", "glow"]);
+    draw(&["set", path, "l1", "name=body"]);
+    draw(&["pixel", path, "body", "--color", "ink", "--rect", "1,4,3,3", "--filled"]);
+    draw(&["add", path, "cel", "--in", "l1", "frame=2"]);
+    draw(&[
+        "pixel", path, "body", "--frame", "2", "--color", "ink", "--rect", "1,1,3,3", "--filled",
+    ]);
+    draw(&[
+        "pixel", path, "body", "--frame", "2", "--color", "red", "--cells", "2,2",
+    ]);
+    draw(&["add", path, "cel", "--in", "l1", "frame=5", "link=c2"]);
+    let ops = dir.join("fx.jsonl");
+    std::fs::write(
+        &ops,
+        r##"{"op":"add","layer":{"kind":"group","name":"fx","opacity":0.5,"children":[{"kind":"pixel","name":"spark","blend":"screen","visible":false,"cels":[{"frame":1,"hold":2}]}]}}"##,
+    )
+    .unwrap();
+    draw(&["apply", path, "--file", ops.to_str().unwrap()]);
+    draw(&[
+        "pixel",
+        path,
+        "spark",
+        "--frame",
+        "1",
+        "--color",
+        "glow",
+        "--cells",
+        "8,1 9,1 9,2",
+    ]);
+    draw(&["add", path, "layer", "paint", "name=notes"]);
+    draw(&["clip", path, "--add", "hop", "--from", "0", "--to", "4", "--loop"]);
+    draw(&["clip", path, "--add", "land", "--from", "5", "--to", "5"]);
+
+    let (named, said) = both(&["export", path, "--aseprite"]);
+    let file = std::path::PathBuf::from(named.trim());
+    assert_eq!(file.file_name().unwrap(), "hero.aseprite");
+    assert!(said.contains("left out") && said.contains("notes"), "{said}");
+    assert!(said.contains("3 layers") && said.contains("2 tags"), "{said}");
+    let bytes = std::fs::read(&file).unwrap();
+    assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), 0xA5E0);
+    assert_eq!(
+        u16::from_le_bytes([bytes[6], bytes[7]]),
+        5,
+        "frames 0-1, 1 (the spark), 2, 3-4 and 5: a frame for each change, not for each klad frame"
+    );
+
+    let back = dir.join("back.klad");
+    let (_, told) = both(&["import", file.to_str().unwrap(), "-o", back.to_str().unwrap()]);
+    assert!(told.contains("6 frames at 10 fps"), "{told}");
+    let again = back.to_str().unwrap();
+    let grid = |drawing: &str, layer: &str, frame: u32| -> Vec<String> {
+        draw(&["pixels", drawing, layer, "--frame", &frame.to_string(), "--plain"])
+            .lines()
+            .skip_while(|line| !line.is_empty())
+            .skip(1)
+            .map(String::from)
+            .collect()
+    };
+    (0..6).for_each(|frame| {
+        assert_eq!(
+            grid(again, "body", frame),
+            grid(path, "body", frame),
+            "body, frame {frame}"
+        );
+        assert_eq!(
+            grid(again, "spark", frame),
+            grid(path, "spark", frame),
+            "spark, frame {frame}"
+        );
+    });
+    let listed = draw(&["ls", again]);
+    assert!(
+        listed.contains("group") && listed.contains("fx") && listed.contains("hidden"),
+        "{listed}"
+    );
+    assert!(!listed.contains("notes"));
+    let doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(back.join("doc.json")).unwrap()).unwrap();
+    let fx = doc["layers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|l| l["name"] == "fx")
+        .unwrap();
+    assert!(
+        (fx["opacity"].as_f64().unwrap() - 0.5).abs() < 0.003,
+        "the group keeps its opacity, to the nearest of 255 steps: {fx}"
+    );
+    assert_eq!(
+        fx["children"][0]["blend"], "screen",
+        "and the layer its blend mode: {fx}"
+    );
+    let colours = draw(&["palette", again]);
+    assert!(
+        colours.contains("#f0c8a080") && colours.contains("glow") && colours.contains("ink"),
+        "{colours}"
+    );
+    let timeline = draw(&["frames", again]);
+    assert!(
+        timeline.contains("clip hop  frames 0 to 4") && timeline.contains("loops"),
+        "{timeline}"
+    );
+    assert!(timeline.contains("clip land  frames 5 to 5"), "{timeline}");
+    assert!(timeline.contains("->"), "the linked drawing stays a link: {timeline}");
+    assert_eq!(
+        draw(&["hash", again, "--all"])
+            .lines()
+            .map(|l| l.split_whitespace().last().unwrap().to_string())
+            .collect::<Vec<_>>(),
+        draw(&["hash", path, "--all"])
+            .lines()
+            .map(|l| l.split_whitespace().last().unwrap().to_string())
+            .collect::<Vec<_>>(),
+        "every frame renders the same"
+    );
+
+    assert!(refused(&["import", file.to_str().unwrap(), "-o", again]).contains("is there already"));
+    assert!(refused(&["import", path]).contains("Aseprite files"));
+    let fake = dir.join("fake.ase");
+    std::fs::write(&fake, b"not a sprite at all").unwrap();
+    assert!(refused(&["import", fake.to_str().unwrap()]).contains("not an Aseprite file"));
+    assert!(!dir.join("fake.klad").exists());
+    let painting = dir.join("painting.klad");
+    draw(&["new", painting.to_str().unwrap(), "--width", "64", "--height", "64"]);
+    assert!(refused(&["export", painting.to_str().unwrap(), "--aseprite"]).contains("no pixel layers"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn pictures_and_painted_layers_become_pixels_on_the_palette() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-pixelize-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("hop.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let both = |args: &[&str]| {
+        let out = run(args);
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        (
+            String::from_utf8_lossy(&out.stdout).to_string(),
+            String::from_utf8_lossy(&out.stderr).to_string(),
+        )
+    };
+    let draw = |args: &[&str]| both(args).0;
+    let refused = |args: &[&str]| {
+        let out = run(args);
+        assert!(!out.status.success(), "{args:?} went through");
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    let rows = |drawing: &str, layer: &str| -> Vec<String> {
+        draw(&["pixels", drawing, layer, "--plain"])
+            .lines()
+            .skip_while(|line| !line.is_empty())
+            .skip(1)
+            .map(String::from)
+            .collect()
+    };
+    draw(&["new", path, "--pixel", "16x12"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&["palette", path, "--add", "#ef233c", "--name", "red"]);
+    draw(&["pixel", path, "l1", "--color", "ink", "--rect", "2,6,4,4", "--filled"]);
+    draw(&["pixel", path, "l1", "--color", "red", "--cells", "3,7 4,7"]);
+    let png = dir.join("hop@8x.png");
+    draw(&["export", path, "--scale", "8", "-o", png.to_str().unwrap()]);
+
+    let back = dir.join("back.klad");
+    let (named, told) = both(&[
+        "import",
+        png.to_str().unwrap(),
+        "--size",
+        "16",
+        "-o",
+        back.to_str().unwrap(),
+    ]);
+    assert_eq!(named.trim(), back.to_str().unwrap());
+    assert!(told.contains("16x12, 2 palette colours"), "{told}");
+    let again = back.to_str().unwrap();
+    let swapped =
+        |rows: Vec<String>| -> Vec<String> { rows.iter().map(|r| r.replace('a', "i").replace('b', "r")).collect() };
+    assert_eq!(
+        swapped(rows(again, "l1")),
+        rows(path, "l1"),
+        "a picture enlarged eight times comes back exact"
+    );
+    let own = draw(&["import", png.to_str().unwrap()]);
+    assert!(own.trim().ends_with("hop@8x.klad"));
+    assert!(
+        draw(&["info", own.trim()]).contains("128x96"),
+        "without --size a small picture keeps its size"
+    );
+    assert!(refused(&["import", png.to_str().unwrap(), "-o", again]).contains("is there already"));
+    assert!(
+        refused(&[
+            "import",
+            png.to_str().unwrap(),
+            "--size",
+            "900",
+            "-o",
+            dir.join("x.klad").to_str().unwrap()
+        ])
+        .contains("past 512")
+    );
+    assert!(refused(&["import", dir.join("notes.txt").to_str().unwrap()]).contains("Aseprite files"));
+
+    let (_, told) = both(&[
+        "pixelize",
+        path,
+        "--image",
+        png.to_str().unwrap(),
+        "--to",
+        "l1",
+        "--size",
+        "8",
+        "--at",
+        "8,0",
+    ]);
+    assert!(
+        told.contains("8x6 pixels in 1 colour on") && told.contains("nearest of the palette's 2 colours"),
+        "at half the size the two red pixels are a quarter of their blocks, so the blocks are ink: {told}"
+    );
+    let placed = rows(path, "l1");
+    assert_eq!(
+        (placed[3].as_str(), placed[4].as_str(), placed[6].as_str()),
+        (".........ii.....", ".........ii.....", "..iiii.........."),
+        "the small copy sits beside the first, in the same palette colour"
+    );
+    assert_eq!(
+        draw(&["palette", path]).lines().count(),
+        2,
+        "nothing was added to the palette"
+    );
+    let (_, told) = both(&[
+        "pixelize",
+        path,
+        "--image",
+        png.to_str().unwrap(),
+        "--to",
+        "l1",
+        "--size",
+        "8",
+        "--colors",
+        "2",
+        "--at",
+        "0,0",
+    ]);
+    assert!(
+        told.contains("8x6 pixels in 2 colours"),
+        "with colours made from the picture, the blocks that held a red pixel keep their own mix: {told}"
+    );
+    assert_eq!(
+        draw(&["palette", path]).lines().count(),
+        3,
+        "the mixed colour joined the palette; ink was there already"
+    );
+    let quarter = refused(&[
+        "pixelize",
+        path,
+        "--image",
+        png.to_str().unwrap(),
+        "--to",
+        "l1",
+        "--size",
+        "4",
+    ]);
+    assert!(
+        quarter.contains("no solid pixels"),
+        "at a quarter of the size no block is half covered: {quarter}"
+    );
+    assert!(
+        refused(&[
+            "pixelize",
+            path,
+            "--image",
+            png.to_str().unwrap(),
+            "--to",
+            "l1",
+            "--at",
+            "40,40"
+        ])
+        .contains("no solid pixels")
+    );
+    assert!(
+        refused(&[
+            "pixelize",
+            path,
+            "--image",
+            png.to_str().unwrap(),
+            "--to",
+            "l1",
+            "--colors",
+            "1"
+        ])
+        .contains("2 to 256")
+    );
+
+    let painting = dir.join("sign.klad");
+    let sign = painting.to_str().unwrap();
+    draw(&[
+        "new", sign, "--width", "320", "--height", "160", "--frames", "3", "--fps", "6",
+    ]);
+    draw(&["add", sign, "layer", "vector", "name=board"]);
+    let board = draw(&["ls", sign])
+        .lines()
+        .find(|l| l.contains("board"))
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .to_string();
+    draw(&[
+        "add",
+        sign,
+        "rect",
+        "--in",
+        &board,
+        "x=40",
+        "y=40",
+        "w=240",
+        "h=80",
+        "fill=#8b5a2b",
+    ]);
+    draw(&[
+        "add",
+        sign,
+        "ellipse",
+        "--in",
+        &board,
+        "cx=160",
+        "cy=80",
+        "rx=30",
+        "ry=30",
+        "fill=#f0c8a0",
+    ]);
+    draw(&["clip", sign, "--add", "sway", "--from", "0", "--to", "2", "--loop"]);
+    assert!(refused(&["pixelize", sign]).contains("give --size"));
+    let (named, told) = both(&["pixelize", sign, "--layer", "board", "--size", "32"]);
+    let made = named.trim().to_string();
+    assert!(made.ends_with("sign-board-pixel.klad"), "{made}");
+    assert!(told.contains("32x16, 3 frames (1 drawing)"), "{told}");
+    let pixels = rows(&made, "board");
+    assert_eq!(pixels.len(), 16);
+    assert_eq!(
+        pixels[4],
+        format!("....{}....", pixels[4][4..5].repeat(24)),
+        "the board is one colour across, from 40 to 280 of 320"
+    );
+    assert_ne!(
+        pixels[8].chars().nth(16),
+        pixels[8].chars().nth(5),
+        "with the disc in another colour"
+    );
+    assert!(
+        pixels[0].chars().all(|c| c == '.'),
+        "and nothing where the layer is clear"
+    );
+    let timeline = draw(&["frames", &made]);
+    assert!(
+        timeline.contains("3 frames at 6 fps") && timeline.contains("clip sway"),
+        "{timeline}"
+    );
+    assert!(
+        draw(&["ls", sign]).contains("board"),
+        "the painting itself is unchanged"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_drawing_cut_into_tiles_is_read_drawn_and_exported_tile_by_tile() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-tiles-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("game")).unwrap();
+    let bundle = dir.join("ground.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let both = |args: &[&str]| {
+        let out = run(args);
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        (
+            String::from_utf8_lossy(&out.stdout).to_string(),
+            String::from_utf8_lossy(&out.stderr).to_string(),
+        )
+    };
+    let draw = |args: &[&str]| both(args).0;
+    let refused = |args: &[&str]| {
+        let out = run(args);
+        assert!(!out.status.success(), "{args:?} went through");
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    let odd = dir.join("odd.klad");
+    assert!(
+        refused(&["new", odd.to_str().unwrap(), "--pixel", "50x32", "--tile", "16"])
+            .contains("does not cut into tiles")
+    );
+    assert!(!odd.exists(), "a drawing that cannot be cut is not left behind");
+    draw(&["new", path, "--pixel", "48x32", "--tile", "16"]);
+    assert!(draw(&["canvas", path]).contains("tiles of 16x16, 3 across and 2 down"));
+    draw(&["palette", path, "--add", "#3a5a40", "--name", "grass"]);
+    draw(&["palette", path, "--add", "#8b5a2b", "--name", "dirt"]);
+    draw(&[
+        "pixel",
+        path,
+        "l1",
+        "--color",
+        "grass",
+        "--rect",
+        "0,0,16,16",
+        "--filled",
+    ]);
+    let grid = dir.join("tile.txt");
+    std::fs::write(&grid, "d = dirt\n\ndddd\nd..d\ndddd\n").unwrap();
+    draw(&["pixel", path, "l1", "--grid", grid.to_str().unwrap(), "--tile", "2,1"]);
+    let whole = draw(&["pixels", path, "l1", "--plain"]);
+    let rows: Vec<&str> = whole.lines().skip_while(|l| !l.is_empty()).skip(1).collect();
+    assert_eq!(
+        &rows[16][32..36],
+        "dddd",
+        "the grid went to the tile's own corner, canvas pixel 32,16"
+    );
+    assert_eq!(&rows[17][32..36], "d..d");
+    let tile = draw(&["pixels", path, "l1", "--tile", "2,1", "--plain"]);
+    let cut: Vec<&str> = tile.lines().skip_while(|l| !l.is_empty()).skip(1).collect();
+    assert_eq!(cut.len(), 16, "one tile is 16 rows");
+    assert_eq!(
+        (cut[0], cut[1], cut[3]),
+        ("dddd............", "d..d............", "................")
+    );
+    assert!(draw(&["pixels", path, "l1", "--tile", "2,1"]).contains("tile 2,1 (its top left is canvas pixel 32,16)"));
+    assert!(refused(&["pixels", path, "l1", "--tile", "3,0"]).contains("3 by 2 tiles"));
+
+    let art = dir.join("game").join("art");
+    let (named, told) = both(&["export", path, "--tileset", art.to_str().unwrap()]);
+    assert!(
+        named.contains("ground-tiles.png") && named.contains("ground-tiles.tres"),
+        "{named}"
+    );
+    assert!(
+        told.contains("2 tiles of 16x16 (3 across, 2 down, 4 empty left out)"),
+        "{told}"
+    );
+    assert!(told.contains("texture filter to Nearest"), "{told}");
+    let tres = std::fs::read_to_string(art.join("ground-tiles.tres")).unwrap();
+    assert!(
+        tres.contains("tile_size = Vector2i(16, 16)") && tres.contains("0:0/0 = 0") && tres.contains("2:1/0 = 0"),
+        "{tres}"
+    );
+    let png = std::fs::read(art.join("ground-tiles.png")).unwrap();
+    assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 48);
+    draw(&["export", path, "--tileset"]);
+
+    draw(&["canvas", path, "--tile", "off"]);
+    assert!(!draw(&["canvas", path]).contains("tiles of"));
+    assert!(refused(&["export", path, "--tileset"]).contains("not cut into tiles"));
+    assert!(refused(&["pixels", path, "l1", "--tile", "0,0"]).contains("not cut into tiles"));
+    draw(&["canvas", path, "--tile", "24x16", "--wrap", "on"]);
+    assert!(draw(&["canvas", path]).contains("wraps at its edges  tiles of 24x16, 2 across and 2 down"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn klad_check_lists_the_slips_of_pixel_art_with_their_places() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-check-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("slips.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let refused = |args: &[&str]| {
+        let out = run(args);
+        assert!(!out.status.success(), "{args:?} went through");
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    draw(&["new", path, "--pixel", "24x16", "--frames", "3"]);
+    draw(&["palette", path, "--add", "#1b1b2f", "--name", "dark"]);
+    draw(&["palette", path, "--add", "#5a6e9a", "--name", "mid"]);
+    draw(&["palette", path, "--add", "#cfd8ea", "--name", "light"]);
+    draw(&["palette", path, "--add", "#22223b", "--name", "ink"]);
+    draw(&["set", path, "l1", "name=body"]);
+    assert!(draw(&["check", path]).contains("body (l1), frame 0: nothing to look at"));
+    let grid = dir.join("slips.txt");
+    std::fs::write(
+        &grid,
+        "d = dark\nm = mid\nl = light\ni = ink\n\n\
+         dddddd..........i.......\n\
+         mmmmmm..................\n\
+         llllll..................\n\
+         ........................\n\
+         iiii....................\n\
+         ....i...................\n\
+         .....iiii...............\n\
+         ........................\n\
+         i.......................\n\
+         .ii.....................\n\
+         ..i.....................\n\
+         ...i....................\n",
+    )
+    .unwrap();
+    draw(&["pixel", path, "body", "--grid", grid.to_str().unwrap()]);
+    draw(&["pixel", path, "body", "--color", "#ff00ff", "--cells", "20,12 21,12"]);
+    draw(&["palette", path, "--rm", "#ff00ff"]);
+    let listed = draw(&["check", path]);
+    assert!(listed.contains("body (l1), frame 0:"), "{listed}");
+    let line = |kind: &str| {
+        listed
+            .lines()
+            .find(|l| l.trim_start().starts_with(kind))
+            .unwrap_or_else(|| panic!("no {kind} in:\n{listed}"))
+            .to_string()
+    };
+    assert!(
+        line("stray pixel").contains("16,0") && line("stray pixel").contains("ink"),
+        "{listed}"
+    );
+    assert!(line("doubled corner").contains("2,9"), "{listed}");
+    assert!(
+        line("jagged line").contains("4,5") && line("jagged line").contains("a run of 1 between runs of 4 and 4"),
+        "{listed}"
+    );
+    assert!(
+        line("banding").contains("0,1 to 5,1")
+            && line("banding").contains("mid")
+            && line("banding").contains("between dark and light"),
+        "{listed}"
+    );
+    assert!(
+        line("off the palette").contains("20,12")
+            && line("off the palette").contains("#ff00ff")
+            && line("off the palette").contains("2 pixels"),
+        "{listed}"
+    );
+    assert!(listed.contains("not errors"), "{listed}");
+    let found: serde_json::Value = serde_json::from_str(&draw(&["check", path, "body", "--json"])).unwrap();
+    let kinds: std::collections::BTreeSet<&str> = found["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        kinds.into_iter().collect::<Vec<_>>(),
+        ["banding", "corner", "jagged", "off-palette", "stray"]
+    );
+    assert_eq!(found["checked"][0]["name"], "body");
+    draw(&["add", path, "cel", "--in", "l1", "frame=2"]);
+    let every = draw(&["check", path, "--all"]);
+    assert!(
+        every.contains("frame 0:") && every.contains("body (l1), frame 2: nothing to look at"),
+        "{every}"
+    );
+    assert_eq!(
+        every.matches("body (l1), frame").count(),
+        2,
+        "each drawing once, not each frame: {every}"
+    );
+    assert!(refused(&["check", path, "--frame", "9"]).contains("past the last frame"));
+    let painting = dir.join("painting.klad");
+    draw(&["new", painting.to_str().unwrap(), "--width", "64", "--height", "64"]);
+    assert!(refused(&["check", painting.to_str().unwrap()]).contains("no pixel layers"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

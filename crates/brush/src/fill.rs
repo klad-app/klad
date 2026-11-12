@@ -461,14 +461,14 @@ pub fn paint_fill_where(raster: &mut Raster, fill: &Fill, allowed: impl Fn(usize
                 return false;
             };
             if paint {
-                let target = match fill.lock {
+                let target = match fill.lock || fill.erases() {
                     true => raster.at_mut(index),
                     false => Some(raster.ensure(index)),
                 };
-                let blend = if fill.lock {
-                    StrokeBlend::Atop
-                } else {
-                    StrokeBlend::Normal
+                let blend = match (fill.erases(), fill.lock) {
+                    (true, _) => StrokeBlend::Erase,
+                    (false, true) => StrokeBlend::Atop,
+                    (false, false) => StrokeBlend::Normal,
                 };
                 if let Some(target) = target {
                     blend_coverage(target, &buffer, color, fill.opacity, blend);
@@ -993,6 +993,40 @@ mod tests {
         assert_eq!(red(&after.raster), 1.0);
         assert_eq!(red(&before.raster), 0.0);
         assert_eq!(pixel(&before.raster, 60, 5)[3].to_f32(), 1.0);
+    }
+
+    #[test]
+    fn pixel_marks_replay_hard_and_an_erasing_mark_clears_what_is_under_it() {
+        let brushes = BrushSet::presets();
+        let block: Vec<[u32; 2]> = (2..6).flat_map(|y| (3..9).map(move |x| [x, y])).collect();
+        let red = Fill::cells(1, [1.0, 0.0, 0.0, 1.0], "p1", false, Coverage::from_cells(&block));
+        let hole = Fill::cells(
+            2,
+            [0.0, 0.0, 0.0, 1.0],
+            "",
+            true,
+            Coverage::from_cells(&[[4, 3], [5, 3], [20, 20]]),
+        );
+        let dot = Fill::cells(3, [0.0, 0.0, 1.0, 1.0], "p2", false, Coverage::from_cells(&[[5, 3]]));
+        let done = replay(
+            32,
+            32,
+            &[Mark::Fill(red.clone()), Mark::Fill(hole.clone()), Mark::Fill(dot)],
+            &brushes,
+        )
+        .unwrap();
+        let at = |x: usize, y: usize| pixel(&done.raster, x, y).map(|v| v.to_f32());
+        assert_eq!(at(3, 2), [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(at(4, 3), [0.0, 0.0, 0.0, 0.0], "erased");
+        assert_eq!(at(5, 3), [0.0, 0.0, 1.0, 1.0], "a later mark paints into the hole");
+        assert_eq!(at(2, 2), [0.0, 0.0, 0.0, 0.0], "nothing bleeds past the cells");
+        assert_eq!(at(20, 20), [0.0, 0.0, 0.0, 0.0], "erasing empty canvas leaves it empty");
+        let first = replay(32, 32, &[Mark::Fill(hole), Mark::Fill(red)], &brushes).unwrap();
+        assert_eq!(
+            pixel(&first.raster, 4, 3)[3].to_f32(),
+            1.0,
+            "it only clears what came before it"
+        );
     }
 
     #[test]

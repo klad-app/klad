@@ -136,7 +136,7 @@ impl Pixels {
         }
     }
 
-    fn bytes(&self) -> &[u8] {
+    pub fn bytes(&self) -> &[u8] {
         match &self.data {
             Data::Rgba8(d) => d,
             Data::Rgba16(d) => bytemuck::cast_slice(d),
@@ -431,6 +431,28 @@ pub fn sprite_frames(res: &SpriteFrames) -> String {
     out
 }
 
+pub struct TileSet<'a> {
+    pub uid: &'a str,
+    pub texture: &'a Texture,
+    pub tile: [u32; 2],
+    pub tiles: &'a [(u32, u32)],
+}
+
+pub fn tile_set(set: &TileSet) -> String {
+    let uid = set
+        .texture
+        .uid
+        .as_deref()
+        .map_or(String::new(), |u| format!(" uid={}", quoted(u)));
+    let [w, h] = set.tile;
+    let tiles: String = set.tiles.iter().map(|(x, y)| format!("{x}:{y}/0 = 0\n")).collect();
+    format!(
+        "[gd_resource type=\"TileSet\" load_steps=3 format=3 uid={}]\n\n[ext_resource type=\"Texture2D\"{uid} path={} id=\"1_tiles\"]\n\n[sub_resource type=\"TileSetAtlasSource\" id=\"TileSetAtlasSource_1\"]\ntexture = ExtResource(\"1_tiles\")\ntexture_region_size = Vector2i({w}, {h})\n{tiles}\n[resource]\ntile_size = Vector2i({w}, {h})\nsources/0 = SubResource(\"TileSetAtlasSource_1\")\n",
+        quoted(set.uid),
+        quoted(&set.texture.path),
+    )
+}
+
 pub struct Scene<'a> {
     pub uid: &'a str,
     pub node: &'a str,
@@ -438,6 +460,7 @@ pub struct Scene<'a> {
     pub frames_uid: &'a str,
     pub animation: &'a str,
     pub origin: [f32; 2],
+    pub pixel: bool,
 }
 
 pub fn node_name(stem: &str) -> String {
@@ -465,7 +488,10 @@ pub fn scene(s: &Scene) -> String {
         quoted(s.animation),
         number(-s.origin[0]),
         number(-s.origin[1])
-    )
+    ) + match s.pixel {
+        true => "texture_filter = 1\n",
+        false => "",
+    }
 }
 
 pub fn uid_text(mut id: u64) -> String {
@@ -751,6 +777,7 @@ mod tests {
             frames_uid: "uid://frames",
             animation: "idle",
             origin: [16.0, 30.5],
+            pixel: false,
         });
         assert!(tscn.contains("[node name=\"ball_v2\" type=\"AnimatedSprite2D\"]"));
         assert!(tscn.contains("offset = Vector2(-16, -30.5)\n"));

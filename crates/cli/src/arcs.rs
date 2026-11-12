@@ -93,7 +93,7 @@ fn points(mark: &Mark) -> Vec<[f32; 2]> {
         Mark::Stroke(s) => s.samples.iter().map(Sample::pos).map(|(x, y)| [x, y]).collect(),
         Mark::Fill(f) => match &f.source {
             FillSource::Polygon(p) => p.clone(),
-            FillSource::Seed { .. } => f
+            FillSource::Seed { .. } | FillSource::Cells { .. } => f
                 .bounds()
                 .map(|[x0, y0, x1, y1]| vec![[x0, y0], [x1, y1]])
                 .unwrap_or_default(),

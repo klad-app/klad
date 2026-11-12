@@ -7,7 +7,6 @@ use crate::layout::Pane;
 use crate::messages::Tone;
 use crate::stats::{Stats, lock};
 use crate::theme::{self, Hint};
-use crate::view::View;
 use anyhow::Result;
 use egui::RichText;
 use klad_core::doc::{Kind as LayerKind, MASK, Shape};
@@ -106,9 +105,30 @@ impl Editor {
                 .filter(|l| l.kind() != klad_core::doc::Kind::Adjust)
                 .is_none()
                 .then(|| "pick a layer or group with something on it".to_string()),
+            Cmd::SelectSameColour => match self.scene.on_grid() {
+                false => {
+                    Some("make a pixel layer active first: it selects pixel marks by their palette colour".to_string())
+                }
+                true => self
+                    .scene
+                    .active_marks()
+                    .is_empty()
+                    .then(|| "this drawing has no pixels yet".to_string()),
+            },
             Cmd::SelectAll => (!self.active_paint() || self.scene.active_marks().is_empty())
                 .then(|| "the active layer has no strokes on this frame".to_string()),
             Cmd::Recolour | Cmd::Thinner | Cmd::Thicker => need_strokes().or(editing),
+            Cmd::ShadeLighter | Cmd::ShadeDarker => match self.scene.on_grid() {
+                true => need_strokes().or(editing),
+                false => {
+                    Some("select pixel marks on a pixel layer first: they step along their colour's ramp".to_string())
+                }
+            },
+            Cmd::PixelOutline => match (self.scene.on_grid(), self.scene.active_marks().is_empty()) {
+                (false, _) => Some("make a pixel layer active first".to_string()),
+                (true, true) => Some("this drawing has no pixels to outline yet".to_string()),
+                (true, false) => editing,
+            },
             Cmd::AttachedOnly => need_strokes()
                 .or_else(|| {
                     (self.attached_count() == 0)
@@ -163,6 +183,44 @@ impl Editor {
                 .view
                 .is_none()
                 .then(|| "the canvas is not shown yet: wait a moment".to_string()),
+            Cmd::UpdateSwatch => {
+                let picked = self.swatch_picked.and_then(|at| self.scene.bundle.doc.palette.get(at));
+                match picked {
+                    None => Some("click a colour in the palette first, then change the colour".to_string()),
+                    Some(swatch) if swatch.color.eq_ignore_ascii_case(&crate::color::hex(self.color)) => {
+                        Some("the palette colour already is this colour: change the colour first".to_string())
+                    }
+                    Some(_) => editing,
+                }
+            }
+            Cmd::WrapCanvas => editing,
+            Cmd::CheckPixels if self.checks.pixels.is_none() && !self.scene.on_grid() => {
+                Some("pick a pixel layer first: the check reads pixel art".to_string())
+            }
+            Cmd::NewVariant => match self.scene.bundle.doc.all_layers().iter().any(|l| l.pixel()) {
+                true => editing,
+                false => Some(
+                    "palette variants recolour pixel layers, and this drawing has none: Layer > New pixel layer"
+                        .to_string(),
+                ),
+            },
+            Cmd::NextVariant if self.scene.bundle.doc.variants.is_empty() => {
+                Some("the drawing has no palette variants yet: make one with new variant".to_string())
+            }
+            Cmd::NextVariant => editing,
+            Cmd::RenameVariant | Cmd::RemoveVariant if self.scene.bundle.doc.variants.shown.is_empty() => Some(
+                match self.scene.bundle.doc.variants.is_empty() {
+                    true => "the drawing has no palette variants yet: make one with new variant",
+                    false => "the palette itself is shown: show a variant first",
+                }
+                .to_string(),
+            ),
+            Cmd::RenameVariant if self.swatch_name.trim().is_empty() => {
+                Some("type the new name in the name field first".to_string())
+            }
+            Cmd::RenameVariant | Cmd::RemoveVariant => editing,
+            Cmd::PixelGrid => (!self.scene.bundle.doc.pixel_art())
+                .then(|| "this drawing has no pixel layer: Layer > New pixel layer adds one".to_string()),
             Cmd::Corner | Cmd::Smooth => direct
                 .filter(|d| !d.points.is_empty())
                 .is_none()
@@ -255,6 +313,7 @@ impl Editor {
                 }
             }),
             Cmd::NewPaintLayer
+            | Cmd::NewPixelLayer
             | Cmd::NewVectorLayer
             | Cmd::NewGroupLayer
             | Cmd::NewBonesLayer
@@ -298,6 +357,10 @@ impl Editor {
             Cmd::OnOnes | Cmd::OnTwos | Cmd::OnThrees | Cmd::FitFrames | Cmd::Reverse | Cmd::Pingpong => {
                 need_span().or_else(|| self.timeline_edit())
             }
+            Cmd::Inbetween if self.scene.on_grid() => Some(
+                "this is a pixel layer: in-betweens move the points of strokes, and pixels have none. Draw the frames in between"
+                    .to_string(),
+            ),
             Cmd::Inbetween => need_span()
                 .or_else(|| self.timeline_edit())
                 .or_else(|| {
@@ -381,6 +444,9 @@ impl Editor {
             Cmd::Brush => self.tool == Tool::Brush && !erasing,
             Cmd::Eraser => self.tool == Tool::Brush && erasing,
             Cmd::FlipView => self.view.is_some_and(|v| v.flip),
+            Cmd::PixelGrid => self.settings.pixel_grid,
+            Cmd::WrapCanvas => self.scene.bundle.doc.canvas.wrap,
+            Cmd::PreviewPane => layout.dock && layout.is_open(Pane::Preview),
             Cmd::Fill => self.tool == Tool::Fill,
             Cmd::Shapes => self.tool == Tool::Select,
             Cmd::Strokes => self.tool == Tool::Strokes,
@@ -430,10 +496,13 @@ impl Editor {
             Cmd::About => self.windows.about,
             Cmd::ReportProblem => self.windows.report,
             Cmd::Export => self.windows.export,
+            Cmd::Pixelize => self.windows.pixels,
+            Cmd::TileSize => self.windows.tiles,
             Cmd::AddFont => self.windows.font,
             Cmd::PaintOver => self.windows.paintover,
             Cmd::CompareReference => self.windows.compare,
             Cmd::ShowGaps => self.checks.gaps.is_some(),
+            Cmd::CheckPixels => self.checks.pixels.is_some(),
             Cmd::ShowParts => self.checks.parts,
             Cmd::ShowArcs => self.checks.arcs.is_some(),
             Cmd::BrushWindow => self.windows.brush,
@@ -540,12 +609,98 @@ impl Editor {
             Cmd::MakeMirror => self.wrap("mirror")?,
             Cmd::Unwrap => self.unwrap()?,
             Cmd::ImportPicture => self.windows.import = !self.windows.import,
+            Cmd::Pixelize => self.windows.pixels = !self.windows.pixels,
+            Cmd::TileSize => {
+                self.windows.tiles = !self.windows.tiles;
+                if let Some(tile) = self.scene.bundle.doc.canvas.tile {
+                    self.tile_size = tile;
+                }
+            }
+            Cmd::LoadPalette => self.windows.palettes = !self.windows.palettes,
+            Cmd::NewVariant => {
+                let typed = self.swatch_name.trim().to_string();
+                let doc = &self.scene.bundle.doc;
+                let taken =
+                    |name: &str| klad_core::doc::Variants::key(name).is_empty() || doc.variants.find(name).is_some();
+                let name = match typed.is_empty() || taken(&typed) {
+                    false => typed,
+                    true => (doc.variants.sets.len() + 2..)
+                        .map(|n| format!("variant {n}"))
+                        .find(|n| !taken(n))
+                        .unwrap_or(typed),
+                };
+                self.swatch_name.clear();
+                self.apply(vec![Op::Palette(PaletteEdit::NewVariant { name })])?;
+            }
+            Cmd::NextVariant => {
+                let doc = &self.scene.bundle.doc;
+                let names = doc.variant_names();
+                let at = names.iter().position(|n| *n == doc.shown_variant()).unwrap_or(0);
+                let name = names[(at + 1) % names.len()].to_string();
+                self.apply(vec![Op::Palette(PaletteEdit::Variant { name })])?;
+            }
+            Cmd::RenameVariant => {
+                let edit = PaletteEdit::RenameVariant {
+                    name: self.scene.bundle.doc.variants.shown.clone(),
+                    to: self.swatch_name.trim().to_string(),
+                };
+                self.apply(vec![Op::Palette(edit)])?;
+                self.swatch_name.clear();
+            }
+            Cmd::RemoveVariant => {
+                let name = self.scene.bundle.doc.variants.shown.clone();
+                self.apply(vec![Op::Palette(PaletteEdit::RemoveVariant { name })])?;
+            }
+            Cmd::UpdateSwatch => {
+                if let Some(at) = self.swatch_picked {
+                    let edit = PaletteEdit::Recolour {
+                        key: at.to_string(),
+                        color: crate::color::hex(self.color),
+                    };
+                    self.apply(vec![Op::Palette(edit)])?;
+                }
+            }
+            Cmd::AddRamp => {
+                let typed = self.swatch_name.trim().to_string();
+                let doc = &self.scene.bundle.doc;
+                let taken = |name: &str| {
+                    doc.palette
+                        .iter()
+                        .any(|s| s.ramp == name || s.name.starts_with(&format!("{name}-")))
+                };
+                let name = match typed.is_empty() || taken(&typed) {
+                    false => typed,
+                    true => {
+                        let stem = if typed.is_empty() { "ramp".to_string() } else { typed };
+                        (2..)
+                            .map(|n| format!("{stem} {n}"))
+                            .chain(std::iter::once(stem.clone()))
+                            .find(|n| !taken(n))
+                            .unwrap_or(stem)
+                    }
+                };
+                let swatches = klad_core::palettes::ramp_swatches(&name, &crate::color::hex(self.color), 5)?;
+                let keys = swatches.iter().map(|s| s.color.clone()).collect();
+                self.swatch_name.clear();
+                self.apply(vec![
+                    Op::Palette(PaletteEdit::Load { swatches }),
+                    Op::Palette(PaletteEdit::Ramp { name, keys }),
+                ])?;
+            }
             Cmd::Parallax => {}
             Cmd::Note => self.tool = Tool::Note,
+            Cmd::Smaller if self.scene.on_grid() => self.pixel_size = self.pixel_size.saturating_sub(1).max(1),
+            Cmd::Bigger if self.scene.on_grid() => {
+                self.pixel_size = (self.pixel_size + 1).min(klad_core::pixel::MAX_SIZE)
+            }
             Cmd::Smaller => self.size = (self.size / 1.25).max(0.5),
             Cmd::Bigger => self.size = (self.size * 1.25).min(800.0),
-            Cmd::Fit => self.view = Some(View::fit(self.canvas_size(), area)),
+            Cmd::Fit => {
+                self.view = Some(self.fitted(area));
+                self.zoom_wanted = None;
+            }
             Cmd::ActualSize => {
+                self.zoom_wanted = None;
                 let ppp = self.ctx.pixels_per_point();
                 if let Some(view) = self.view.as_mut() {
                     view.zoom_at(1.0 / (view.zoom * ppp), area / 2.0, area);
@@ -600,6 +755,7 @@ impl Editor {
             }
             Cmd::Paste => self.paste()?,
             Cmd::SelectAll => self.select_all_strokes(),
+            Cmd::SelectSameColour => self.select_same_colour(),
             Cmd::TransformLayer => self.start_shift()?,
             Cmd::CutLasso => self.cut_lasso = !self.cut_lasso,
             Cmd::Recolour => self.recolour_picked()?,
@@ -613,6 +769,20 @@ impl Editor {
             Cmd::PickAllLayers => {
                 self.settings.pick_all_layers = !self.settings.pick_all_layers;
                 self.settings_dirty = true;
+            }
+            Cmd::ShadeLighter => self.step_picked(1)?,
+            Cmd::ShadeDarker => self.step_picked(-1)?,
+            Cmd::PixelOutline => {
+                if let Some(spec) = self.pixel_spec(false) {
+                    self.apply_pixels(klad_core::ops::PixelSpec {
+                        outline: true,
+                        shade: None,
+                        dither: None,
+                        second: None,
+                        color: Some(crate::color::hex(self.color)),
+                        ..spec
+                    })?;
+                }
             }
             Cmd::Thinner => self.size_picked(0.8)?,
             Cmd::Thicker => self.size_picked(1.25)?,
@@ -671,6 +841,10 @@ impl Editor {
                 self.apply(vec![Op::Palette(edit)])?;
             }
             Cmd::NewPaintLayer => self.add_layer("paint")?,
+            Cmd::NewPixelLayer => {
+                self.add_layer("pixel")?;
+                self.settings_dirty |= self.settings.offer_real_size(true);
+            }
             Cmd::NewGroupLayer => self.new_group(false)?,
             Cmd::NewBonesLayer => {
                 self.new_skeleton()?;
@@ -714,6 +888,7 @@ impl Editor {
             Cmd::Refill => self.refill()?,
             Cmd::FillLike => self.fill_like()?,
             Cmd::ShowGaps => self.show_gaps()?,
+            Cmd::CheckPixels => self.check_pixels(),
             Cmd::ShowParts => self.checks.parts = !self.checks.parts,
             Cmd::ShowArcs => self.show_arcs()?,
             Cmd::InstallCommand => self.start_job(install_job()),
@@ -894,6 +1069,19 @@ impl Editor {
             Cmd::InspectorPane => self.pane(Pane::Inspector),
             Cmd::NotesPane => self.pane(Pane::Notes),
             Cmd::HistoryPane => self.pane(Pane::History),
+            Cmd::PreviewPane => self.pane(Pane::Preview),
+            Cmd::PixelGrid => {
+                self.settings.pixel_grid = !self.settings.pixel_grid;
+                self.settings_dirty = true;
+            }
+            Cmd::WrapCanvas => {
+                let wrap = !self.scene.bundle.doc.canvas.wrap;
+                self.apply(vec![Op::Canvas {
+                    wrap: Some(wrap),
+                    tile: None,
+                }])?;
+                self.dirty.extend(self.scene.all_tiles());
+            }
             Cmd::Timeline => {
                 self.settings.layout.timeline = !self.settings.layout.timeline;
                 self.settings_dirty = true;

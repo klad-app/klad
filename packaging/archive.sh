@@ -23,6 +23,7 @@ mkdir -p "$stage/fonts"
 (cd "$root/fonts" && tar cf - --exclude update.py .) | (cd "$stage/fonts" && tar xf -)
 cp "$root/LICENSE" "$root/LICENSE-MIT" "$root/THIRD-PARTY-NOTICES.md" "$root/docs/skill/SKILL.md" "$stage/"
 cp "$root/docs/skill/drawing/SKILL.md" "$stage/SKILL-drawing.md"
+cp "$root/docs/skill/pixel/SKILL.md" "$stage/SKILL-pixel.md"
 cp "$root/packaging/icon/icon.png" "$stage/klad.png"
 bash "$root/packaging/samples.sh" "${KLAD:-$stage/klad$ext}" "$stage/samples" >/dev/null
 case "$platform" in

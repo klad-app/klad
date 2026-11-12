@@ -4,5 +4,7 @@
   { "name": "bounce", "bundle": "bounce/bounce.klad", "about": "frame by frame: keys, holds and a clip" },
   { "name": "creature", "bundle": "creature/creature.klad", "about": "a walk and an idle from keys, in-betweened" },
   { "name": "rig", "bundle": "rig/rig.klad", "about": "a figure posed with bones, and a lantern on keys" },
-  { "name": "ruin", "bundle": "ruin/ruin.klad", "about": "a game background in depth planes, lit by one lantern" }
+  { "name": "ruin", "bundle": "ruin/ruin.klad", "about": "a game background in depth planes, lit by one lantern" },
+  { "name": "sprout", "bundle": "sprout/sprout.klad", "about": "pixel art: a character with an idle and a walk" },
+  { "name": "ground", "bundle": "ground/ground.klad", "about": "pixel art: a tileset of 16 px tiles for Godot" }
 ]

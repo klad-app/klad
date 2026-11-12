@@ -132,8 +132,12 @@ pub fn parallax(path: &Path, dir: Option<PathBuf>, frame: u32) -> Result<Vec<Pat
             )
         })
         .collect();
+    let sharp = match bundle.doc.pixel_art() {
+        true => "texture_filter = 1\n",
+        false => "",
+    };
     let text = format!(
-        "[gd_scene load_steps={} format=3 uid={}]\n\n{resources}\n[node name={} type=\"Node2D\"]\n{nodes}",
+        "[gd_scene load_steps={} format=3 uid={}]\n\n{resources}\n[node name={} type=\"Node2D\"]\n{sharp}{nodes}",
         planes.len() + 1,
         quoted(&uid_of(&scene)),
         quoted(&node_name(&bundle_stem(&bundle))),

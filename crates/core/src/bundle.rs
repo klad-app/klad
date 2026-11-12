@@ -9,7 +9,7 @@ use crate::ops::{Applied, ClipEdit, FillSpec, Op, PendingMarks, apply_all};
 use crate::repair;
 use crate::stroke::{Mark, Stroke, decode_cel, encode_cel, strokes_of};
 use crate::timing::{CelAction, FrameSpec};
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -33,6 +33,7 @@ pub struct Blank {
     pub fps: u32,
     pub frames: u32,
     pub sketch: bool,
+    pub pixel: bool,
 }
 
 impl Default for Blank {
@@ -45,6 +46,7 @@ impl Default for Blank {
             fps: 12,
             frames: 1,
             sketch: false,
+            pixel: false,
         }
     }
 }
@@ -327,7 +329,10 @@ impl Bundle {
         doc.layers = (1..=blank.layers)
             .map(|i| {
                 let (layer, cel) = (doc.alloc_id('l'), doc.alloc_id('c'));
-                Layer::paint(&layer, &format!("paint {i}"), &cel)
+                match blank.pixel {
+                    true => Layer::pixels(&layer, &format!("pixel {i}"), &cel),
+                    false => Layer::paint(&layer, &format!("paint {i}"), &cel),
+                }
             })
             .collect();
         if blank.sketch {
@@ -402,7 +407,197 @@ impl Bundle {
         self.apply_as(ops, "cli")
     }
 
+    fn shown(
+        &self,
+        doc: &Document,
+        plan: &[PendingMarks],
+        spec: &crate::ops::PixelSpec,
+        reference: Option<&str>,
+    ) -> Result<crate::pixel::Grid> {
+        use crate::pixel;
+        let own = doc
+            .layer(&spec.layer)
+            .ok_or_else(|| anyhow!("no layer {}", spec.layer))?;
+        let layers: Vec<&Layer> = match reference.map(str::trim) {
+            None | Some("this") => vec![own],
+            Some("all") => doc
+                .all_layers()
+                .into_iter()
+                .filter(|l| l.pixel() && l.visible)
+                .collect(),
+            Some(key) => vec![
+                doc.find_layer(key)
+                    .map_err(|e| anyhow!("reference: {e}; or use this or all"))?,
+            ],
+        };
+        if let Some(other) = layers.iter().find(|l| !l.pixel()) {
+            bail!(
+                "{} is a {} layer: a pixel fill, outline or shade reads pixel layers",
+                other.id,
+                other.kind_name()
+            );
+        }
+        let (w, h) = (doc.canvas.width, doc.canvas.height);
+        let grids = layers
+            .iter()
+            .map(|layer| {
+                let marks = match layer.content_at(spec.frame) {
+                    Some(cel) => self.marks_after(doc, plan, &layer.id, &cel.id, usize::MAX)?,
+                    None => Vec::new(),
+                };
+                Ok(pixel::grid_of(&marks, w, h))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(pixel::merged(&grids).unwrap_or_else(|| pixel::grid_of(&[], w, h)))
+    }
+
+    fn settled(
+        &self,
+        doc: &Document,
+        plan: &[PendingMarks],
+        spec: &crate::ops::PixelSpec,
+    ) -> Result<Vec<crate::ops::PixelSpec>> {
+        use crate::ops::PixelSpec;
+        use crate::pixel;
+        spec.check()?;
+        let (w, h) = (doc.canvas.width, doc.canvas.height);
+        let placed = match (spec.fill, spec.outline) {
+            (Some(seed), _) => {
+                let grid = self.shown(doc, plan, spec, spec.reference.as_deref())?;
+                let cells = spec.twinned(pixel::flood(&grid, seed, spec.diagonal, doc.canvas.wrap));
+                if cells.is_empty() {
+                    bail!(
+                        "the fill starts at {},{}, which is off the {w}x{h} canvas",
+                        seed[0],
+                        seed[1]
+                    );
+                }
+                cells
+            }
+            (None, true) => {
+                let grid = self.shown(doc, plan, spec, spec.reference.as_deref())?;
+                let cells = pixel::outline(&grid, spec.inside, spec.diagonal, doc.canvas.wrap);
+                if cells.is_empty() {
+                    bail!("there are no pixels to outline at frame {}", spec.frame);
+                }
+                cells
+            }
+            (None, false) => PixelSpec {
+                shade: None,
+                dither: None,
+                ..spec.clone()
+            }
+            .drawn()?,
+        };
+        let plain = PixelSpec {
+            cells: Vec::new(),
+            path: None,
+            line: None,
+            rect: None,
+            ellipse: None,
+            filled: false,
+            fill: None,
+            diagonal: false,
+            reference: None,
+            outline: false,
+            inside: false,
+            shade: None,
+            dither: None,
+            second: None,
+            mirror_x: None,
+            mirror_y: None,
+            size: 1,
+            ..spec.clone()
+        };
+        let placed = match doc.canvas.wrap {
+            true => pixel::wrapped(&placed, w, h),
+            false => placed,
+        };
+        if let Some(by) = spec.shade {
+            let grid = self.shown(doc, plan, spec, None)?;
+            let mut stepped: BTreeMap<usize, Vec<pixel::Cell>> = BTreeMap::new();
+            placed
+                .iter()
+                .filter(|c| c[0] >= 0 && c[1] >= 0 && c[0] < w as i64 && c[1] < h as i64)
+                .for_each(|c| {
+                    let to = grid
+                        .at(c[0] as u32, c[1] as u32)
+                        .and_then(|key| doc.swatch(key))
+                        .and_then(|at| doc.ramp_step(at, by));
+                    if let Some(to) = to {
+                        stepped.entry(to).or_default().push(*c);
+                    }
+                });
+            if stepped.is_empty() {
+                bail!(
+                    "none of these pixels can step {}: their colours are in no ramp, or already at its end (klad palette --ramp groups colours)",
+                    if by > 0 { "lighter" } else { "darker" }
+                );
+            }
+            return Ok(stepped
+                .into_iter()
+                .map(|(to, cells)| PixelSpec {
+                    color: Some(to.to_string()),
+                    cells,
+                    ..plain.clone()
+                })
+                .collect());
+        }
+        let Some(percent) = spec.dither else {
+            return Ok(vec![PixelSpec { cells: placed, ..plain }]);
+        };
+        let (on, off): (Vec<pixel::Cell>, Vec<pixel::Cell>) =
+            placed.into_iter().partition(|c| pixel::dithered(*c, percent));
+        let first = (!on.is_empty()).then(|| PixelSpec {
+            cells: on,
+            ..plain.clone()
+        });
+        let second = spec
+            .second
+            .as_ref()
+            .filter(|_| !off.is_empty())
+            .map(|colour| PixelSpec {
+                color: Some(colour.clone()),
+                cells: off,
+                ..plain.clone()
+            });
+        let both: Vec<PixelSpec> = first.into_iter().chain(second).collect();
+        if both.is_empty() {
+            bail!("a dither of {percent}% with no second colour leaves no pixel to draw");
+        }
+        Ok(both)
+    }
+
+    pub fn settle_pixels(&self, ops: &[Op]) -> Result<Vec<Op>> {
+        if !ops.iter().any(|op| matches!(op, Op::Pixel(spec) if !spec.settled())) {
+            return Ok(ops.to_vec());
+        }
+        let mut doc = self.doc.clone();
+        let mut applied = Applied::default();
+        let mut out = Vec::with_capacity(ops.len());
+        ops.iter().enumerate().try_for_each(|(i, op)| {
+            let made = match op {
+                Op::Pixel(spec) if !spec.settled() => self
+                    .settled(&doc, &applied.marks, spec)
+                    .with_context(|| format!("op {}: pixels on {}", i + 1, spec.layer))?
+                    .into_iter()
+                    .map(Op::Pixel)
+                    .collect(),
+                other => vec![other.clone()],
+            };
+            made.iter().try_for_each(|op| {
+                crate::ops::apply(&mut doc, op, &mut applied).with_context(|| format!("op {}", i + 1))?;
+                crate::timing::grow(&mut doc);
+                Ok::<_, anyhow::Error>(())
+            })?;
+            out.extend(made);
+            Ok::<_, anyhow::Error>(())
+        })?;
+        Ok(out)
+    }
+
     pub fn apply_as(&mut self, ops: &[Op], author: &str) -> Result<Applied> {
+        let ops = &self.settle_pixels(ops)?[..];
         let (mut doc, mut applied) = apply_all(&self.doc, ops)?;
         self.embed_library(
             applied
@@ -462,6 +657,19 @@ impl Bundle {
     }
 
     pub fn apply_change(
+        &self,
+        doc: &Document,
+        plan: &[PendingMarks],
+        marks: &mut Vec<Mark>,
+        change: &mut MarkChange,
+        cel: &str,
+    ) -> Result<()> {
+        self.change_marks(doc, plan, marks, change, cel)?;
+        crate::pixel::bake(marks);
+        Ok(())
+    }
+
+    fn change_marks(
         &self,
         doc: &Document,
         plan: &[PendingMarks],
@@ -650,6 +858,9 @@ pub fn summarize(ops: &[Op]) -> String {
                 like: Some(cel), layer, ..
             }) => format!("fills on {layer} like {cel}"),
             Op::Fill(spec) => format!("fill on {}", spec.layer),
+            Op::Pixel(spec) if spec.erase => format!("erase pixels on {}", spec.layer),
+            Op::Pixel(spec) => format!("pixels on {}", spec.layer),
+            Op::PixelGrid(grid) => format!("pixel grid on {}", grid.layer),
             Op::Palette(_) => "palette".to_string(),
             Op::Transform { ids, .. } => format!("transform {}", ids.join(" ")),
             Op::Detach { ids } => format!("detach {}", ids.join(" ")),
@@ -666,6 +877,13 @@ pub fn summarize(ops: &[Op]) -> String {
             ),
             Op::Timeline { origin: Some(_), .. } => "timeline origin".to_string(),
             Op::Timeline { .. } => "timeline".to_string(),
+            Op::Canvas {
+                tile: Some(Some([w, h])),
+                ..
+            } => format!("tiles of {w}x{h}"),
+            Op::Canvas { tile: Some(None), .. } => "no tiles".to_string(),
+            Op::Canvas { wrap: Some(true), .. } => "the canvas wraps".to_string(),
+            Op::Canvas { .. } => "the canvas stops at its edges".to_string(),
             Op::Atmosphere(Some(_)) => "atmosphere".to_string(),
             Op::Atmosphere(None) => "atmosphere off".to_string(),
             Op::Clip(edit) => match edit {
@@ -772,6 +990,8 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::doc::Kind;
+    use crate::fill::Fill;
     use crate::synth::Synth;
 
     fn scratch(name: &str) -> PathBuf {
@@ -1421,6 +1641,900 @@ mod tests {
         assert_eq!(applied.removed, vec!["l1"]);
         assert!(!bundle.strokes_path("l1", "c1").exists());
         assert_eq!(Bundle::open(&dir).unwrap().doc.rev, 2);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_pixel_layer_takes_whole_pixels_bound_to_the_palette() {
+        use crate::ops::parse_lines;
+        let dir = scratch("pixels");
+        let mut bundle = Bundle::blank(
+            &dir,
+            &Blank {
+                width: 16,
+                height: 12,
+                pixel: true,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let layer = bundle.doc.layers[0].clone();
+        assert!(layer.pixel() && layer.kind() == Kind::Paint && layer.kind_name() == "pixel");
+        let cel = layer.cels()[0].id.clone();
+        bundle
+            .apply(
+                &parse_lines(&format!(
+                    "{}\n{}\n{}",
+                    r##"{"op":"palette","add":"#f0c8a0","name":"skin"}"##,
+                    format_args!(
+                        r##"{{"op":"pixel","layer":"{}","color":"skin","cells":[[2,3],[3,3],[4,3],[-1,3],[99,3]]}}"##,
+                        layer.id
+                    ),
+                    format_args!(
+                        r##"{{"op":"pixel","layer":"{}","color":"#2b2d42","cells":[[3,3],[3,4]]}}"##,
+                        layer.id
+                    ),
+                ))
+                .unwrap(),
+            )
+            .unwrap();
+        let skin = bundle.doc.palette[0].clone();
+        let ink = bundle.doc.palette[1].clone();
+        assert!(!skin.id.is_empty() && !ink.id.is_empty() && skin.id != ink.id);
+        assert_eq!(
+            (ink.color.as_str(), ink.name.as_str()),
+            ("#2b2d42", ""),
+            "a new colour joins the palette"
+        );
+        let marks = bundle.read_marks(&layer.id, &cel).unwrap();
+        let fills: Vec<&Fill> = crate::stroke::fills_of(&marks).collect();
+        assert_eq!(fills.len(), 2);
+        assert_eq!(fills[0].entry(), Some(skin.id.as_str()));
+        assert_eq!(
+            fills[0].coverage.cells().collect::<Vec<_>>(),
+            [[2, 3], [3, 3], [4, 3]],
+            "cells off the canvas are dropped"
+        );
+        assert!(fills[0].coverage.alpha.iter().all(|a| *a == 0 || *a == 255));
+        assert_eq!(fills[1].color(), crate::color::parse_hex("#2b2d42").unwrap());
+        let address = crate::markedit::address(&cel, fills[0].id);
+        bundle
+            .apply(
+                &parse_lines(&format!(
+                    "{}\n{}\n{}",
+                    format_args!(r##"{{"op":"set","id":"{address}","color":"#2b2d42"}}"##),
+                    format_args!(r##"{{"op":"transform","ids":["{address}"],"x":1.4,"y":0}}"##),
+                    format_args!(
+                        r##"{{"op":"pixel","layer":"{}","erase":true,"cells":[[3,4]]}}"##,
+                        layer.id
+                    ),
+                ))
+                .unwrap(),
+            )
+            .unwrap();
+        let marks = bundle.read_marks(&layer.id, &cel).unwrap();
+        let fills: Vec<&Fill> = crate::stroke::fills_of(&marks).collect();
+        assert_eq!(
+            fills[0].entry(),
+            Some(ink.id.as_str()),
+            "a recoloured mark is bound to the new entry"
+        );
+        assert_eq!(
+            fills[0].coverage.cells().collect::<Vec<_>>(),
+            [[3, 3], [4, 3], [5, 3]],
+            "moves are whole pixels"
+        );
+        assert_eq!(fills.len(), 2, "an eraser leaves no mark of its own");
+        assert_eq!(
+            fills[1].coverage.cells().collect::<Vec<_>>(),
+            [[3, 3]],
+            "it takes its pixels out of the marks under it"
+        );
+        assert_eq!(
+            bundle.doc.palette.len(),
+            2,
+            "a colour the palette has is not added again"
+        );
+        fn refuse(doc: &Document, line: String) -> String {
+            format!(
+                "{:#}",
+                crate::ops::apply_all(doc, &parse_lines(&line).unwrap()).unwrap_err()
+            )
+        }
+        assert!(
+            refuse(
+                &bundle.doc,
+                format!(r##"{{"op":"stroke","layer":"{}","path":"M1 1 L9 9"}}"##, layer.id)
+            )
+            .contains("pixel layer"),
+            "brush strokes stay off the grid"
+        );
+        assert!(
+            refuse(
+                &bundle.doc,
+                format!(
+                    r##"{{"op":"fill","layer":"{}","polygon":[[1,1],[9,1],[9,9]]}}"##,
+                    layer.id
+                )
+            )
+            .contains("pixel layer")
+        );
+        assert!(
+            refuse(
+                &bundle.doc,
+                format!(
+                    r##"{{"op":"pixel","layer":"{}","color":"teal","cells":[[1,1]]}}"##,
+                    layer.id
+                )
+            )
+            .contains("teal")
+        );
+        assert!(
+            refuse(
+                &bundle.doc,
+                format!(
+                    r##"{{"op":"pixel","layer":"{}","color":"skin","cells":[[40,40]]}}"##,
+                    layer.id
+                )
+            )
+            .contains("none of the 1 cells")
+        );
+        let paint = bundle
+            .apply(&parse_lines(r##"{"op":"add","layer":{"kind":"paint","name":"paint"}}"##).unwrap())
+            .unwrap()
+            .added[0]
+            .clone();
+        let wrong = refuse(
+            &bundle.doc,
+            format!(r##"{{"op":"pixel","layer":"{paint}","color":"skin","cells":[[1,1]]}}"##),
+        );
+        assert!(wrong.contains("pixels go into pixel layers"), "{wrong}");
+        bundle
+            .apply(&parse_lines(r##"{"op":"add","layer":{"kind":"pixel","name":"more"}}"##).unwrap())
+            .unwrap();
+        assert!(bundle.doc.find_layer("more").unwrap().pixel());
+        assert!(Bundle::open(&dir).unwrap().doc.find_layer("more").unwrap().pixel());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn palette_variants_swap_colours_keep_their_own_edits_and_leave_the_base_alone() {
+        use crate::ops::parse_lines;
+        let dir = scratch("variants");
+        let mut bundle = Bundle::blank(
+            &dir,
+            &Blank {
+                width: 8,
+                height: 8,
+                pixel: true,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let layer = bundle.doc.layers[0].id.clone();
+        let cel = bundle.doc.layers[0].cels()[0].id.clone();
+        let run = |bundle: &mut Bundle, lines: &str| bundle.apply(&parse_lines(lines).unwrap()).unwrap();
+        let fails = |bundle: &mut Bundle, line: &str| -> String {
+            format!("{:#}", bundle.apply(&parse_lines(line).unwrap()).unwrap_err())
+        };
+        run(
+            &mut bundle,
+            &format!(
+                "{}\n{}\n{}\n{}\n{}",
+                r##"{"op":"palette","add":"#c0392b","name":"team"}"##,
+                r##"{"op":"palette","add":"#2b2d42","name":"ink"}"##,
+                r##"{"op":"palette","add":"#f0c8a0","name":"skin"}"##,
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"team","cells":[[1,1],[2,1]]}}"##),
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"ink","cells":[[3,3]]}}"##),
+            ),
+        );
+        let shown = |bundle: &Bundle| -> Vec<String> {
+            crate::stroke::fills_of(&bundle.read_marks(&layer, &cel).unwrap())
+                .map(|f| crate::color::to_hex(f.color()))
+                .collect()
+        };
+        let palette = |bundle: &Bundle| -> Vec<String> { bundle.doc.palette.iter().map(|s| s.color.clone()).collect() };
+        let team = bundle.doc.palette[0].id.clone();
+        assert!(bundle.doc.variants.is_empty() && bundle.doc.shown_variant() == "base");
+
+        run(&mut bundle, r##"{"op":"palette","newVariant":"blue"}"##);
+        assert_eq!(bundle.doc.shown_variant(), "blue", "a new variant is shown at once");
+        assert!(
+            bundle.doc.palette.iter().all(|s| !s.id.is_empty()),
+            "every colour has an id now"
+        );
+        assert_eq!(shown(&bundle), ["#c0392b", "#2b2d42"], "it starts as what was shown");
+        run(&mut bundle, r##"{"op":"palette","recolour":"team","to":"#2a6fdb"}"##);
+        assert_eq!(shown(&bundle), ["#2a6fdb", "#2b2d42"]);
+        assert_eq!(
+            bundle.doc.variants.sets[0].colors.get(&team).map(String::as_str),
+            Some("#2a6fdb")
+        );
+        assert_eq!(bundle.doc.variants.base.get(&team).map(String::as_str), Some("#c0392b"));
+
+        run(&mut bundle, r##"{"op":"palette","variant":"base"}"##);
+        assert_eq!(shown(&bundle), ["#c0392b", "#2b2d42"], "the base kept its colour");
+        assert_eq!(palette(&bundle)[0], "#c0392b");
+        assert!(bundle.doc.variants.base.is_empty());
+        run(&mut bundle, r##"{"op":"palette","recolour":"ink","to":"#101020"}"##);
+        run(&mut bundle, r##"{"op":"palette","recolour":"team","to":"#d0402b"}"##);
+        run(&mut bundle, r##"{"op":"palette","variant":"Blue"}"##);
+        assert_eq!(
+            shown(&bundle),
+            ["#2a6fdb", "#101020"],
+            "a variant follows the base where it has no colour of its own, and keeps the ones it has"
+        );
+        assert_eq!(bundle.doc.variants.base.get(&team).map(String::as_str), Some("#d0402b"));
+
+        run(&mut bundle, r##"{"op":"palette","newVariant":"green"}"##);
+        run(&mut bundle, r##"{"op":"palette","recolour":"team","to":"#3a9d5d"}"##);
+        assert_eq!(bundle.doc.variant_names(), ["base", "blue", "green"]);
+        let colour_of = |bundle: &Bundle, name: &str| -> String {
+            bundle
+                .doc
+                .variant_colours(name)
+                .unwrap()
+                .into_iter()
+                .find(|(id, _)| *id == team)
+                .unwrap()
+                .1
+        };
+        assert_eq!(
+            (
+                colour_of(&bundle, "base"),
+                colour_of(&bundle, "blue"),
+                colour_of(&bundle, "green")
+            ),
+            ("#d0402b".to_string(), "#2a6fdb".to_string(), "#3a9d5d".to_string())
+        );
+        let dress = bundle.doc.dress("blue").unwrap();
+        assert_eq!(dress.len(), 1, "only the colours that differ from what is shown");
+        assert!(dress.contains_key(&team));
+        assert!(bundle.doc.dress("green").unwrap().is_empty());
+
+        run(&mut bundle, r##"{"op":"palette","recolour":"team","to":"#d0402b"}"##);
+        assert!(
+            bundle.doc.variants.sets[1].colors.is_empty() && bundle.doc.variants.base.is_empty(),
+            "set back to the base colour, it is no longer the variant's own"
+        );
+        run(&mut bundle, r##"{"op":"palette","recolour":"team","to":"#3a9d5d"}"##);
+        crate::history::step(&mut bundle, crate::history::Stack::Undo).unwrap();
+        assert_eq!(shown(&bundle)[0], "#d0402b", "undo takes the variant's colour back");
+        assert!(bundle.doc.variants.sets[1].colors.is_empty());
+        crate::history::step(&mut bundle, crate::history::Stack::Redo).unwrap();
+
+        run(
+            &mut bundle,
+            r##"{"op":"palette","renameVariant":"green","to":"forest"}"##,
+        );
+        assert_eq!(bundle.doc.shown_variant(), "forest");
+        assert!(
+            fails(
+                &mut bundle,
+                r##"{"op":"palette","renameVariant":"forest","to":"blue"}"##
+            )
+            .contains("already has")
+        );
+        assert!(fails(&mut bundle, r##"{"op":"palette","newVariant":"Base"}"##).contains("other than base"));
+        assert!(fails(&mut bundle, r##"{"op":"palette","variant":"pink"}"##).contains("base, blue, forest"));
+        assert!(fails(&mut bundle, r##"{"op":"palette","rmVariant":"base"}"##).contains("cannot be removed"));
+
+        run(&mut bundle, r##"{"op":"palette","rm":"team"}"##);
+        assert!(
+            bundle.doc.variants.sets.iter().all(|v| v.colors.is_empty()) && bundle.doc.variants.base.is_empty(),
+            "a removed colour leaves the variants too"
+        );
+        run(&mut bundle, r##"{"op":"palette","recolour":"skin","to":"#ffe0c0"}"##);
+        run(&mut bundle, r##"{"op":"palette","rmVariant":"forest"}"##);
+        assert_eq!(
+            bundle.doc.shown_variant(),
+            "base",
+            "removing the shown variant shows the base"
+        );
+        assert_eq!(palette(&bundle)[1], "#f0c8a0", "with the base's colours");
+        let reopened = Bundle::open(&dir).unwrap();
+        assert_eq!(reopened.doc.variants, bundle.doc.variants);
+        assert_eq!(reopened.doc.variant_names(), ["base", "blue"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_swatch_change_recolours_the_marks_bound_to_it_and_ramps_and_loads_shape_the_palette() {
+        use crate::ops::parse_lines;
+        let dir = scratch("palette");
+        let mut bundle = Bundle::blank(
+            &dir,
+            &Blank {
+                width: 16,
+                height: 16,
+                pixel: true,
+                frames: 2,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let layer = bundle.doc.layers[0].id.clone();
+        let first = bundle.doc.layers[0].cels()[0].id.clone();
+        let run = |bundle: &mut Bundle, lines: &str| bundle.apply(&parse_lines(lines).unwrap()).unwrap();
+        run(
+            &mut bundle,
+            &format!(
+                "{}\n{}\n{}\n{}\n{}",
+                r##"{"op":"palette","add":"#f0c8a0","name":"skin"}"##,
+                r##"{"op":"palette","add":"#2b2d42","name":"ink"}"##,
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"skin","cells":[[1,1],[2,1]]}}"##),
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"ink","cells":[[3,3]]}}"##),
+                format_args!(r##"{{"op":"add","cel":{{"frame":1}},"in":"{layer}"}}"##),
+            ),
+        );
+        run(
+            &mut bundle,
+            &format!(r##"{{"op":"pixel","layer":"{layer}","frame":1,"color":"skin","cells":[[5,5]]}}"##),
+        );
+        let second = bundle.doc.layers[0].cels()[1].id.clone();
+        let colours = |bundle: &Bundle, cel: &str| -> Vec<(String, Option<String>)> {
+            crate::stroke::fills_of(&bundle.read_marks(&layer, cel).unwrap())
+                .map(|f| (crate::color::to_hex(f.color()), f.entry().map(String::from)))
+                .collect()
+        };
+        let skin = bundle.doc.palette[0].id.clone();
+        let ink = bundle.doc.palette[1].id.clone();
+        run(&mut bundle, r##"{"op":"palette","recolour":"skin","to":"#e8b796"}"##);
+        assert_eq!(
+            colours(&bundle, &first),
+            [
+                ("#e8b796".to_string(), Some(skin.clone())),
+                ("#2b2d42".to_string(), Some(ink.clone()))
+            ],
+            "the marks of the changed swatch follow it, the others stay"
+        );
+        assert_eq!(
+            colours(&bundle, &second),
+            [("#e8b796".to_string(), Some(skin.clone()))],
+            "on every drawing"
+        );
+        crate::history::step(&mut bundle, crate::history::Stack::Undo).unwrap();
+        assert_eq!(
+            colours(&bundle, &second),
+            [("#f0c8a0".to_string(), Some(skin.clone()))],
+            "and undo brings it back"
+        );
+        assert_eq!(bundle.doc.palette[0].color, "#f0c8a0");
+        run(&mut bundle, r##"{"op":"palette","add":"#ffd9b3","name":"skin"}"##);
+        assert_eq!(
+            colours(&bundle, &first)[0].0,
+            "#ffd9b3",
+            "adding a name again changes its colour, and its marks"
+        );
+        run(
+            &mut bundle,
+            r##"{"op":"palette","set":[{"color":"#101020","name":"ink"},{"color":"#ffd9b3","name":"skin"}]}"##,
+        );
+        let ids: Vec<&str> = bundle.doc.palette.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [ink.as_str(), skin.as_str()],
+            "a rewritten palette keeps the ids by name"
+        );
+        assert_eq!(colours(&bundle, &first)[1], ("#101020".to_string(), Some(ink.clone())));
+        run(&mut bundle, r##"{"op":"palette","rm":"ink"}"##);
+        assert_eq!(
+            colours(&bundle, &first)[1],
+            ("#101020".to_string(), None),
+            "a mark whose swatch is removed keeps its colour and is bound to nothing"
+        );
+        run(&mut bundle, r##"{"op":"palette","load":"pico-8"}"##);
+        assert_eq!(bundle.doc.palette.len(), 17);
+        run(&mut bundle, r##"{"op":"palette","load":"pico-8"}"##);
+        assert_eq!(
+            bundle.doc.palette.len(),
+            17,
+            "colours the palette holds are not loaded twice"
+        );
+        run(
+            &mut bundle,
+            r##"{"op":"palette","load":[{"color":"#123456","name":"skin"},{"color":"#abcdef","name":"sky","ramp":"blues"}]}"##,
+        );
+        let last: Vec<(&str, &str, &str)> = bundle.doc.palette[17..]
+            .iter()
+            .map(|s| (s.color.as_str(), s.name.as_str(), s.ramp.as_str()))
+            .collect();
+        assert_eq!(
+            last,
+            [("#123456", "", ""), ("#abcdef", "sky", "blues")],
+            "a name already taken is dropped"
+        );
+        run(
+            &mut bundle,
+            r##"{"op":"palette","ramp":"reds","of":["#ff004d","#7e2553","#ab5236"]}"##,
+        );
+        let reds: Vec<&str> = bundle.doc.ramp("reds").iter().map(|s| s.color.as_str()).collect();
+        assert_eq!(
+            reds,
+            ["#ff004d", "#7e2553", "#ab5236"],
+            "a ramp keeps the order it is given"
+        );
+        let at = bundle.doc.swatch("#ff004d").unwrap();
+        assert_eq!(
+            bundle.doc.palette[at..at + 3]
+                .iter()
+                .map(|s| s.ramp.as_str())
+                .collect::<Vec<_>>(),
+            ["reds", "reds", "reds"],
+            "and its colours sit side by side"
+        );
+        run(&mut bundle, r##"{"op":"palette","ramp":"reds","of":[]}"##);
+        assert!(bundle.doc.ramp("reds").is_empty());
+        let refuse = |line: &str| {
+            format!(
+                "{:#}",
+                crate::ops::apply_all(&bundle.doc, &parse_lines(line).unwrap()).unwrap_err()
+            )
+        };
+        assert!(format!("{:#}", parse_lines(r##"{"op":"palette","load":"nes"}"##).unwrap_err()).contains("comes with"));
+        assert!(refuse(r##"{"op":"palette","recolour":"teal","to":"#000000"}"##).contains("teal"));
+        assert!(
+            format!(
+                "{:#}",
+                parse_lines(r##"{"op":"palette","recolour":"skin"}"##).unwrap_err()
+            )
+            .contains("\"to\"")
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_pixel_fill_reads_the_drawing_as_the_batch_leaves_it() {
+        use crate::ops::parse_lines;
+        let dir = scratch("pixel-fill");
+        let mut bundle = Bundle::blank(
+            &dir,
+            &Blank {
+                width: 12,
+                height: 10,
+                pixel: true,
+                layers: 2,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let (colour, lines) = (bundle.doc.layers[0].id.clone(), bundle.doc.layers[1].id.clone());
+        let cel = |bundle: &Bundle, layer: &str| bundle.doc.layer(layer).unwrap().cels()[0].id.clone();
+        bundle
+            .apply(
+                &parse_lines(&format!(
+                    "{}\n{}\n{}\n{}",
+                    format_args!(r##"{{"op":"pixel","layer":"{lines}","color":"#22223b","rect":[2,2,6,5]}}"##),
+                    format_args!(r##"{{"op":"pixel","layer":"{lines}","color":"#f2c14e","fill":[4,4]}}"##),
+                    format_args!(
+                        r##"{{"op":"pixel","layer":"{colour}","color":"#ef233c","fill":[4,4],"ref":"{lines}"}}"##
+                    ),
+                    format_args!(r##"{{"op":"pixel","layer":"{colour}","color":"#8ecae6","fill":[0,0],"ref":"all"}}"##),
+                ))
+                .unwrap(),
+            )
+            .unwrap();
+        let cells = |bundle: &Bundle, layer: &str, at: usize| -> Vec<[u32; 2]> {
+            crate::stroke::fills_of(&bundle.read_marks(layer, &cel(bundle, layer)).unwrap())
+                .nth(at)
+                .unwrap()
+                .coverage
+                .cells()
+                .collect()
+        };
+        assert_eq!(cells(&bundle, &lines, 0).len(), 18, "the outline of a 6 by 5 rectangle");
+        assert_eq!(
+            cells(&bundle, &lines, 1).len(),
+            12,
+            "a fill in the same batch sees the rectangle drawn just before it"
+        );
+        assert_eq!(
+            cells(&bundle, &colour, 0).len(),
+            12,
+            "a fill on another layer reads the layer it is pointed at: the inside again, now one colour"
+        );
+        assert_eq!(
+            cells(&bundle, &colour, 1).len(),
+            120 - 30,
+            "reading every layer, the outside stops at the rectangle"
+        );
+        let fill = crate::stroke::fills_of(&bundle.read_marks(&lines, &cel(&bundle, &lines)).unwrap())
+            .nth(1)
+            .unwrap()
+            .clone();
+        assert!(fill.on_grid() && fill.entry().is_some());
+        let refuse = |line: String| format!("{:#}", bundle.settle_pixels(&parse_lines(&line).unwrap()).unwrap_err());
+        assert!(
+            refuse(format!(
+                r##"{{"op":"pixel","layer":"{lines}","color":"#000000","fill":[40,4]}}"##
+            ))
+            .contains("off the 12x10 canvas")
+        );
+        assert!(
+            format!(
+                "{:#}",
+                parse_lines(&format!(
+                    r##"{{"op":"pixel","layer":"{lines}","color":"#000000","fill":[4,4],"rect":[0,0,2,2]}}"##
+                ))
+                .unwrap_err()
+            )
+            .contains("not several")
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_grid_of_several_colours_lands_on_one_new_drawing_past_the_last_frame() {
+        use crate::ops::parse_lines;
+        let dir = scratch("pixel-grid-frame");
+        let mut bundle = Bundle::blank(
+            &dir,
+            &Blank {
+                width: 8,
+                height: 8,
+                pixel: true,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let layer = bundle.doc.layers[0].id.clone();
+        let grid = |frame: u32| {
+            format!(
+                r##"{{"op":"pixel","layer":"{layer}","frame":{frame},"rows":["ab","ba"],"legend":{{"a":"#112233","b":"#aabbcc"}}}}"##
+            )
+        };
+        bundle.apply(&parse_lines(&grid(0)).unwrap()).unwrap();
+        bundle.apply(&parse_lines(&grid(3)).unwrap()).unwrap();
+        let cels = bundle.doc.layers[0].cels();
+        assert_eq!(
+            cels.iter().map(|c| c.frame).collect::<Vec<_>>(),
+            [0, 3],
+            "both colours of the grid go on one drawing at frame 3"
+        );
+        assert_eq!(bundle.read_marks(&layer, &cels[1].id).unwrap().len(), 2);
+        assert_eq!(bundle.doc.timeline.frames, 4);
+    }
+
+    #[test]
+    fn an_eraser_on_a_pixel_layer_waits_for_nothing() {
+        use crate::fill::{Coverage, Fill};
+        use crate::ops::parse_lines;
+        let dir = scratch("pixel-eraser");
+        let mut bundle = Bundle::blank(
+            &dir,
+            &Blank {
+                width: 12,
+                height: 8,
+                pixel: true,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let layer = bundle.doc.layers[0].id.clone();
+        let cel = bundle.doc.layers[0].cels()[0].id.clone();
+        let run = |bundle: &mut Bundle, lines: String| bundle.apply(&parse_lines(&lines).unwrap()).unwrap();
+        let grid = |bundle: &Bundle| {
+            let marks = bundle.read_marks(&layer, &cel).unwrap();
+            crate::pixel::grid_of(&marks, 12, 8)
+        };
+        let count = |bundle: &Bundle| bundle.read_marks(&layer, &cel).unwrap().len();
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}",
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"#aa3344","cells":[[1,1],[2,1],[3,1]]}}"##),
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","erase":true,"cells":[[7,1],[8,1],[2,1]]}}"##),
+            ),
+        );
+        assert_eq!(count(&bundle), 1, "the eraser is not kept as a mark");
+        assert_eq!(
+            (
+                grid(&bundle).at(1, 1).is_some(),
+                grid(&bundle).at(2, 1),
+                grid(&bundle).at(3, 1).is_some()
+            ),
+            (true, None, true),
+            "it took its pixel out of the mark under it"
+        );
+        let first = crate::markedit::address(&cel, bundle.read_marks(&layer, &cel).unwrap()[0].id());
+        run(
+            &mut bundle,
+            format!(r##"{{"op":"transform","ids":["{first}"],"x":6,"y":0}}"##),
+        );
+        assert_eq!(
+            [7, 8, 9].map(|x| grid(&bundle).at(x, 1).is_some()),
+            [true, false, true],
+            "pixels moved to where an eraser once went stay whole, and their hole moves with them"
+        );
+        let mut marks = bundle.read_marks(&layer, &cel).unwrap();
+        marks.push(
+            Fill::cells(
+                900,
+                [0.0, 0.0, 0.0, 1.0],
+                "",
+                true,
+                Coverage::from_cells(&[[1, 5], [2, 5]]),
+            )
+            .into(),
+        );
+        bundle.write_marks(&layer, &cel, &marks).unwrap();
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}",
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"#aa3344","cells":[[1,6]]}}"##),
+                format_args!(r##"{{"op":"transform","ids":["{first}"],"x":-6,"y":4}}"##),
+            ),
+        );
+        assert_eq!(
+            count(&bundle),
+            2,
+            "an eraser saved by an earlier build goes with the next edit"
+        );
+        assert!(
+            grid(&bundle).at(1, 5).is_some(),
+            "and erases nothing that comes by later"
+        );
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}",
+                format_args!(r##"{{"op":"set","id":"{layer}","lockAlpha":true}}"##),
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"#223355","cells":[[1,5],[2,5],[5,5]]}}"##),
+            ),
+        );
+        let marks = bundle.read_marks(&layer, &cel).unwrap();
+        let last = marks.last().and_then(Mark::as_fill).unwrap();
+        assert_eq!(
+            (last.coverage.cells().collect::<Vec<_>>(), last.lock),
+            (vec![[1, 5]], false),
+            "with alpha locked a mark keeps only the pixels it landed on"
+        );
+    }
+
+    #[test]
+    fn pixels_shade_along_their_ramp_dither_between_two_colours_and_take_an_outline() {
+        use crate::ops::parse_lines;
+        let dir = scratch("pixel-shade");
+        let mut bundle = Bundle::blank(
+            &dir,
+            &Blank {
+                width: 12,
+                height: 8,
+                pixel: true,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let layer = bundle.doc.layers[0].id.clone();
+        let ramp = crate::palettes::ramp_swatches("green", "#4c9a54", 3).unwrap();
+        let keys: Vec<String> = ramp.iter().map(|s| format!("\"{}\"", s.color)).collect();
+        let run = |bundle: &mut Bundle, lines: String| bundle.apply(&parse_lines(&lines).unwrap()).unwrap();
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}\n{}\n{}\n{}",
+                format_args!(
+                    r##"{{"op":"palette","load":{}}}"##,
+                    serde_json::to_string(&ramp).unwrap()
+                ),
+                format_args!(r##"{{"op":"palette","ramp":"green","of":[{}]}}"##, keys.join(",")),
+                r##"{"op":"palette","add":"#22223b","name":"ink"}"##,
+                format_args!(
+                    r##"{{"op":"pixel","layer":"{layer}","color":"green-2","rect":[2,2,4,4],"filled":true}}"##
+                ),
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"ink","cells":[[9,2]]}}"##),
+            ),
+        );
+        let rows = |bundle: &Bundle| -> Vec<String> {
+            let cel = bundle.doc.layers[0].cels()[0].id.clone();
+            let grid = crate::pixel::grid_of(&bundle.read_marks(&layer, &cel).unwrap(), 12, 8);
+            let legend = crate::pixel::legend(&bundle.doc, &grid);
+            crate::pixel::rows(&grid, &legend)
+        };
+        assert_eq!(
+            rows(&bundle)[2],
+            "..GGGG...i..",
+            "green-1 is g, green-2 is G, green-3 is a"
+        );
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}",
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","shade":-1,"rect":[2,4,10,2],"filled":true}}"##),
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","shade":1,"cells":[[2,2],[3,2],[9,2],[0,0]]}}"##),
+            ),
+        );
+        assert_eq!(
+            rows(&bundle)[..6],
+            [
+                "............",
+                "............",
+                "..aaGG...i..",
+                "..GGGG......",
+                "..gggg......",
+                "..gggg......"
+            ],
+            "the lower half is a step darker and two pixels a step lighter; ink is in no ramp and the empty pixel stays empty"
+        );
+        let marks = |bundle: &Bundle| {
+            let cel = bundle.doc.layers[0].cels()[0].id.clone();
+            bundle.read_marks(&layer, &cel).unwrap().len()
+        };
+        assert_eq!(marks(&bundle), 4, "each shade is one mark per colour it makes");
+        run(
+            &mut bundle,
+            format!(r##"{{"op":"pixel","layer":"{layer}","shade":1,"rect":[2,4,4,2],"filled":true}}"##),
+        );
+        assert_eq!(rows(&bundle)[4], "..GGGG......", "and a step back up");
+        let stuck = bundle
+            .settle_pixels(
+                &parse_lines(&format!(
+                    r##"{{"op":"pixel","layer":"{layer}","shade":1,"cells":[[9,2]]}}"##
+                ))
+                .unwrap(),
+            )
+            .unwrap_err();
+        assert!(format!("{stuck:#}").contains("in no ramp"), "{stuck:#}");
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}",
+                format_args!(
+                    r##"{{"op":"pixel","layer":"{layer}","color":"ink","second":"green-3","dither":50,"rect":[7,4,4,4],"filled":true}}"##
+                ),
+                format_args!(
+                    r##"{{"op":"pixel","layer":"{layer}","color":"ink","dither":25,"rect":[0,6,4,2],"filled":true}}"##
+                ),
+            ),
+        );
+        let after = rows(&bundle);
+        assert_eq!(&after[4][7..11], "aiai", "a checkerboard of the two colours: {after:?}");
+        assert_eq!(&after[5][7..11], "iaia");
+        assert_eq!(
+            (&after[6][..4], &after[7][..4]),
+            ("i.i.", "...."),
+            "a quarter of the pixels, the rest left alone"
+        );
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}",
+                format_args!(r##"{{"op":"rm","ids":["{layer}"]}}"##),
+                r##"{"op":"add","layer":{"kind":"pixel","name":"blob","id":"lb"}}"##,
+            ),
+        );
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}",
+                r##"{"op":"pixel","layer":"lb","color":"green-2","rect":[4,3,3,2],"filled":true}"##,
+                r##"{"op":"pixel","layer":"lb","color":"ink","outline":true}"##,
+            ),
+        );
+        let blob = |bundle: &Bundle| -> Vec<String> {
+            let cel = bundle.doc.layer("lb").unwrap().cels()[0].id.clone();
+            let grid = crate::pixel::grid_of(&bundle.read_marks("lb", &cel).unwrap(), 12, 8);
+            crate::pixel::rows(&grid, &crate::pixel::legend(&bundle.doc, &grid))
+        };
+        assert_eq!(
+            blob(&bundle)[1..7],
+            [
+                "............",
+                "....iii.....",
+                "...iGGGi....",
+                "...iGGGi....",
+                "....iii.....",
+                "............"
+            ],
+            "one pixel around the block, corners left open"
+        );
+        run(
+            &mut bundle,
+            r##"{"op":"pixel","layer":"lb","color":"green-3","outline":true,"inside":true,"diagonal":true}"##
+                .to_string(),
+        );
+        assert_eq!(
+            blob(&bundle)[2],
+            "....aaa.....",
+            "an inside outline recolours the edge pixels: here the ink ring's own edge"
+        );
+        let wrong = |line: &str| format!("{:#}", parse_lines(line).unwrap_err());
+        assert!(
+            wrong(r##"{"op":"pixel","layer":"lb","color":"ink","shade":1,"cells":[[1,1]]}"##)
+                .contains("leave out color")
+        );
+        assert!(
+            wrong(r##"{"op":"pixel","layer":"lb","color":"ink","second":"ink","cells":[[1,1]]}"##)
+                .contains("give dither too")
+        );
+        assert!(
+            wrong(r##"{"op":"pixel","layer":"lb","color":"ink","dither":140,"cells":[[1,1]]}"##).contains("0 to 100")
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_wrapping_canvas_brings_pixels_fills_and_outlines_round_its_edges_and_a_mirror_twins_them() {
+        use crate::ops::parse_lines;
+        let dir = scratch("pixel-wrap");
+        let mut bundle = Bundle::blank(
+            &dir,
+            &Blank {
+                width: 8,
+                height: 6,
+                pixel: true,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let layer = bundle.doc.layers[0].id.clone();
+        let rows = |bundle: &Bundle| -> Vec<String> {
+            let cel = bundle.doc.layers[0].cels()[0].id.clone();
+            let grid = crate::pixel::grid_of(&bundle.read_marks(&layer, &cel).unwrap(), 8, 6);
+            crate::pixel::rows(&grid, &crate::pixel::legend(&bundle.doc, &grid))
+        };
+        let run = |bundle: &mut Bundle, lines: String| bundle.apply(&parse_lines(&lines).unwrap()).unwrap();
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}",
+                r##"{"op":"palette","add":"#22223b","name":"ink"}"##,
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"ink","line":[6,1,9,1]}}"##),
+            ),
+        );
+        assert_eq!(
+            rows(&bundle)[1],
+            "......ii",
+            "without wrap the pixels past the edge are dropped"
+        );
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}\n{}\n{}",
+                r##"{"op":"canvas","wrap":true}"##,
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"ink","line":[6,3,9,3]}}"##),
+                format_args!(
+                    r##"{{"op":"pixel","layer":"{layer}","color":"ink","cells":[[1,-1],[2,5]],"mirrorX":4}}"##
+                ),
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"ink","line":[0,4,7,4]}}"##),
+            ),
+        );
+        assert!(bundle.doc.canvas.wrap);
+        assert_eq!(
+            rows(&bundle),
+            ["........", "......ii", "........", "ii....ii", "iiiiiiii", ".ii..ii."],
+            "the line comes back in on the left; the pixel above the top lands on the bottom row; both have a twin across x 4"
+        );
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}",
+                r##"{"op":"palette","add":"#8ecae6","name":"sky"}"##,
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"sky","fill":[3,0]}}"##),
+            ),
+        );
+        assert_eq!(
+            rows(&bundle),
+            ["ssssssss", "ssssssii", "ssssssss", "iissssii", "iiiiiiii", "siissiis"],
+            "the fill goes over the top edge into the bottom row, and stops at the wall of row 4"
+        );
+        run(&mut bundle, r##"{"op":"canvas","wrap":false}"##.to_string());
+        assert!(!bundle.doc.canvas.wrap);
+        assert!(
+            !fs::read_to_string(dir.join("doc.json")).unwrap().contains("wrap"),
+            "wrap off is not written"
+        );
+        let wrong = format!("{:#}", parse_lines(r##"{"op":"canvas","wrap":"yes"}"##).unwrap_err());
+        assert!(wrong.contains("true or false"), "{wrong}");
         fs::remove_dir_all(&dir).unwrap();
     }
 }

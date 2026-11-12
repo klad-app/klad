@@ -8,7 +8,10 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 
 ## Commands
 
+- [`klad import`](#klad-import): Open an Aseprite file or a picture as a klad pixel drawing
+- [`klad pixelize`](#klad-pixelize): Make pixels of a picture or of a painted or vector layer
 - [`klad new`](#klad-new): Create an empty bundle with paint layers
+- [`klad canvas`](#klad-canvas): The canvas: its size and background, whether it wraps at its edges, and the size of its tiles
 - [`klad frames`](#klad-frames): Exposure sheet: a row per frame, a column per layer (top first)
 - [`klad frame`](#klad-frame): Insert or remove frames in every layer or the listed ones
 - [`klad arcs`](#klad-arcs): Track marks, parts or points across frames: positions, spacing, ground contacts, feet crossing
@@ -39,6 +42,7 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad render`](#klad-render): Render a frame to PNG and print the path
 - [`klad stroke`](#klad-stroke): Paint a stroke with a brush along an SVG path or explicit points
 - [`klad fill`](#klad-fill): Fill a region of a paint layer, inside the lines (flood) or inside a polygon (lasso)
+- [`klad pixel`](#klad-pixel): Put whole pixels of one palette colour on a pixel layer, or erase them
 - [`klad ink`](#klad-ink): Ink the outlines of vector shapes as tapered strokes, the way an inker would
 - [`klad light`](#klad-light): Shade and rim light vector shapes from one light direction
 - [`klad hatch`](#klad-hatch): Fill a shape's area with short tapered strokes: hatching, bark, fur, stone grain
@@ -60,7 +64,10 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad grass`](#klad-grass): Grow grass in closed shapes: blades lit by the ground, smaller with distance, breaking the top edge
 - [`klad gaps`](#klad-gaps): List closed regions of the lines that no fill on the layer covers
 - [`klad refill`](#klad-refill): Recompute the flood fills of a paint cel after the lines they were made from changed
-- [`klad palette`](#klad-palette): The document palette: list, --add a colour (with --name), --rm a name, colour or index
+- [`klad palette`](#klad-palette): The document palette: list it, --add or --rm a colour, --recolour one, --load a palette, or group colours in a --ramp
+- [`klad pixels`](#klad-pixels): Read a pixel layer as a grid of characters, one per pixel, with a legend of its palette colours
+- [`klad check`](#klad-check): Look over pixel art: stray pixels, doubled corners, jagged lines, banding, colours off the palette
+- [`klad palettes`](#klad-palettes): The palettes that come with klad, to load with klad palette <bundle> --load <name>
 - [`klad export`](#klad-export): Export PNGs, sprite sheets, numbered frames or a Godot SpriteFrames and scene
 - [`klad brushes`](#klad-brushes): List brushes: the library, and with a bundle the ones it embeds
 - [`klad effect`](#klad-effect): List, add or remove a layer's effects: klad effect art.klad l3 glow radius=24 color=#ffd080
@@ -87,6 +94,115 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad updates`](#klad-updates): Check now whether a newer klad is out (the editor also checks once a day by itself)
 - [`klad bench`](#klad-bench): Measure stroke storage, brush speed, replay, cache and compositing
 - [`klad open`](#klad-open): Open the editor, on a bundle or on the start window (new, open, recent)
+
+## klad import
+
+```text
+Make a klad drawing from an Aseprite file (.aseprite or .ase), or a pixel drawing from a picture (.png, .jpg). The drawing is written next to the file (hero.aseprite makes hero.klad) unless -o names it, and its path is printed.
+
+  klad import hero.aseprite
+  klad import hero.ase -o sprites/hero.klad
+  klad import sprite.png                      (a picture of 512 px or less a side, at its own size)
+  klad import sprite@8x.png --size 32         (shrunk to 32 px on its longest side)
+  klad import photo.jpg --size 64 --colors 16
+
+A picture becomes one pixel layer: every solid pixel takes a palette colour, and the palette is the picture's own colours when it has 256 or fewer, else 32 made from it, or --colors N. klad pixelize puts a picture on a layer of a drawing you have, in that drawing's palette.
+
+From an Aseprite file, what comes over: image layers as pixel layers with their name, visibility, opacity and blend mode, groups as groups, every cel as a drawing on its frame (linked cels stay linked), the palette with its names, and tags as clips. Frame times become whole frames: a file of 100 ms frames is 10 frames a second, and a frame shown for 300 ms holds for three. Indexed, grey and RGBA files all open; every pixel is bound to its palette colour, and colours a file uses outside its palette are added to it.
+
+What does not: tilemap layers, tilesets and slices are left out, a tag that plays backwards or back and forth becomes a clip that plays forwards, and blend modes klad does not have blend as normal. Each of these is said when it happens.
+
+klad export art.klad --aseprite writes a drawing's pixel layers back to an Aseprite file.
+
+Usage: klad import [OPTIONS] <FILE>
+
+Arguments:
+  <FILE>
+
+
+Options:
+      --size <SIZE>
+          A picture: its longest side in pixels once it is pixel art, 1 to 512 (needed when the picture is larger)
+
+      --colors <COLORS>
+          A picture: reduce it to this many colours, 2 to 256 (default: its own colours when it has 256 or fewer, else 32)
+
+  -o, --out <OUT>
+          The drawing to make (default: the file's name with .klad, next to it)
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## klad pixelize
+
+```text
+Turn a picture into pixel art. Each pixel takes one palette colour and becomes part of a pixel mark, so the result is edited like any pixel drawing: recolour a palette colour, move marks, shade along ramps.
+
+A picture file onto a pixel layer of this drawing:
+
+  klad pixelize sprite.klad --image ref.png --to l1               (at its own size, top left)
+  klad pixelize sprite.klad --image photo.jpg --to l1 --size 48 --at 8,8
+
+Every pixel takes the nearest colour of the drawing's palette, so the picture lands in the colours the sprite already has. --colors N makes N colours from the picture instead and adds them to the palette. --size is the picture's longest side in pixels once it is shrunk (each pixel is the average of the area it covers; a picture enlarged by a whole number comes back exact). Pixels less than half solid are left empty.
+
+A painted or vector layer, or the whole picture, as a new pixel drawing:
+
+  klad pixelize hero.klad --size 64                    (the whole picture, 64 px on its longest side: hero-pixel.klad)
+  klad pixelize hero.klad --layer body --size 48 --colors 12 -o body.klad
+
+Every frame is pixelised with one set of colours, frames that come out the same hold, and clips are kept. Without --colors the drawing's own palette is used when it has one, else 16 colours are made from the picture. The drawing itself is not changed.
+
+klad import ref.png makes a new pixel drawing straight from a picture file.
+
+Usage: klad pixelize [OPTIONS] <BUNDLE>
+
+Arguments:
+  <BUNDLE>
+
+
+Options:
+      --image <IMAGE>
+          A PNG or JPEG file to put on a pixel layer
+
+      --to <TO>
+          With --image: the pixel layer it goes on (an id or a name)
+
+      --at <AT>
+          With --image: the canvas pixel of its top left corner, x,y
+
+      --frame <FRAME>
+          With --image: the frame it is drawn on
+
+          [default: 0]
+
+      --layer <LAYER>
+          Without --image: the layer or group to pixelise (default: the whole picture)
+
+      --size <SIZE>
+          The longest side in pixels, 1 to 512
+
+      --colors <COLORS>
+          Make this many colours from the picture, 2 to 256
+
+  -o, --out <OUT>
+          Without --image: the pixel drawing to make
+
+      --render
+          Render a preview after the edit and print its path
+
+      --scale <SCALE>
+          Preview scale (default: longest side 1024 px)
+
+      --json
+          Print the result as JSON
+
+      --overlay <OVERLAY>
+          Draw on the preview: ids, bbox, grid or all (comma separated)
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
 
 ## klad new
 
@@ -121,8 +237,64 @@ Options:
       --sketch
           Add a vector layer named sketch on top, for blocking in shapes
 
+      --pixel <WxH>
+          A pixel art drawing of that many pixels, for example 64x64: its layers are pixel layers
+
+      --wrap
+          A tile: what is drawn past an edge comes back in on the other side
+
+      --tile <SIZE>
+          Cut the drawing into tiles of this size, 16 or 16x24: a tileset (the canvas has to be a whole number of tiles each way)
+
   -h, --help
           Print help
+```
+
+## klad canvas
+
+```text
+The canvas: its size and background, and whether it wraps at its edges. On a canvas that wraps, a tile, pixels drawn past an edge come back in on the other side, and fills and outlines go round the edges, so the drawing repeats without a seam. klad render --repeat 3 shows it repeated.
+
+  klad canvas tile.klad
+  klad canvas tile.klad --wrap on
+
+A drawing can also be cut into tiles of one size, a tileset: --tile 16 (or 16x24) sets the size, which the canvas has to be a whole number of each way, and --tile off takes it away. klad pixels and klad pixel --grid then take --tile column,row to read and draw one tile at a time, the editor shows the tile lines, and klad export --tileset writes a Godot TileSet.
+
+  klad canvas tiles.klad --tile 16
+  klad pixels tiles.klad l1 --tile 2,0 --plain
+  klad export tiles.klad --tileset ../game/art
+
+As an op: {"op":"canvas","wrap":true}, {"op":"canvas","tile":16}, {"op":"canvas","tile":[16,24]}, {"op":"canvas","tile":null}.
+
+Usage: klad canvas [OPTIONS] <BUNDLE>
+
+Arguments:
+  <BUNDLE>
+
+
+Options:
+      --wrap <WRAP>
+          Turn wrapping at the edges on or off
+
+          [possible values: on, off]
+
+      --tile <SIZE>
+          Cut the drawing into tiles of this size, 16 or 16x24 (off: no tiles); the canvas has to be a whole number of tiles each way
+
+      --render
+          Render a preview after the edit and print its path
+
+      --scale <SCALE>
+          Preview scale (default: longest side 1024 px)
+
+      --json
+          Print the result as JSON
+
+      --overlay <OVERLAY>
+          Draw on the preview: ids, bbox, grid or all (comma separated)
+
+  -h, --help
+          Print help (see a summary with '-h')
 ```
 
 ## klad frames
@@ -852,7 +1024,7 @@ Arguments:
           layer, cel, mask, rect, ellipse, path, group, rays, image, scatter, repeat, mirror or text
 
   [REST]...
-          For layers the kind first (paint, vector, group, bones, image with src=photo.jpg, or adjust and its type: hsl, levels, curves, balance, gradient-map, fill), then key=value pairs
+          For layers the kind first (paint, pixel, vector, group, bones, image with src=photo.jpg, or adjust and its type: hsl, levels, curves, balance, gradient-map, fill), then key=value pairs
 
 Options:
       --in <INTO>
@@ -940,7 +1112,12 @@ Recolour strokes and fills together. The group's average colour moves to --to an
   klad recolour art.klad c9:s12 c9:s13 c9:s40 --to '#e3962f'
   klad recolour art.klad c9:s12 c9:s13 --to skin
 
-Usage: klad recolour [OPTIONS] --to <TO> <BUNDLE> [IDS]...
+Pixel marks take exactly the colour and its palette entry, with no shades kept. On pixel layers there are two more forms: --step moves each mark along its colour's ramp (1 one lighter, -1 one darker), and --from replaces a colour, taking every mark drawn in it (in one --layer or at one --frame, or everywhere).
+
+  klad recolour sprite.klad c2:s4 c2:s9 --step -1
+  klad recolour sprite.klad --from skin --to skin-dark --layer l1
+
+Usage: klad recolour [OPTIONS] <BUNDLE> [IDS]...
 
 Arguments:
   <BUNDLE>
@@ -952,6 +1129,18 @@ Arguments:
 Options:
       --to <TO>
           The colour: #rrggbb or a palette name
+
+      --step <STEPS>
+          Pixel marks: step each along its colour's ramp instead, 1 one lighter, -1 one darker
+
+      --from <COLOUR>
+          Pixel layers: in place of marks, every mark of this palette colour (a name, a colour, an index or an id)
+
+      --layer <LAYER>
+          With --from: only this pixel layer (default: every pixel layer)
+
+      --frame <FRAME>
+          With --from: only the drawing at this frame (default: every drawing)
 
       --render
           Render a preview after the edit and print its path
@@ -1177,7 +1366,7 @@ Select the strokes and fills of a paint layer inside a polygon and move, turn, s
 
 Also a lasso op in klad apply: {"op":"lasso","layer":"l3","polygon":[[100,100],[400,120],[380,400]],"cut":true,"x":60,"y":-20} (or "rm":true).
 
-Usage: klad lasso [OPTIONS] --polygon <POLYGON> <BUNDLE> <LAYER>
+Usage: klad lasso [OPTIONS] <BUNDLE> <LAYER>
 
 Arguments:
   <BUNDLE>
@@ -1190,8 +1379,11 @@ Options:
       --polygon <POLYGON>
           x,y pairs separated by spaces
 
+      --box <X,Y,W,H>
+          A box in place of a polygon: its top left pixel and its size in pixels
+
       --cut
-          Split strokes and fills crossing the edge and take the inside parts too
+          Split strokes and fills crossing the edge and take the inside parts too (pixel marks split between whole pixels)
 
       --move <OFFSET>
           dx,dy in px
@@ -1417,7 +1609,7 @@ Options:
           [default: 0]
 
       --scale <SCALE>
-          Scale (default 1, or longest side 1024 px with --focus)
+          Scale (default 1, or longest side 1024 px with --focus; a pixel drawing is enlarged by a whole number to about 512 px)
 
       --region <REGION>
           Only this canvas region: x,y,w,h
@@ -1438,6 +1630,11 @@ Options:
 
       --no-cache
           Replay every stroke instead of using cached tiles
+
+      --repeat <REPEAT>
+          Show the picture this many times across and down (up to 9), to check a tile's seams
+
+          [default: 1]
 
       --references
           Show reference layers (photos to trace over), which renders leave out
@@ -1621,6 +1818,149 @@ Options:
 
       --part <PART>
           Put the new marks in this part of the drawing (see klad part)
+
+      --render
+          Render a preview after the edit and print its path
+
+      --scale <SCALE>
+          Preview scale (default: longest side 1024 px)
+
+      --json
+          Print the result as JSON
+
+      --overlay <OVERLAY>
+          Draw on the preview: ids, bbox, grid or all (comma separated)
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## klad pixel
+
+```text
+Put whole pixels of one palette colour on a pixel layer, or erase them. A pixel layer is a grid with no anti-aliasing where one pixel is one canvas pixel; make a pixel drawing with klad new --pixel 64x64, or add a layer with klad add <bundle> layer pixel.
+
+--cells lists them: x,y for one pixel, x0-x1,y for a run along a row, x,y0-y1 for a run down a column and x0-x1,y0-y1 for a block. --color is a palette name, a palette index or #rrggbb; a colour the palette does not have yet is added to it. The pixels become one mark bound to that palette entry, so it can be recoloured (klad set <cel>:s<id> color=...), moved (klad transform) or removed (klad rm) later, and klad strokes lists it. --erase takes those pixels out of the marks under them instead, and leaves no mark of its own.
+
+--path draws SVG path data as a line of pixels: a pixel is the square from x,y to x+1,y+1, so aim at pixel middles (3.5, not 3). Straight segments keep the corners they are given; curves are cleaned so no corner is doubled. --size makes the pencil a square of that many pixels, for --cells and --path alike.
+
+  klad pixel sprite.klad l1 --color '#2b2d42' --cells '3-12,4 3,5-9 12,5-9 3-12,10'
+  klad pixel sprite.klad l1 --color '#2b2d42' --path 'M3.5 20.5 C 10 4 22 4 28.5 20.5'
+  klad pixel sprite.klad l1 --erase --size 3 --path 'M4.5 4.5 L12.5 12.5'
+  klad pixel sprite.klad l1 --color skin --cells '4-11,5-9'
+  klad pixel sprite.klad l1 --erase --cells '7,7 8,7'
+
+Shapes on the grid, each one mark: --line x0,y0,x1,y1 is a straight line between two pixels, --rect x,y,w,h and --ellipse x,y,w,h the outline of a rectangle or of the ellipse that fits that box (--filled for all of it), with --size for a thicker outline. --fill x,y is a flood fill: every pixel joined to that one that has exactly its colour, or is empty like it (--diagonal also crosses corners; --ref all reads every visible pixel layer, --ref <layer> another one, so flat colour can go on a layer under the lines).
+
+  klad pixel sprite.klad l1 --color ink --ellipse 4,4,16,12
+  klad pixel sprite.klad l1 --color body --fill 12,10
+  klad pixel sprite.klad colour --color body --fill 12,10 --ref lines
+
+Shading: --shade 1 (or -1) draws no colour of its own: every pixel it covers takes the next lighter (or darker) colour of its own ramp, so one call shades a form made of several colours; pixels in no ramp, or at its end, stay. --dither 50 draws only that share of the pixels in an even pattern (50 a checkerboard, 25 one in four), and --second gives the others a second colour, for a blend between two ramp steps. --outline draws a one-pixel outline around what the layer shows (--inside on its own edge pixels, --diagonal with the corners, --ref another layer or all).
+
+  klad pixel sprite.klad l1 --shade -1 --rect 4,12,16,4 --filled
+  klad pixel sprite.klad l1 --color wood-2 --second wood-3 --dither 50 --rect 4,8,16,2 --filled
+  klad pixel sprite.klad l1 --color ink --outline
+
+--grid draws a whole sprite from text, the way klad pixels --plain prints one: legend lines (one character, =, a palette name, a colour, erase or empty), a blank line, then a row of characters per row of pixels. . is empty unless the legend says otherwise. Each character becomes one mark bound to its colour; --at x,y moves the grid's top left.
+
+  klad pixel sprite.klad l1 --grid - <<'GRID'
+  i = ink
+  b = body
+
+  ..iiii..
+  .ibbbbi.
+  .ibbbbi.
+  ..iiii..
+  GRID
+
+Also a pixel op in klad apply: {"op":"pixel","layer":"l1","color":"skin","cells":[[4,5],[5,5]]}, with "path":"M3.5 3.5 L9.5 3.5" in place of cells, "size":2, or "erase":true; "line":[x0,y0,x1,y1], "rect":[x,y,w,h] or "ellipse":[x,y,w,h] with "filled":true; "fill":[x,y] with "diagonal" and "ref"; and as a grid {"op":"pixel","layer":"l1","rows":["..ii..",".ibbi."],"legend":{"i":"ink","b":"body"},"at":[0,0]}.
+
+Usage: klad pixel [OPTIONS] <BUNDLE> <LAYER>
+
+Arguments:
+  <BUNDLE>
+
+
+  <LAYER>
+
+
+Options:
+      --cells <CELLS>
+          The pixels: x,y, a row run x0-x1,y, a column run x,y0-y1 or a block x0-x1,y0-y1, separated by spaces
+
+      --line <X0,Y0,X1,Y1>
+          A straight line of pixels from one pixel to another
+
+      --rect <X,Y,W,H>
+          The outline of a rectangle, its top left pixel and its size in pixels (--filled: all of it)
+
+      --ellipse <X,Y,W,H>
+          The outline of the ellipse that fits that box of pixels (--filled: all of it)
+
+      --filled
+          With --rect or --ellipse: every pixel inside, not only the outline
+
+      --fill <X,Y>
+          Flood fill from that pixel: every pixel joined to it that has exactly its colour (or is empty like it)
+
+      --diagonal
+          A fill also spreads across corners (eight neighbours, not four); an outline also takes the corner pixels
+
+      --ref <REFERENCE>
+          What a fill or an outline reads: this layer (default), all (every visible pixel layer) or a pixel layer's id or name
+
+      --outline
+          A one-pixel outline: every empty pixel that touches a drawn one (--inside: every drawn pixel that touches an empty one)
+
+      --inside
+          The outline goes on the drawing's own edge pixels, not around it
+
+      --shade <STEPS>
+          Step the colours that are there along their ramps instead of drawing a colour: 1 one lighter, -1 one darker
+
+      --dither <PERCENT>
+          Draw only this share of the pixels, in an even pattern: 50 is a checkerboard, 25 one pixel in four
+
+      --second <SECOND>
+          With --dither: the colour of the pixels the pattern leaves out
+
+      --grid <FILE>
+          Draw a grid of characters from a file (- reads stdin): a legend (i = ink), a blank line, then one row of characters per row of pixels
+
+      --at <AT>
+          Where the grid's top left pixel goes: x,y
+
+          [default: 0,0]
+
+      --tile <COLUMN,ROW>
+          With --grid, in a drawing cut into tiles: put the grid's top left on that tile's (0,0 is the first tile)
+
+      --path <PATH>
+          SVG path data drawn as a line of pixels, one pixel wide with no doubled corners on curves: 'M3.5 20.5 C 10 4 22 4 28.5 20.5'
+
+      --mirror-x <X>
+          Also draw the mirror image across the upright line at this x: a whole number is the line between two pixels, .5 runs through a column
+
+      --mirror-y <Y>
+          Also draw the mirror image across the level line at this y
+
+      --size <SIZE>
+          The pencil's size: a square of this many pixels a side (1 to 64)
+
+          [default: 1]
+
+      --color <COLOR>
+          A palette name, a palette index or #rrggbb
+
+      --erase
+          Clear these pixels instead of colouring them
+
+      --frame <FRAME>
+          [default: 0]
+
+      --part <PART>
+          Put the mark in this named part
 
       --render
           Render a preview after the edit and print its path
@@ -3004,14 +3344,31 @@ Options:
 ## klad palette
 
 ```text
-The document palette, kept in doc.json. Named colours can be used wherever a colour goes (--color skin).
+The document palette, kept in doc.json. Named colours can be used wherever a colour goes (--color skin). On pixel layers every mark is bound to the palette colour it was drawn with, so changing that colour here changes the marks.
 
   klad palette art.klad
   klad palette art.klad --add '#f0c8a0' --name skin
   klad palette art.klad --add '#d0a080' --name skin    (changes skin)
+  klad palette art.klad --recolour skin --to '#e8b796'  (by name, colour, index or id)
   klad palette art.klad --rm skin
+  klad palette art.klad --load pico-8                  (a palette that comes with klad: klad palettes lists them)
+  klad palette art.klad --load my.hex                  (a list of hex colours, one per line, or a GIMP .gpl palette)
+  klad palette art.klad --ramp wood --base '#8b5a2b' --steps 5   (wood-1 to wood-5, dark and cool to light and warm)
+  klad palette art.klad --ramp skin --of skin-dark,skin,skin-light   (group colours it has, dark to light)
 
-As ops: {"op":"palette","add":"#f0c8a0","name":"skin"}, {"op":"palette","rm":"skin"}, {"op":"palette","set":[{"color":"#1b1b1b","name":"ink"}]}
+A loaded colour the palette already holds is not added again. A ramp is a row of colours from dark to light, used to shade one material.
+
+Palette variants are named sets of other colours for the same palette (a red and a blue team). The drawing shows one at a time; base is the palette itself. A colour changed while a variant is shown belongs to that variant, and the base keeps its own; a variant follows the base for every colour it has not changed.
+
+  klad palette art.klad --new-variant blue             (a variant, shown at once)
+  klad palette art.klad --recolour team --to '#2a6fdb'  (blue's team colour; the base keeps its red)
+  klad palette art.klad --variant base                 (show the base again; --variant blue shows blue)
+  klad palette art.klad --rename-variant blue --to navy
+  klad palette art.klad --rm-variant navy
+  klad export art.klad --sheet all --variants          (a sheet for the base and one for each variant, art-blue-sheet.png)
+  klad export art.klad --variant blue --scale 8        (one variant, whatever is shown)
+
+As ops: {"op":"palette","add":"#f0c8a0","name":"skin"}, {"op":"palette","rm":"skin"}, {"op":"palette","recolour":"skin","to":"#e8b796"}, {"op":"palette","load":"pico-8"}, {"op":"palette","ramp":"skin","of":["skin-dark","skin"]}, {"op":"palette","set":[{"color":"#1b1b1b","name":"ink"}]}, {"op":"palette","newVariant":"blue"}, {"op":"palette","variant":"base"}, {"op":"palette","rmVariant":"blue"}, {"op":"palette","renameVariant":"blue","to":"navy"}
 
 Usage: klad palette [OPTIONS] <BUNDLE>
 
@@ -3029,6 +3386,41 @@ Options:
       --rm <RM>
 
 
+      --recolour <RECOLOUR>
+          Change one colour (a name, a colour, an index or an id) to --to; pixel marks drawn with it change too
+
+      --to <TO>
+          The new colour for --recolour, or the new name for --rename-variant
+
+      --variant <VARIANT>
+          Show a palette variant (base is the palette itself): every pixel mark takes that variant's colours
+
+      --new-variant <NEW_VARIANT>
+          A new palette variant, shown at once; colours changed while it is shown are its own
+
+      --rm-variant <RM_VARIANT>
+          Remove a palette variant
+
+      --rename-variant <RENAME_VARIANT>
+          Rename a palette variant to --to
+
+      --load <LOAD>
+          Add the colours of a palette that comes with klad (klad palettes), or of a .hex or .gpl file
+
+      --ramp <RAMP>
+          A ramp of that name: made from --base in --steps, or the palette's own colours listed in --of
+
+      --base <BASE>
+          The middle colour of a new ramp
+
+      --steps <STEPS>
+          How many colours a new ramp has (2 to 16)
+
+          [default: 5]
+
+      --of <OF>
+          The colours of the ramp, dark to light: names, colours, indexes or ids (empty: the ramp is dropped)
+
       --render
           Render a preview after the edit and print its path
 
@@ -3045,10 +3437,105 @@ Options:
           Print help (see a summary with '-h')
 ```
 
+## klad pixels
+
+```text
+Read a pixel layer as a grid of characters, one per pixel, with a legend of its palette colours. It is what the layer shows at the frame: later marks over earlier ones, erased pixels empty. Each colour gets a character (the first letter of its palette name where that is free), . is an empty pixel, and the numbers along the top and the left count the pixels.
+
+  klad pixels sprite.klad l1
+  klad pixels sprite.klad l1 --plain > sprite.txt     (the form klad pixel --grid reads back)
+  klad pixels sprite.klad l1 --json
+
+To draw from such a text: klad pixel sprite.klad l1 --grid sprite.txt. Each character of the legend becomes one mark bound to its colour.
+
+Usage: klad pixels [OPTIONS] <BUNDLE> <LAYER>
+
+Arguments:
+  <BUNDLE>
+
+
+  <LAYER>
+
+
+Options:
+      --frame <FRAME>
+          [default: 0]
+
+      --plain
+          Only the legend and the rows, as klad pixel --grid reads them
+
+      --json
+
+
+      --tile <COLUMN,ROW>
+          In a drawing cut into tiles: only that tile (0,0 is the first), with pixels counted from its own top left
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## klad check
+
+```text
+Look over the pixel layers of a drawing for the usual slips of pixel art, and list each with its place:
+
+  stray pixel      a single pixel with no neighbour of its colour
+  doubled corner   a lone L in a one-pixel line, where the line reads thick (a corner whose arms are both two pixels or longer, as on a box, steps that go on all the way, and the edges of shapes are left alone)
+  jagged line      a short run between two longer ones in a one-pixel line, a step that breaks its rhythm
+  banding          a band one pixel wide, lighter than one side and darker than the other, that follows the edge next to it for four pixels or more
+  off the palette  pixels in a colour that is not a palette entry
+
+  klad check sprite.klad                  every pixel layer, frame 0
+  klad check sprite.klad body --frame 4   one layer (or a group's layers) at a frame
+  klad check sprite.klad --all            every drawing of every pixel layer
+  klad check sprite.klad --json
+
+Places are canvas pixels, x,y from the top left, the way klad pixels counts them. These are places to look at, not errors: a single pixel can be an eye, and a band can be a rim light. klad render --focus or klad pixels shows the spot; klad pixel fixes it.
+
+What stands out is listed first: a single pixel outside the shape or in a field of one colour, an L in a line drawn in the darkest colour around it. Single pixels that sit among other colours (studs, glints, shading) and corners where two shades meet are most likely meant: they are counted in one line as left out, and --json lists them with "minor": true.
+
+Usage: klad check [OPTIONS] <BUNDLE> [LAYER]
+
+Arguments:
+  <BUNDLE>
+
+
+  [LAYER]
+          A pixel layer or a group (default: every pixel layer)
+
+Options:
+      --frame <FRAME>
+          [default: 0]
+
+      --all
+          Every drawing on every frame, each once
+
+      --json
+
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## klad palettes
+
+```text
+The palettes that come with klad, to load with klad palette <bundle> --load <name>
+
+Usage: klad palettes [OPTIONS]
+
+Options:
+      --json
+
+
+  -h, --help
+          Print help
+```
+
 ## klad export
 
 ```text
-Export a transparent PNG of the whole image or one layer or group, at a frame, at any scale from 1/16 to 8 (vectors stay sharp; paint layers are resampled). 8-bit PNGs are dithered from the 16-bit float pixels so gradients do not band; --depth 16 writes 16-bit PNGs. --background keeps the canvas background colour.
+Export a transparent PNG of the whole image or one layer or group, at a frame, at any scale from 1/16 to 8 (vectors stay sharp; paint layers are resampled). A pixel drawing exports at whole-number scales only, up to 64 (or 16384 px a side), enlarged pixel for pixel so it stays sharp: --scale 8 turns a 32 px sprite into 256 px. 8-bit PNGs are dithered from the 16-bit float pixels so gradients do not band; --depth 16 writes 16-bit PNGs. --background keeps the canvas background colour.
 
   klad export art.klad
   klad export art.klad --scale 2
@@ -3060,7 +3547,10 @@ Animations (each clip, or the whole timeline when there are no clips):
       a PNG holding each distinct picture once, trimmed to its pixels (more pages, art-sheet-2.png ..., when it does not fit --max), plus art-sheet.json in Aseprite's array layout: one entry per exposure with its duration in ms, frameTags for clips
   klad export art.klad --sheet run            one clip; --sheet 0-11 a range
   klad export art.klad --frames run           numbered full-size PNGs, one per frame (run-0000.png ...) in art-run/
-  klad export art.klad --godot ../game/art    the sheet, art.tres (SpriteFrames: one animation per clip with its fps, loop and per-frame durations) and art.tscn (an AnimatedSprite2D placed so the timeline's origin sits on the node's position). The first folder given is kept in the document (export.godot); later exports and the editor's button write there, and Godot uids are kept so scenes using them keep working. --store replaces a kept folder.
+  klad export art.klad --gif [run] [--scale 8]  an animated GIF with each frame's own duration: one per clip (art-run.gif; clips that loop, loop), or art.gif of the whole timeline; up to 255 colours kept exactly, more are reduced to the nearest of 255, in flat areas of one colour or, with --dither, mixed in a fine even pattern that keeps gradients smooth; transparent unless --background
+  klad export art.klad --aseprite             art.aseprite: the pixel layers and groups, the drawing of every frame (holds and links as linked cels), the palette and clips as tags, in RGBA; frames that show the same drawings are one frame with their time added up. Paint and vector layers are left out and named. klad import opens such a file
+  klad export art.klad --tileset ../game/art  a drawing cut into tiles (klad canvas --tile 16) as a Godot TileSet: art-tiles.png and art-tiles.tres with one atlas source and a tile for every cell that is not empty; --frame, --scale and --variant choose what is shown
+  klad export art.klad --godot ../game/art    the sheet, art.tres (SpriteFrames: one animation per clip with its fps, loop and per-frame durations) and art.tscn (an AnimatedSprite2D placed so the timeline's origin sits on the node's position). For a pixel drawing the scenes set texture_filter to nearest, so the sprite stays sharp in the game. The first folder given is kept in the document (export.godot); later exports and the editor's button write there, and Godot uids are kept so scenes using them keep working. --store replaces a kept folder.
 
 Usage: klad export [OPTIONS] <BUNDLE>
 
@@ -3098,6 +3588,18 @@ Options:
       --frames <FRAMES>
           Numbered PNGs, one per frame: all, a clip or a range
 
+      --gif [<GIF>]
+          An animated GIF: all (a GIF for each clip, or one of the whole timeline), a clip or a range like 0-11
+
+      --dither
+          With --gif: where a picture has more than 255 colours, mix the nearest ones in a fine even pattern so gradients do not band
+
+      --aseprite
+          An Aseprite file of the drawing's pixel layers: groups, the drawing of every frame, the palette and clips as tags
+
+      --tileset [<TILESET>]
+          A Godot TileSet of a drawing cut into tiles (klad canvas --tile): the picture and a .tres with a tile for every cell that is not empty, into this folder (default: the document's export.godot)
+
       --godot [<GODOT>]
           Godot SpriteFrames and AnimatedSprite2D scene into this folder (default: the document's export.godot)
 
@@ -3110,6 +3612,12 @@ Options:
       --godot-rig [<GODOT_RIG>]
           A Godot rig: the rest drawing as Polygon2Ds weighted to a Skeleton2D, and an AnimationPlayer with the poses of every clip, into this folder
 
+      --variant <VARIANT>
+          Export in this palette variant (base is the palette itself), whatever the drawing shows now; the file names end in the variant's name
+
+      --variants
+          Export once for every palette variant: the base under the usual name, each variant with its name added (art-blue.png)
+
       --padding <PADDING>
           Sheets: transparent pixels around each picture
 
@@ -3121,7 +3629,7 @@ Options:
           [default: 4096]
 
   -o, --out <OUT>
-
+          Where the export goes: a file name, or a folder that exists, which takes the export under its usual name (frames and Godot exports always take a folder)
 
   -h, --help
           Print help (see a summary with '-h')
@@ -3441,6 +3949,9 @@ Options:
 
           [default: 0]
 
+      --entry <COLOUR>
+          On a pixel layer: only the marks of one palette colour (a name, a colour, an index or an id), to edit them together
+
       --json
           Print strokes as JSON with their points (x, y, pressure)
 
@@ -3627,8 +4138,9 @@ Print an agent skill, to hand to an agent as its instructions.
 
   klad skill            how an agent draws with klad: the commands, layers, brushes and traps (docs/skill/SKILL.md)
   klad skill drawing    the craft: planning a picture, light on form, values, edges, colour, materials, line, a painting method and a critique checklist (docs/skill/drawing/SKILL.md)
+  klad skill pixel      the craft of pixel art: size and palette, silhouette, clusters, clean lines, outlines, ramps with hue shift, shading without pillows or banding, anti-aliasing by hand, tiles, animation and a checklist at real size (docs/skill/pixel/SKILL.md)
 
-Both are under the MIT licence.
+All three are under the MIT licence.
 
 Usage: klad skill [WHICH]
 

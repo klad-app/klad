@@ -467,7 +467,7 @@ mod tests {
 
     #[test]
     fn the_shipped_fonts_are_found_by_family_style_and_weight() {
-        let all = installed();
+        let all = shipped();
         assert!(all.len() >= 50, "{} families", all.len());
         assert!(
             all.iter()

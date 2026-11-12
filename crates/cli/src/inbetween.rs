@@ -778,6 +778,7 @@ fn frame_job(
                         let id = fill.id;
                         let what = |why: String| format!("{} at frame {frame}: {why}", address(&key.a, id));
                         match fill.source.clone() {
+                            FillSource::Cells { .. } => {}
                             FillSource::Polygon(points) => fill.coverage = polygon(&points, w, h),
                             FillSource::Seed { mut seed, reference } => {
                                 let Some((a, b)) = floods.iter().find(|(a, _)| a.id == id) else {

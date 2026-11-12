@@ -166,7 +166,7 @@ pub fn selection(path: &Path, as_json: bool) -> Result<()> {
     let layer = sel.layer.as_deref().and_then(|id| bundle.doc.layer(id));
     if as_json {
         let value = json!({
-            "layer": layer.map(|l| json!({ "id": l.id, "name": l.name, "kind": l.kind().name() })),
+            "layer": layer.map(|l| json!({ "id": l.id, "name": l.name, "kind": l.kind_name() })),
             "nodes": nodes,
             "frame": sel.frame,
             "atMs": sel.at_ms,
@@ -181,7 +181,7 @@ pub fn selection(path: &Path, as_json: bool) -> Result<()> {
     };
     println!("selected {}{at}", ago(sel.at_ms));
     if let Some(l) = layer {
-        println!("layer {} {} ({})", l.id, l.name, l.kind().name());
+        println!("layer {} {} ({})", l.id, l.name, l.kind_name());
     }
     nodes.iter().for_each(|n| {
         let b = n["bounds"].as_array().map_or("".into(), |b| {

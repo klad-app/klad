@@ -10,8 +10,8 @@ pub const TILT_STEPS: f32 = 127.0;
 pub const ZSTD_LEVEL: i32 = 3;
 const MAGIC: &[u8; 4] = b"KLST";
 const OLD_MAGIC: &[u8; 4] = b"DAST";
-const VERSION: u8 = 2;
-const READS: [u8; 2] = [1, 2];
+const VERSION: u8 = 3;
+const READS: [u8; 3] = [1, 2, 3];
 const MARK_STROKE: u8 = 0;
 const MARK_FILL: u8 = 1;
 const HAS_TILT: u8 = 1;
@@ -542,7 +542,12 @@ mod tests {
             vec![Mark::Stroke(line), Mark::Stroke(free)],
             "a version 1 file reads as strokes with nothing attached"
         );
-        old[4] = 3;
+        old[4] = 2;
+        assert!(
+            decode_raw(&old).is_ok(),
+            "a version 2 file, from before pixel marks, reads as it is"
+        );
+        old[4] = 4;
         assert!(decode_raw(&old).unwrap_err().to_string().contains("newer klad"));
     }
 

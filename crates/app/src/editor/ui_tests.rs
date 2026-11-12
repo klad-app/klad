@@ -1452,6 +1452,1049 @@ fn several_shapes_select_with_shift_or_a_lasso_move_together_align_and_distribut
 }
 
 #[test]
+fn a_pixel_layer_is_added_shows_its_marks_hard_and_keeps_brush_strokes_out() {
+    let path = sample("pixel-layer");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    activate(&mut h, "notes");
+    assert!(h.state().can_run(Cmd::NewPixelLayer).is_none());
+    h.state_mut().invoke(Cmd::NewPixelLayer).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    let layer = h.state().scene.active_layer().unwrap().clone();
+    assert!(
+        layer.pixel() && h.state().scene.on_grid(),
+        "the new layer is a pixel layer and active"
+    );
+    assert!(
+        h.query_by_label("pixel layer").is_some(),
+        "layer settings say what kind of layer it is"
+    );
+    let rect = h.state().canvas_rect;
+    let (a, b) = (rect.center() + vec2(-60.0, -20.0), rect.center() + vec2(40.0, 30.0));
+    h.state_mut().tool = Tool::Brush;
+    drag(&mut h, a, b);
+    h.run_steps(3);
+    ready(&mut h);
+    assert!(
+        !h.state().scene.active_marks().is_empty()
+            && h.state()
+                .scene
+                .active_marks()
+                .iter()
+                .all(|m| m.as_fill().is_some_and(|f| f.on_grid())),
+        "the brush tool draws whole pixels there, never a brush stroke"
+    );
+    h.state_mut().invoke(Cmd::Undo).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    assert!(h.state().scene.active_marks().is_empty());
+    h.state_mut()
+        .apply(
+            parse_lines(&format!(
+                r##"{{"op":"pixel","layer":"{}","color":"#3a86ff","cells":[[10,10],[11,10],[10,11]]}}"##,
+                layer.id
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    let ed = h.state();
+    let raster = ed.scene.active_raster().expect("the pixel layer's drawing");
+    let tile = raster.at(0).expect("the first tile is painted");
+    let at = |x: usize, y: usize| -> [f32; 4] {
+        let i = (y * klad_brush::TILE + x) * 4;
+        [tile[i], tile[i + 1], tile[i + 2], tile[i + 3]].map(|v| v.to_f32())
+    };
+    let blue = klad_core::color::parse_hex("#3a86ff").unwrap();
+    [(10, 10), (11, 10), (10, 11)].iter().for_each(|&(x, y)| {
+        let got = at(x, y);
+        assert!(
+            got.iter().zip(blue).all(|(a, b)| (a - b).abs() < 1e-3),
+            "{x},{y} is {got:?}, not {blue:?}"
+        );
+    });
+    assert_eq!(at(11, 11), [0.0; 4], "no soft edge beside the pixels");
+    assert_eq!(at(9, 10), [0.0; 4]);
+    assert!(
+        ed.scene.bundle.doc.swatch("#3a86ff").is_some(),
+        "its colour joined the palette"
+    );
+    assert!(ed.scene.active_marks()[0].as_fill().is_some_and(|f| f.on_grid()));
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+fn pixel_sample(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("draw-ui-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut bundle = Bundle::blank(
+        &dir,
+        &klad_core::bundle::Blank {
+            width: 32,
+            height: 24,
+            pixel: true,
+            ..klad_core::bundle::Blank::default()
+        },
+        "cli",
+    )
+    .unwrap();
+    let layer = bundle.doc.layers[0].id.clone();
+    bundle
+        .apply(
+            &parse_lines(&format!(
+                "{}\n{}",
+                format_args!(
+                    r##"{{"op":"pixel","layer":"{layer}","color":"#2b2d42","cells":[[4,4],[5,4],[6,4],[4,5],[6,5],[4,6],[5,6],[6,6]]}}"##
+                ),
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"#ef233c","cells":[[5,5]]}}"##),
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+    dir
+}
+
+#[test]
+fn a_pixel_drawing_zooms_in_whole_steps_and_shows_its_grid_the_pointers_pixel_and_its_real_size() {
+    let path = pixel_sample("sharp");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    let ppp = h.ctx.pixels_per_point();
+    let whole = |h: &Harness<'static, Editor>| {
+        let px = h.state().view.unwrap().zoom * ppp;
+        assert!(
+            (px - px.round()).abs() < 1e-4,
+            "{px} screen pixels per pixel is not a whole number"
+        );
+        px.round() as u32
+    };
+    assert!(whole(&h) >= 8, "a 32 pixel drawing opens enlarged");
+    h.state_mut().invoke(Cmd::Fit).unwrap();
+    h.run_steps(2);
+    let fitted = whole(&h);
+    let rect = h.state().canvas_rect;
+    assert!(fitted >= 8, "and fits enlarged: {fitted}");
+    assert!(
+        32.0 * fitted as f32 / ppp <= rect.width() && 24.0 * fitted as f32 / ppp <= rect.height(),
+        "and whole on the canvas"
+    );
+    assert!(h.state().grid_shows(), "zoomed in this far the grid shows");
+    h.hover_at(rect.center());
+    h.run_steps(1);
+    (0..6).for_each(|_| {
+        h.event(egui::Event::Zoom(0.9));
+        h.run_steps(1);
+        whole(&h);
+    });
+    let smaller = whole(&h);
+    assert!(smaller < fitted, "pinching zooms out: {smaller} from {fitted}");
+    (0..40).for_each(|_| {
+        h.event(egui::Event::Zoom(0.8));
+        h.run_steps(1);
+    });
+    assert!(
+        h.state().view.unwrap().zoom * ppp < 1.0,
+        "below real size the zoom is free again"
+    );
+    assert!(!h.state().grid_shows(), "and the grid is gone");
+    h.state_mut().invoke(Cmd::Fit).unwrap();
+    h.run_steps(2);
+    assert_eq!(whole(&h), fitted, "fit comes back to the largest whole zoom");
+    let at = on_screen(&h, 5.5, 7.5);
+    h.hover_at(at);
+    h.run_steps(2);
+    assert_eq!(h.state().hover_cell, Some([5, 7]));
+    assert!(
+        h.query_by_label("5, 7").is_some(),
+        "the status line names the pixel under the pointer"
+    );
+    h.state_mut().invoke(Cmd::PixelGrid).unwrap();
+    h.run_steps(1);
+    assert!(!h.state().grid_shows() && h.state().is_on(Cmd::PixelGrid) == Some(false));
+    h.state_mut().invoke(Cmd::PixelGrid).unwrap();
+    assert!(!h.state().settings.layout.is_open(Pane::Preview));
+    h.state_mut().invoke(Cmd::PreviewPane).unwrap();
+    h.run_steps(3);
+    assert!(h.query_by_label("Real size").is_some() && h.query_by_label("32 x 24").is_some());
+    let (_, texture) = h.state().real.as_ref().expect("the drawing at its real size");
+    assert_eq!(texture.size(), [32, 24]);
+    h.get_by_label("2x").click();
+    h.run_steps(2);
+    assert_eq!(h.state().settings.real_size_scale, 2);
+    let painting = sample("no-grid");
+    let plain = harness(editor(&painting), vec2(1440.0, 900.0));
+    assert!(
+        plain
+            .state()
+            .can_run(Cmd::PixelGrid)
+            .is_some_and(|why| why.contains("no pixel layer"))
+    );
+    let px = plain.state().view.unwrap().zoom * ppp;
+    assert!(
+        (px - px.round()).abs() > 1e-3,
+        "a painting still fits at any zoom: {px}"
+    );
+    let _ = std::fs::remove_dir_all(&path);
+    let _ = std::fs::remove_dir_all(&painting);
+}
+
+#[test]
+fn a_clicked_palette_colour_is_updated_with_its_pixels_and_ramps_and_palettes_join_the_palette() {
+    let path = pixel_sample("palette-edit");
+    let mut h = harness(editor(&path), vec2(1440.0, 1060.0));
+    let hexes = |h: &Harness<'static, Editor>| -> Vec<String> {
+        h.state()
+            .scene
+            .bundle
+            .doc
+            .palette
+            .iter()
+            .map(|s| s.color.clone())
+            .collect()
+    };
+    assert_eq!(hexes(&h), ["#2b2d42", "#ef233c"]);
+    assert!(
+        h.state()
+            .can_run(Cmd::UpdateSwatch)
+            .is_some_and(|why| why.contains("click a colour in the palette first"))
+    );
+    let red = h.get_by_role_and_label(Role::Button, "#ef233c").rect();
+    h.hover_at(red.center());
+    h.run_steps(1);
+    h.drag_at(red.center());
+    h.run_steps(1);
+    h.drop_at(red.center());
+    h.run_steps(2);
+    assert_eq!(h.state().swatch_picked, Some(1));
+    assert!(
+        h.state()
+            .can_run(Cmd::UpdateSwatch)
+            .is_some_and(|why| why.contains("already is this colour"))
+    );
+    assert!(h.query_by_label_contains("update").is_none(), "nothing to update yet");
+    let teal = klad_core::color::parse_hex("#2a9d8f").unwrap();
+    h.state_mut().set_colour(teal);
+    h.run_steps(2);
+    h.state_mut().invoke(Cmd::UpdateSwatch).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    assert_eq!(hexes(&h), ["#2b2d42", "#2a9d8f"]);
+    let marks = h.state().scene.active_marks().to_vec();
+    let centre = marks[1].as_fill().unwrap();
+    assert_eq!(
+        klad_core::color::to_hex(centre.color()),
+        "#2a9d8f",
+        "the pixel painted with it changed"
+    );
+    assert_eq!(klad_core::color::to_hex(marks[0].as_fill().unwrap().color()), "#2b2d42");
+    let raster = h.state().scene.active_raster().unwrap();
+    let tile = raster.at(0).unwrap();
+    let at = (5 * klad_brush::TILE + 5) * 4;
+    assert!(
+        (0..3).all(|i| (tile[at + i].to_f32() - teal[i]).abs() < 1e-3),
+        "and the canvas shows it"
+    );
+    h.state_mut().swatch_name = "sea".into();
+    h.state_mut().invoke(Cmd::AddRamp).unwrap();
+    h.run_steps(2);
+    let doc = h.state().scene.bundle.doc.clone();
+    let ramp: Vec<&str> = doc.ramp("sea").iter().map(|s| s.color.as_str()).collect();
+    assert_eq!(ramp.len(), 5);
+    assert_eq!(ramp[2], "#2a9d8f", "the colour itself is the middle of its ramp");
+    assert_eq!(
+        doc.palette.len(),
+        6,
+        "the palette colour joined the ramp instead of being added twice"
+    );
+    h.state_mut().invoke(Cmd::LoadPalette).unwrap();
+    h.run_steps(2);
+    h.get_by_label("PICO-8").click();
+    h.run_steps(3);
+    assert_eq!(h.state().scene.bundle.doc.palette.len(), 22);
+    assert!(
+        !h.state().windows.palettes,
+        "the window closes once a palette is loaded"
+    );
+    let said = h.state().messages.latest().map(|m| m.text.clone()).unwrap_or_default();
+    assert!(said.contains("16 colours added"), "{said}");
+    let file = path.with_extension("hex");
+    std::fs::write(&file, "ff00ff\n00ffff\n000000\n").unwrap();
+    h.state_mut().invoke(Cmd::LoadPalette).unwrap();
+    h.state_mut().palette_path = file.display().to_string();
+    h.run_steps(2);
+    h.get_by_label("load").click();
+    h.run_steps(3);
+    assert_eq!(
+        h.state().scene.bundle.doc.palette.len(),
+        24,
+        "two new colours: black is in the palette already"
+    );
+    let _ = std::fs::remove_file(&file);
+    assert!(
+        h.state().can_run(Cmd::NextVariant).is_some() && h.state().can_run(Cmd::RemoveVariant).is_some(),
+        "without variants there is nothing to show or remove"
+    );
+    let first = h.state().scene.bundle.doc.palette[0].color.clone();
+    h.state_mut().swatch_name = "night".into();
+    h.state_mut().invoke(Cmd::NewVariant).unwrap();
+    h.run_steps(3);
+    assert_eq!(h.state().scene.bundle.doc.shown_variant(), "night");
+    assert!(h.state().swatch_name.is_empty());
+    assert!(
+        h.query_all(By::new().label("variant")).count() > 0 && h.query_by_label("night").is_some(),
+        "the palette panel lists the variants"
+    );
+    h.state_mut().swatch_picked = Some(0);
+    h.state_mut()
+        .set_colour(klad_core::color::parse_hex("#101040").unwrap());
+    h.state_mut().invoke(Cmd::UpdateSwatch).unwrap();
+    h.run_steps(3);
+    assert_eq!(h.state().scene.bundle.doc.palette[0].color, "#101040");
+    [Pane::Brush, Pane::Layers, Pane::Inspector, Pane::Preview]
+        .into_iter()
+        .filter(|pane| h.state().settings.layout.is_open(*pane))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .for_each(|pane| h.state_mut().settings.layout.toggle(pane));
+    h.run_steps(3);
+    h.get_by_label("base").click();
+    h.run_steps(3);
+    assert_eq!(
+        h.state().scene.bundle.doc.shown_variant(),
+        "base",
+        "a click shows the palette itself"
+    );
+    assert_eq!(
+        h.state().scene.bundle.doc.palette[0].color,
+        first,
+        "which kept its colour"
+    );
+    assert!(
+        h.state()
+            .can_run(Cmd::RenameVariant)
+            .is_some_and(|why| why.contains("show a variant first"))
+    );
+    h.state_mut().invoke(Cmd::NextVariant).unwrap();
+    h.run_steps(2);
+    assert_eq!(h.state().scene.bundle.doc.palette[0].color, "#101040");
+    h.state_mut().invoke(Cmd::NewVariant).unwrap();
+    h.run_steps(2);
+    assert_eq!(
+        h.state().scene.bundle.doc.variant_names(),
+        ["base", "night", "variant 3"],
+        "an unnamed variant gets a name of its own"
+    );
+    h.state_mut().swatch_name = "dusk".into();
+    h.state_mut().invoke(Cmd::RenameVariant).unwrap();
+    h.run_steps(2);
+    assert_eq!(h.state().scene.bundle.doc.shown_variant(), "dusk");
+    {
+        let ed = h.state_mut();
+        ed.windows.export = true;
+        ed.export.variant = "gone".into();
+    }
+    h.run_steps(3);
+    assert!(
+        h.query_all(By::new().label("palette variant")).count() > 0,
+        "the export window offers the variants"
+    );
+    assert!(
+        h.state().export.variant.is_empty(),
+        "a variant that is gone falls back to what is shown"
+    );
+    h.state_mut().windows.export = false;
+    h.state_mut().invoke(Cmd::RemoveVariant).unwrap();
+    h.run_steps(2);
+    assert_eq!(h.state().scene.bundle.doc.variant_names(), ["base", "night"]);
+    assert_eq!(h.state().scene.bundle.doc.shown_variant(), "base");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn checking_the_pixels_marks_the_places_and_follows_edits_until_it_is_turned_off() {
+    use klad_core::pixelcheck::Kind;
+    let path = pixel_sample("check");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    h.run_steps(2);
+    assert_eq!(h.state().is_on(Cmd::CheckPixels), Some(false));
+    h.state_mut().invoke(Cmd::CheckPixels).unwrap();
+    h.run_steps(2);
+    let kinds = |h: &Harness<'static, Editor>| -> Vec<(Kind, [u32; 2])> {
+        h.state()
+            .checks
+            .pixels
+            .as_ref()
+            .map(|check| check.found.iter().map(|f| (f.kind, f.at)).collect())
+            .unwrap_or_default()
+    };
+    assert_eq!(
+        kinds(&h),
+        [(Kind::Stray, [5, 5])],
+        "the red pixel in the ring stands alone"
+    );
+    let said = h.state().messages.latest().map(|m| m.text.clone()).unwrap_or_default();
+    assert!(said.contains("1 stray pixel"), "{said}");
+    assert_eq!(h.state().is_on(Cmd::CheckPixels), Some(true));
+    let layer = h.state().scene.active_id().unwrap();
+    let pixel = |cells: serde_json::Value, colour: &str| {
+        klad_core::ops::Op::parse(serde_json::json!({"op":"pixel","layer":layer,"color":colour,"cells":cells})).unwrap()
+    };
+    h.state_mut()
+        .apply(vec![pixel(serde_json::json!([[5, 5]]), "#2b2d42")])
+        .unwrap();
+    h.run_steps(3);
+    assert!(
+        kinds(&h).is_empty(),
+        "painted over, the finding goes without asking again"
+    );
+    h.state_mut()
+        .apply(vec![pixel(
+            serde_json::json!([[12, 10], [13, 11], [14, 11], [14, 12], [15, 13]]),
+            "#ef233c",
+        )])
+        .unwrap();
+    h.run_steps(3);
+    assert_eq!(
+        kinds(&h)
+            .iter()
+            .filter(|(kind, _)| *kind == Kind::Corner)
+            .map(|(_, at)| *at)
+            .collect::<Vec<_>>(),
+        [[14, 11]],
+        "a diagonal line with one L in it is marked at the corner: {:?}",
+        kinds(&h)
+    );
+    h.state_mut().invoke(Cmd::CheckPixels).unwrap();
+    h.run_steps(2);
+    assert!(h.state().checks.pixels.is_none() && h.state().is_on(Cmd::CheckPixels) == Some(false));
+    let painting = sample("check-paint");
+    let plain = harness(editor(&painting), vec2(1440.0, 900.0));
+    assert!(
+        plain
+            .state()
+            .can_run(Cmd::CheckPixels)
+            .is_some_and(|why| why.contains("pixel layer")),
+        "on a painting the check says what it needs"
+    );
+    let _ = std::fs::remove_dir_all(&path);
+    let _ = std::fs::remove_dir_all(&painting);
+}
+
+#[test]
+fn the_brush_tool_is_a_pixel_pencil_and_eraser_on_a_pixel_layer() {
+    let path = pixel_sample("pencil");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    h.state_mut().tool = Tool::Brush;
+    h.state_mut()
+        .set_colour(klad_core::color::parse_hex("#2a9d8f").unwrap());
+    h.run_steps(2);
+    assert!(
+        h.query_by_label_contains("pixel pencil").is_some(),
+        "the options bar names the pencil"
+    );
+    let cells_of = |h: &Harness<'static, Editor>, at: usize| -> Vec<[u32; 2]> {
+        h.state().scene.active_marks()[at]
+            .as_fill()
+            .unwrap()
+            .coverage
+            .cells()
+            .collect()
+    };
+    let before = h.state().scene.active_marks().len();
+    let (a, b) = (on_screen(&h, 10.5, 10.5), on_screen(&h, 16.5, 13.5));
+    h.hover_at(a);
+    h.run_steps(1);
+    h.drag_at(a);
+    h.run_steps(1);
+    (1..=12).for_each(|i| {
+        h.hover_at(a + (b - a) * (i as f32 / 12.0));
+        h.run_steps(1);
+    });
+    assert!(h.state().pixel_live.is_some(), "the line shows while it is drawn");
+    h.drop_at(b);
+    h.run_steps(3);
+    ready(&mut h);
+    let marks = h.state().scene.active_marks().to_vec();
+    assert_eq!(marks.len(), before + 1, "one drag is one mark");
+    let line = marks[before].as_fill().unwrap();
+    assert!(line.on_grid() && line.author == klad_core::stroke::Author::Human);
+    assert_eq!(klad_core::color::to_hex(line.color()), "#2a9d8f");
+    let teal = h
+        .state()
+        .scene
+        .bundle
+        .doc
+        .swatch("#2a9d8f")
+        .expect("the colour joined the palette");
+    assert_eq!(line.entry(), Some(h.state().scene.bundle.doc.palette[teal].id.as_str()));
+    let cells = cells_of(&h, before);
+    assert_eq!(cells.len(), 7, "one pixel per column from 10 to 16: {cells:?}");
+    assert!(cells.contains(&[10, 10]) && cells.contains(&[16, 13]));
+    let raster = h.state().scene.active_raster().unwrap();
+    assert!(raster.alpha_at(12.5, 11.5) + raster.alpha_at(12.5, 10.5) + raster.alpha_at(12.5, 12.5) >= 1.0);
+    let far = on_screen(&h, 16.5, 20.5);
+    click_with(&mut h, far, Modifiers::SHIFT);
+    h.run_steps(3);
+    assert_eq!(
+        cells_of(&h, before + 1),
+        (13..=20).map(|y| [16, y]).collect::<Vec<_>>(),
+        "shift click draws a straight line from the last pixel"
+    );
+    h.key_press(Key::CloseBracket);
+    h.key_press(Key::CloseBracket);
+    h.run_steps(2);
+    assert_eq!(h.state().pixel_size, 3, "] makes the pencil a pixel larger");
+    let dot = on_screen(&h, 25.5, 5.5);
+    click_with(&mut h, dot, Modifiers::NONE);
+    h.run_steps(3);
+    let block = cells_of(&h, before + 2);
+    assert_eq!(block.len(), 9);
+    assert!(block.contains(&[24, 4]) && block.contains(&[26, 6]));
+    h.state_mut().invoke(Cmd::Eraser).unwrap();
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("pixel eraser").is_some());
+    h.state_mut().pixel_size = 1;
+    click_with(&mut h, dot, Modifiers::NONE);
+    h.run_steps(3);
+    ready(&mut h);
+    assert_eq!(
+        h.state().scene.active_marks().len(),
+        before + 3,
+        "the eraser leaves no mark of its own"
+    );
+    assert_eq!(
+        cells_of(&h, before + 2).len(),
+        8,
+        "it takes the pixel out of the mark under it"
+    );
+    let raster = h.state().scene.active_raster().unwrap();
+    assert_eq!(raster.alpha_at(25.5, 5.5), 0.0, "the erased pixel is clear");
+    assert_eq!(raster.alpha_at(24.5, 5.5), 1.0, "its neighbour is still there");
+    let empty = on_screen(&h, 29.5, 20.5);
+    click_with(&mut h, empty, Modifiers::NONE);
+    h.run_steps(3);
+    ready(&mut h);
+    h.state_mut().tool = Tool::Strokes;
+    h.state_mut().invoke(Cmd::SelectAll).unwrap();
+    h.run_steps(2);
+    let chosen: Vec<u32> = h.state().scene.active_marks().iter().map(|m| m.id()).collect();
+    let cel = h.state().scene.active_cel().unwrap();
+    let ids: Vec<String> = chosen.iter().map(|id| format!("\"{cel}:s{id}\"")).collect();
+    let ops = klad_core::ops::parse_lines(&format!(
+        r#"{{"op":"transform","ids":[{}],"x":4,"y":15}}"#,
+        ids.join(",")
+    ))
+    .unwrap();
+    h.state_mut().apply(ops).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    let raster = h.state().scene.active_raster().unwrap();
+    assert_eq!(
+        (
+            raster.alpha_at(28.5, 20.5),
+            raster.alpha_at(29.5, 20.5),
+            raster.alpha_at(30.5, 20.5)
+        ),
+        (1.0, 0.0, 1.0),
+        "pixels moved over a place the eraser went stay whole; their own hole moves with them"
+    );
+    h.state_mut().invoke(Cmd::Undo).unwrap();
+    h.run_steps(3);
+    let palette = h.state().scene.bundle.doc.palette.len();
+    h.state_mut().invoke(Cmd::Undo).unwrap();
+    h.run_steps(3);
+    assert_eq!(cells_of(&h, before + 2).len(), 9, "undo puts the erased pixel back");
+    assert_eq!(h.state().scene.bundle.doc.palette.len(), palette);
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn the_fill_and_shape_tools_draw_whole_pixels_on_a_pixel_layer() {
+    let path = pixel_sample("fill-shape");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    h.state_mut()
+        .set_colour(klad_core::color::parse_hex("#f2c14e").unwrap());
+    let cells_of = |h: &Harness<'static, Editor>, at: usize| -> Vec<[u32; 2]> {
+        h.state().scene.active_marks()[at]
+            .as_fill()
+            .unwrap()
+            .coverage
+            .cells()
+            .collect()
+    };
+    let before = h.state().scene.active_marks().len();
+    h.state_mut().tool = Tool::Fill;
+    h.run_steps(2);
+    assert!(
+        h.query_by_label("across corners").is_some(),
+        "the fill tool shows its pixel options"
+    );
+    let centre = on_screen(&h, 5.5, 5.5);
+    click_with(&mut h, centre, Modifiers::NONE);
+    h.run_steps(3);
+    ready(&mut h);
+    assert_eq!(
+        cells_of(&h, before),
+        [[5, 5]],
+        "the fill takes the one red pixel inside the ring"
+    );
+    let mark = h.state().scene.active_marks()[before].as_fill().unwrap().clone();
+    assert!(mark.on_grid() && mark.author == klad_core::stroke::Author::Human);
+    assert_eq!(klad_core::color::to_hex(mark.color()), "#f2c14e");
+    let outside = on_screen(&h, 20.5, 20.5);
+    click_with(&mut h, outside, Modifiers::NONE);
+    h.run_steps(3);
+    ready(&mut h);
+    assert_eq!(
+        cells_of(&h, before + 1).len(),
+        32 * 24 - 9,
+        "outside the ring the fill takes every empty pixel and stops at the ring"
+    );
+    h.state_mut().invoke(Cmd::Undo).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    h.state_mut().tool = Tool::Shape;
+    h.run_steps(2);
+    assert!(
+        h.query_by_label("filled").is_some(),
+        "the shape tool shows its pixel options"
+    );
+    let (a, b) = (on_screen(&h, 10.5, 10.5), on_screen(&h, 17.5, 15.5));
+    drag(&mut h, a, b);
+    h.run_steps(3);
+    ready(&mut h);
+    let outline = cells_of(&h, before + 1);
+    assert_eq!(
+        outline.len(),
+        2 * 8 + 2 * 4,
+        "an 8 by 6 rectangle's outline: {outline:?}"
+    );
+    assert!(outline.contains(&[10, 10]) && outline.contains(&[17, 15]) && !outline.contains(&[12, 12]));
+    h.state_mut().pixel_shape = super::PixelShape::Ellipse;
+    h.state_mut().pixel_filled = true;
+    let (a, b) = (on_screen(&h, 20.5, 2.5), on_screen(&h, 26.5, 8.5));
+    drag(&mut h, a, b);
+    h.run_steps(3);
+    ready(&mut h);
+    let disc = cells_of(&h, before + 2);
+    assert!(
+        disc.contains(&[23, 5]) && !disc.contains(&[20, 2]),
+        "a filled circle, without its box's corners"
+    );
+    assert!(disc.len() > 25 && disc.len() < 49, "{}", disc.len());
+    h.state_mut().pixel_shape = super::PixelShape::Line;
+    let (a, b) = (on_screen(&h, 2.5, 20.5), on_screen(&h, 9.5, 20.5));
+    drag(&mut h, a, b);
+    h.run_steps(3);
+    assert_eq!(cells_of(&h, before + 3), (2..=9).map(|x| [x, 20]).collect::<Vec<_>>());
+    h.run_steps(2);
+    assert!(
+        h.query_by_label("filled").is_some(),
+        "the filled box stays in the bar when the line is picked"
+    );
+    h.state_mut().invoke(Cmd::Eraser).unwrap();
+    h.state_mut().pixel_shape = super::PixelShape::Rect;
+    h.state_mut().tool = Tool::Shape;
+    h.run_steps(2);
+    let (a, b) = (on_screen(&h, 2.5, 20.5), on_screen(&h, 4.5, 21.5));
+    drag(&mut h, a, b);
+    h.run_steps(3);
+    ready(&mut h);
+    h.state_mut().tool = Tool::Fill;
+    h.run_steps(2);
+    let inside = on_screen(&h, 23.5, 5.5);
+    click_with(&mut h, inside, Modifiers::NONE);
+    h.run_steps(3);
+    ready(&mut h);
+    let marks = h.state().scene.active_marks();
+    let last: Vec<&klad_core::fill::Fill> = marks.iter().rev().take(2).filter_map(|m| m.as_fill()).collect();
+    assert!(
+        last.len() == 2
+            && last
+                .iter()
+                .all(|f| !f.erases() && klad_core::color::to_hex(f.color()) == "#f2c14e"),
+        "after E, the shape and the fill tools still draw in the colour"
+    );
+    let doc = &h.state().scene.bundle.doc;
+    let grid = klad_core::pixel::grid_of(marks, doc.canvas.width, doc.canvas.height);
+    assert!(grid.at(3, 20).is_some() && grid.at(23, 5).is_some());
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn pixels_are_selected_by_box_or_colour_and_move_flip_turn_and_recolour_on_the_grid() {
+    let path = pixel_sample("pixel-edit");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    h.state_mut().tool = Tool::Strokes;
+    h.run_steps(2);
+    assert!(h.query_by_label("box").is_some() && h.query_by_label_contains("same colour").is_some());
+    let grid = |h: &Harness<'static, Editor>| -> Vec<String> {
+        let ed = h.state();
+        let doc = &ed.scene.bundle.doc;
+        let grid = klad_core::pixel::grid_of(ed.scene.active_marks(), doc.canvas.width, doc.canvas.height);
+        let legend = klad_core::pixel::legend(doc, &grid);
+        klad_core::pixel::rows(&grid, &legend)
+    };
+    assert_eq!(&grid(&h)[4][..9], "....aaa..");
+    assert_eq!(&grid(&h)[5][..9], "....aba..");
+    let (a, b) = (on_screen(&h, 3.6, 3.6), on_screen(&h, 5.4, 7.4));
+    h.hover_at(a);
+    h.run_steps(1);
+    h.drag_at(a);
+    h.run_steps(1);
+    (1..=6).for_each(|i| {
+        h.hover_at(a + (b - a) * (i as f32 / 6.0));
+        h.run_steps(1);
+    });
+    h.drop_at(b);
+    h.run_steps(3);
+    let picked = h.state().picked.clone().expect("the box holds pixels");
+    assert!(
+        picked.cut.is_some(),
+        "the box crosses the ring, so it takes pixels, not whole marks"
+    );
+    assert_eq!(
+        picked.cut.as_deref(),
+        Some(&[[3.0, 3.0], [6.0, 3.0], [6.0, 8.0], [3.0, 8.0]][..]),
+        "the box snaps out to whole pixels"
+    );
+    let (from, to) = (on_screen(&h, 4.5, 5.5), on_screen(&h, 14.2, 5.9));
+    drag(&mut h, from, to);
+    settle(&mut h, |ed| ed.drag.is_none() && ed.preview.is_none());
+    h.run_steps(3);
+    ready(&mut h);
+    let rows = grid(&h);
+    assert_eq!(
+        &rows[4][..18],
+        "......a.......aa..",
+        "the left two columns of the ring moved 10 pixels: {rows:?}"
+    );
+    assert_eq!(&rows[5][..18], "......a.......ab..");
+    assert_eq!(&rows[6][..18], "......a.......aa..");
+    assert!(
+        h.state()
+            .scene
+            .active_marks()
+            .iter()
+            .all(|m| m.cuts().is_empty() && m.as_fill().unwrap().coverage.alpha.iter().all(|a| *a == 0 || *a == 255)),
+        "every mark is still whole pixels with no soft edge"
+    );
+    h.state_mut().invoke(Cmd::FlipH).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    let rows = grid(&h);
+    assert_eq!(&rows[5][..18], "......a.......ba..", "flipped in place: {rows:?}");
+    h.state_mut().invoke(Cmd::TurnRight90).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    let turned = grid(&h);
+    let count = |rows: &[String], sign: char| rows.iter().flat_map(|r| r.chars()).filter(|c| *c == sign).count();
+    assert_eq!(
+        (count(&turned, 'a'), count(&turned, 'b')),
+        (8, 1),
+        "a quarter turn keeps every pixel: {turned:?}"
+    );
+    h.state_mut().invoke(Cmd::Deselect).unwrap();
+    h.state_mut()
+        .set_colour(klad_core::color::parse_hex("#2b2d42").unwrap());
+    h.state_mut().invoke(Cmd::SelectSameColour).unwrap();
+    h.run_steps(2);
+    let same = h.state().picked.clone().expect("the ink marks");
+    assert!(
+        same.ids.len() >= 2 && same.cut.is_none(),
+        "every mark in the ring's colour: {:?}",
+        same.ids
+    );
+    h.state_mut()
+        .set_colour(klad_core::color::parse_hex("#2a9d8f").unwrap());
+    h.state_mut().invoke(Cmd::Recolour).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    let ed = h.state();
+    let teal = ed
+        .scene
+        .bundle
+        .doc
+        .swatch("#2a9d8f")
+        .expect("the new colour is a palette colour");
+    let id = ed.scene.bundle.doc.palette[teal].id.clone();
+    let recoloured = ed
+        .scene
+        .active_marks()
+        .iter()
+        .filter(|m| m.as_fill().unwrap().entry() == Some(id.as_str()))
+        .count();
+    assert_eq!(
+        recoloured,
+        same.ids.len(),
+        "each takes exactly the colour and its palette entry"
+    );
+    assert!(
+        ed.scene.bundle.doc.palette.len() <= 3,
+        "no shades were invented: {:?}",
+        ed.scene.bundle.doc.palette
+    );
+    let plain = sample("no-same-colour");
+    let other = harness(editor(&plain), vec2(1440.0, 900.0));
+    assert!(other.state().can_run(Cmd::SelectSameColour).is_some());
+    let _ = std::fs::remove_dir_all(&path);
+    let _ = std::fs::remove_dir_all(&plain);
+}
+
+#[test]
+fn the_pencil_shades_and_dithers_and_a_selection_steps_along_its_ramp_and_takes_an_outline() {
+    let path = pixel_sample("pixel-shade");
+    {
+        let mut bundle = Bundle::open(&path).unwrap();
+        let layer = bundle.doc.layers[0].id.clone();
+        let ramp = klad_core::palettes::ramp_swatches("green", "#4c9a54", 3).unwrap();
+        let keys: Vec<String> = ramp.iter().map(|s| format!("\"{}\"", s.color)).collect();
+        bundle
+            .apply(
+                &parse_lines(&format!(
+                    "{}\n{}\n{}",
+                    format_args!(
+                        r##"{{"op":"palette","load":{}}}"##,
+                        serde_json::to_string(&ramp).unwrap()
+                    ),
+                    format_args!(r##"{{"op":"palette","ramp":"green","of":[{}]}}"##, keys.join(",")),
+                    format_args!(
+                        r##"{{"op":"pixel","layer":"{layer}","color":"green-2","rect":[12,4,8,6],"filled":true}}"##
+                    ),
+                ))
+                .unwrap(),
+            )
+            .unwrap();
+    }
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    let grid = |h: &Harness<'static, Editor>| -> Vec<String> {
+        let ed = h.state();
+        let doc = &ed.scene.bundle.doc;
+        let grid = klad_core::pixel::grid_of(ed.scene.active_marks(), doc.canvas.width, doc.canvas.height);
+        klad_core::pixel::rows(&grid, &klad_core::pixel::legend(doc, &grid))
+    };
+    let green = |h: &Harness<'static, Editor>, name: &str| -> char {
+        let ed = h.state();
+        let doc = &ed.scene.bundle.doc;
+        let grid = klad_core::pixel::grid_of(ed.scene.active_marks(), doc.canvas.width, doc.canvas.height);
+        let at = doc.swatch(name).unwrap();
+        klad_core::pixel::legend(doc, &grid)
+            .iter()
+            .find(|n| n.key == doc.palette[at].id || n.color == doc.palette[at].color)
+            .map_or('?', |n| n.sign)
+    };
+    h.state_mut().tool = Tool::Brush;
+    h.run_steps(2);
+    assert!(h.query_by_label("lighter").is_some() && h.query_by_label("darker").is_some());
+    h.state_mut().pixel_mode = super::PixelMode::Darker;
+    let (a, b) = (on_screen(&h, 12.5, 8.5), on_screen(&h, 19.5, 8.5));
+    drag(&mut h, a, b);
+    h.run_steps(3);
+    ready(&mut h);
+    let mid = green(&h, "green-2");
+    let dark = green(&h, "green-1");
+    assert_eq!(
+        &grid(&h)[8][12..20],
+        dark.to_string().repeat(8),
+        "the row the pencil went over is a step darker"
+    );
+    assert_eq!(&grid(&h)[7][12..20], mid.to_string().repeat(8));
+    let empty = on_screen(&h, 28.5, 20.5);
+    click_with(&mut h, empty, Modifiers::NONE);
+    h.run_steps(3);
+    let refused = h.state().messages.latest().map(|m| m.text.clone()).unwrap_or_default();
+    assert!(refused.contains("in no ramp"), "{refused}");
+    h.state_mut().pixel_mode = super::PixelMode::Draw;
+    h.state_mut().pixel_dither = 50;
+    h.state_mut().pixel_two = true;
+    h.state_mut()
+        .set_colour(klad_core::color::parse_hex("#22223b").unwrap());
+    h.state_mut().second = klad_core::color::parse_hex("#ef233c").unwrap();
+    h.state_mut().tool = Tool::Shape;
+    h.state_mut().pixel_filled = true;
+    let (a, b) = (on_screen(&h, 24.5, 12.5), on_screen(&h, 27.5, 13.5));
+    drag(&mut h, a, b);
+    h.run_steps(3);
+    ready(&mut h);
+    let rows = grid(&h);
+    let (one, two) = (rows[12].as_bytes()[24], rows[12].as_bytes()[25]);
+    assert!(
+        one != two && one != b'.' && two != b'.',
+        "two colours side by side: {}",
+        &rows[12][24..28]
+    );
+    assert_eq!(
+        (
+            rows[12].as_bytes()[26],
+            rows[13].as_bytes()[24],
+            rows[13].as_bytes()[25]
+        ),
+        (one, two, one),
+        "in a checkerboard"
+    );
+    h.state_mut().pixel_dither = 100;
+    h.state_mut().tool = Tool::Strokes;
+    let block = on_screen(&h, 15.5, 5.5);
+    click_with(&mut h, block, Modifiers::NONE);
+    h.run_steps(3);
+    assert!(h.state().picked.is_some(), "the green block is selected");
+    h.state_mut().invoke(Cmd::ShadeLighter).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    let light = green(&h, "green-3");
+    assert_eq!(
+        &grid(&h)[5][12..20],
+        light.to_string().repeat(8),
+        "the mark took the next lighter colour of its ramp"
+    );
+    h.state_mut().invoke(Cmd::ShadeLighter).unwrap();
+    h.run_steps(2);
+    let end = h.state().messages.latest().map(|m| m.text.clone()).unwrap_or_default();
+    assert!(end.contains("light end"), "{end}");
+    h.state_mut().invoke(Cmd::Deselect).unwrap();
+    let before = h.state().scene.active_marks().len();
+    h.state_mut()
+        .set_colour(klad_core::color::parse_hex("#101018").unwrap());
+    h.state_mut().invoke(Cmd::PixelOutline).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    assert_eq!(
+        h.state().scene.active_marks().len(),
+        before + 1,
+        "the outline is one mark"
+    );
+    let outlined = grid(&h);
+    assert_ne!(
+        outlined[3].as_bytes()[13],
+        b'.',
+        "a pixel above the block is outlined: {}",
+        outlined[3]
+    );
+    assert_eq!(outlined[3].as_bytes()[11], b'.', "its corner is left open");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn the_pixel_pencil_mirrors_across_a_line_and_wraps_on_a_tile() {
+    let path = pixel_sample("pixel-mirror");
+    let mut h = harness(editor(&path), vec2(1440.0, 900.0));
+    h.state_mut().tool = Tool::Brush;
+    h.state_mut()
+        .set_colour(klad_core::color::parse_hex("#2a9d8f").unwrap());
+    h.run_steps(2);
+    let last = |h: &Harness<'static, Editor>| -> Vec<[u32; 2]> {
+        h.state()
+            .scene
+            .active_marks()
+            .last()
+            .and_then(|m| m.as_fill())
+            .map(|f| f.coverage.cells().collect())
+            .unwrap_or_default()
+    };
+    assert!(
+        h.state()
+            .can_run(Cmd::Inbetween)
+            .is_some_and(|why| why.contains("pixel layer") && why.contains("Draw the frames")),
+        "in-betweens say why they do not apply to pixels"
+    );
+    {
+        let ed = h.state_mut();
+        ed.windows.export = true;
+        ed.export.what = super::export::What::Gif;
+        ed.export.scale = 2.6;
+    }
+    h.run_steps(3);
+    assert!(
+        h.query_all(By::new().label("times real size")).count() > 0,
+        "a pixel drawing exports at whole-number sizes"
+    );
+    assert_eq!(h.state().export.scale, 3.0, "a size in between lands on a whole number");
+    assert_eq!(
+        h.query_all(By::new().label("16 bits per channel")).count(),
+        0,
+        "a GIF has no 16-bit form"
+    );
+    h.state_mut().windows.export = false;
+    h.state_mut().invoke(Cmd::TileSize).unwrap();
+    h.run_steps(3);
+    assert!(
+        h.query_all(By::new().label_contains("not cut into tiles")).count() > 0,
+        "the window says what the drawing is"
+    );
+    let (width, height) = {
+        let canvas = &h.state().scene.bundle.doc.canvas;
+        (canvas.width, canvas.height)
+    };
+    h.state_mut().tile_size = [width / 2, height / 2];
+    h.run_steps(2);
+    h.get_by_label("cut into tiles").click();
+    h.run_steps(3);
+    assert_eq!(
+        h.state().scene.bundle.doc.canvas.tile,
+        Some([width / 2, height / 2]),
+        "the drawing is four tiles"
+    );
+    assert!(h.query_all(By::new().label_contains("2 across, 2 down")).count() > 0);
+    h.state_mut().tile_size = [width / 2 + 1, height / 2];
+    h.run_steps(2);
+    assert!(
+        h.query_all(By::new().label_contains("does not cut into tiles")).count() > 0,
+        "a size that does not fit says why"
+    );
+    h.get_by_label("no tiles").click();
+    h.run_steps(3);
+    assert_eq!(h.state().scene.bundle.doc.canvas.tile, None);
+    h.state_mut().invoke(Cmd::TileSize).unwrap();
+    h.state_mut().invoke(Cmd::Pixelize).unwrap();
+    h.run_steps(3);
+    assert_eq!(h.state().is_on(Cmd::Pixelize), Some(true));
+    assert!(
+        h.query_by_label("a picture file").is_some() && h.query_by_label("this layer").is_some(),
+        "the window offers a picture file or a layer of this drawing"
+    );
+    h.get_by_label("make pixels").click();
+    h.run_steps(3);
+    let said = h.state().messages.latest().map(|m| m.text.clone()).unwrap_or_default();
+    assert!(said.contains("type the path of a PNG or JPEG file first"), "{said}");
+    h.state_mut().invoke(Cmd::Pixelize).unwrap();
+    h.run_steps(2);
+    assert_eq!(h.state().is_on(Cmd::Symmetry), Some(false));
+    h.state_mut().invoke(Cmd::Symmetry).unwrap();
+    h.run_steps(2);
+    assert_eq!(
+        h.state().mirror,
+        Some(16.0),
+        "the mirror line starts in the middle of the 32 pixel canvas"
+    );
+    let at = on_screen(&h, 10.5, 12.5);
+    click_with(&mut h, at, Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!(
+        last(&h),
+        [[10, 12], [21, 12]],
+        "a pixel and its twin across the line between 15 and 16"
+    );
+    h.state_mut().invoke(Cmd::Symmetry).unwrap();
+    assert_eq!(h.state().is_on(Cmd::WrapCanvas), Some(false));
+    h.state_mut().invoke(Cmd::WrapCanvas).unwrap();
+    h.run_steps(3);
+    assert!(h.state().scene.bundle.doc.canvas.wrap && h.state().is_on(Cmd::WrapCanvas) == Some(true));
+    let (a, b) = (on_screen(&h, 29.5, 20.5), on_screen(&h, 33.5, 20.5));
+    drag(&mut h, a, b);
+    h.run_steps(3);
+    ready(&mut h);
+    assert_eq!(
+        last(&h),
+        [[0, 20], [1, 20], [29, 20], [30, 20], [31, 20]],
+        "a line drawn past the right edge comes back in on the left"
+    );
+    h.state_mut().invoke(Cmd::Undo).unwrap();
+    h.state_mut().invoke(Cmd::WrapCanvas).unwrap();
+    h.run_steps(3);
+    assert!(!h.state().scene.bundle.doc.canvas.wrap);
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
 fn a_tap_that_wobbles_selects_and_a_drag_past_three_points_moves() {
     let path = sample("tap");
     let mut h = harness(editor(&path), vec2(1440.0, 900.0));

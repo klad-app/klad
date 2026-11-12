@@ -79,6 +79,7 @@ impl Editor {
             || self.capturing.is_some();
         self.check(|e| e.sync());
         self.tend_jobs();
+        self.follow_pixel_check();
         self.check(|e| e.tab_keys());
         let window = ctx.content_rect().size();
         self.settings.layout.clamp(window);
@@ -144,6 +145,7 @@ impl Editor {
         self.windows(&ctx);
         self.first_steps_window(&ctx);
         self.import_window(&ctx);
+        self.palettes_window(&ctx);
         self.dropped_pictures(&ctx);
         self.tend_thumbs(&ctx);
         if let Some(path) = self.queued_activate.take() {
@@ -651,7 +653,80 @@ impl Editor {
             },
             Pane::Notes => self.notes_pane(ui),
             Pane::History => self.history_pane(ui),
+            Pane::Preview => self.real_size_pane(ui),
         }
+    }
+
+    fn real_size_pane(&mut self, ui: &mut egui::Ui) -> Result<()> {
+        let (w, h) = self.scene.size();
+        if w > super::REAL_MAX || h > super::REAL_MAX {
+            ui.label(
+                RichText::new(format!(
+                    "this panel shows drawings up to {} px a side at their real size; this one is {w} x {h}",
+                    super::REAL_MAX
+                ))
+                .color(theme::WEAK),
+            );
+            return Ok(());
+        }
+        ui.horizontal(|ui| {
+            [1u32, 2, 4].into_iter().for_each(|scale| {
+                let chosen = self.settings.real_size_scale == scale;
+                if ui
+                    .selectable_label(chosen, format!("{scale}x"))
+                    .hint(format!(
+                        "one pixel of the drawing on {} of the screen",
+                        match scale {
+                            1 => "one pixel".to_string(),
+                            n => format!("{n} by {n} pixels"),
+                        }
+                    ))
+                    .clicked()
+                    && !chosen
+                {
+                    self.settings.real_size_scale = scale;
+                    self.settings_dirty = true;
+                }
+            });
+            ui.label(RichText::new(format!("{w} x {h}")).color(theme::WEAK));
+        });
+        let key = (self.scene.bundle.doc.rev, self.scene.frame, self.painted);
+        if self.real.as_ref().is_none_or(|(held, _)| *held != key) {
+            let tiles = self.scene.compose(&self.scene.all_tiles(), None)?;
+            let image = real_image((w, h), self.scene.cols(), &tiles);
+            let texture = ui.ctx().load_texture("real size", image, egui::TextureOptions::NEAREST);
+            self.real = Some((key, texture));
+        }
+        let Some((_, texture)) = self.real.as_ref() else {
+            return Ok(());
+        };
+        let scale = self.settings.real_size_scale.clamp(1, 4) as f32 / ui.ctx().pixels_per_point();
+        let size = vec2(w as f32, h as f32) * scale;
+        egui::ScrollArea::both().id_salt("real size").show(ui, |ui| {
+            let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+            let painter = ui.painter().with_clip_rect(rect);
+            painter.rect_filled(rect, 0.0, Color32::from_gray(235));
+            let cell = 8.0;
+            let (cols, rows) = ((size.x / cell).ceil() as usize, (size.y / cell).ceil() as usize);
+            (0..rows)
+                .flat_map(|j| (0..cols).map(move |i| (i, j)))
+                .filter(|(i, j)| (i + j) % 2 == 1)
+                .for_each(|(i, j)| {
+                    let at = rect.min + vec2(i as f32 * cell, j as f32 * cell);
+                    painter.rect_filled(
+                        egui::Rect::from_min_size(at, vec2(cell, cell)),
+                        0.0,
+                        Color32::from_gray(204),
+                    );
+                });
+            painter.image(
+                texture.id(),
+                rect,
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                Color32::WHITE,
+            );
+        });
+        Ok(())
     }
 
     fn status_line(&mut self, ui: &mut egui::Ui) {
@@ -703,6 +778,10 @@ impl Editor {
                         .clicked()
                     {
                         self.queued.push(Cmd::ResetRotation);
+                    }
+                    if let Some([x, y]) = self.hover_cell {
+                        ui.add(flat(format!("{x}, {y}")))
+                            .hint("the pixel under the pointer: across, then down, from the top left");
                     }
                     if view.flip
                         && ui
@@ -941,6 +1020,28 @@ impl Editor {
                 |ui| self.check(|e| e.export_window(ui)),
             );
             self.windows.export &= open;
+        }
+        if self.windows.pixels {
+            let mut open = true;
+            Self::window(
+                ctx,
+                "pixels",
+                (format!("{} Pixels of a picture", icon::PIXELS), near_timeline),
+                &mut open,
+                |ui| self.check(|e| e.pixels_window(ui)),
+            );
+            self.windows.pixels &= open;
+        }
+        if self.windows.tiles {
+            let mut open = true;
+            Self::window(
+                ctx,
+                "tiles",
+                (format!("{} Tileset", icon::PIXELS), near_timeline),
+                &mut open,
+                |ui| self.check(|e| e.tiles_window(ui)),
+            );
+            self.windows.tiles &= open;
         }
         if self.windows.paintover {
             let mut open = true;
@@ -1211,4 +1312,28 @@ impl Editor {
             None => {}
         }
     }
+}
+
+pub(super) fn real_image((w, h): (u32, u32), cols: usize, tiles: &[(usize, Vec<half::f16>)]) -> egui::ColorImage {
+    let side = klad_brush::TILE;
+    let byte = |v: half::f16| (v.to_f32().clamp(0.0, 1.0) * 255.0).round() as u8;
+    let pixels: Vec<Color32> = (0..h as usize)
+        .flat_map(|y| (0..w as usize).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            let index = (y / side) * cols + x / side;
+            match tiles.iter().find(|(i, _)| *i == index) {
+                Some((_, tile)) => {
+                    let at = ((y % side) * side + x % side) * 4;
+                    Color32::from_rgba_premultiplied(
+                        byte(tile[at]),
+                        byte(tile[at + 1]),
+                        byte(tile[at + 2]),
+                        byte(tile[at + 3]),
+                    )
+                }
+                None => Color32::TRANSPARENT,
+            }
+        })
+        .collect();
+    egui::ColorImage::new([w as usize, h as usize], pixels)
 }

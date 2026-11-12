@@ -1,4 +1,4 @@
-_Last updated: 2026-11-08 14:50_
+_Last updated: 2026-11-12 23:55_
 
 # Exporting
 
@@ -7,10 +7,14 @@ Export a picture, numbered frames or a sprite sheet, or send your animation stra
 ## Export a picture or frames
 
 1. Press **cmd E**.
-2. Pick **image** for the frame you're on, **frames** for one PNG per frame, or **sprite sheet**.
+2. Pick **image** for the frame you're on, **frames** for one PNG per frame, **sprite sheet**, or **GIF** for an animated picture.
 3. Click **export**. Without a path, the files go next to the drawing.
 
 Pictures are transparent unless you tick **keep the background colour**. A sprite sheet comes with a JSON file in Aseprite's layout, with a tag per clip.
+
+## Export palette variants
+
+If the drawing has [palette variants](pixel-art.md), select **every variant** under **palette variant** before you click **export**. You get one file for each, with the variant's name in the file name.
 
 ## Export into a Godot project
 

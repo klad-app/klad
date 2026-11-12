@@ -27,6 +27,7 @@ const LAYER_KEYS: &[&str] = &[
     "mask",
     "cels",
     "children",
+    "pixel",
     "effects",
     "adjust",
     "depth",
@@ -53,7 +54,7 @@ const NODE_KEYS: &[&str] = &[
 const TRANSFORM_KEYS: &[&str] = &["x", "y", "rotate", "sx", "sy", "pivot"];
 const STROKE_KEYS: &[&str] = &["paint", "width", "cap", "join", "dash"];
 const STRUCTURE: &[&str] = &[
-    "id", "kind", "type", "cels", "children", "nodes", "mask", "bones", "ik", "rig", "keys", "pose", "parts",
+    "id", "kind", "pixel", "type", "cels", "children", "nodes", "mask", "bones", "ik", "rig", "keys", "pose", "parts",
 ];
 
 fn shape_keys(kind: &str) -> Result<&'static [&'static str]> {
@@ -119,6 +120,8 @@ pub enum Op {
     },
     Stroke(StrokeSpec),
     Fill(FillSpec),
+    Pixel(PixelSpec),
+    PixelGrid(GridSpec),
     Palette(PaletteEdit),
     Transform {
         ids: Vec<String>,
@@ -138,6 +141,10 @@ pub enum Op {
         fps: Option<u32>,
         frames: Option<u32>,
         origin: Option<Option<[f32; 2]>>,
+    },
+    Canvas {
+        wrap: Option<bool>,
+        tile: Option<Option<[u32; 2]>>,
     },
     Atmosphere(Option<crate::look::Atmosphere>),
     Frames(FrameSpec),
@@ -263,6 +270,292 @@ pub enum PaletteEdit {
     Set {
         swatches: Vec<Swatch>,
     },
+    Recolour {
+        key: String,
+        color: String,
+    },
+    Load {
+        swatches: Vec<Swatch>,
+    },
+    Ramp {
+        name: String,
+        keys: Vec<String>,
+    },
+    Variant {
+        name: String,
+    },
+    NewVariant {
+        name: String,
+    },
+    RemoveVariant {
+        name: String,
+    },
+    RenameVariant {
+        name: String,
+        to: String,
+    },
+}
+
+impl PaletteEdit {
+    pub fn of_variants(&self) -> bool {
+        matches!(
+            self,
+            Self::Variant { .. } | Self::NewVariant { .. } | Self::RemoveVariant { .. } | Self::RenameVariant { .. }
+        )
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PixelSpec {
+    pub layer: String,
+    #[serde(default)]
+    pub frame: u32,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub erase: bool,
+    #[serde(default)]
+    pub cells: Vec<[i64; 2]>,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub line: Option<[i64; 4]>,
+    #[serde(default)]
+    pub rect: Option<[i64; 4]>,
+    #[serde(default)]
+    pub ellipse: Option<[i64; 4]>,
+    #[serde(default)]
+    pub filled: bool,
+    #[serde(default)]
+    pub fill: Option<[i64; 2]>,
+    #[serde(default)]
+    pub diagonal: bool,
+    #[serde(default, rename = "ref")]
+    pub reference: Option<String>,
+    #[serde(default)]
+    pub outline: bool,
+    #[serde(default)]
+    pub inside: bool,
+    #[serde(default)]
+    pub shade: Option<i32>,
+    #[serde(default)]
+    pub dither: Option<u32>,
+    #[serde(default)]
+    pub second: Option<String>,
+    #[serde(default, rename = "mirrorX")]
+    pub mirror_x: Option<f32>,
+    #[serde(default, rename = "mirrorY")]
+    pub mirror_y: Option<f32>,
+    #[serde(default = "one_pixel")]
+    pub size: u32,
+    #[serde(default)]
+    pub part: Option<String>,
+    #[serde(skip)]
+    pub by_hand: bool,
+}
+
+fn one_pixel() -> u32 {
+    1
+}
+
+impl Default for PixelSpec {
+    fn default() -> Self {
+        Self {
+            layer: String::new(),
+            frame: 0,
+            color: None,
+            erase: false,
+            cells: Vec::new(),
+            path: None,
+            line: None,
+            rect: None,
+            ellipse: None,
+            filled: false,
+            fill: None,
+            diagonal: false,
+            reference: None,
+            outline: false,
+            inside: false,
+            shade: None,
+            dither: None,
+            second: None,
+            mirror_x: None,
+            mirror_y: None,
+            size: 1,
+            part: None,
+            by_hand: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GridSpec {
+    pub layer: String,
+    #[serde(default)]
+    pub frame: u32,
+    pub rows: Vec<String>,
+    #[serde(default)]
+    pub legend: BTreeMap<String, String>,
+    #[serde(default)]
+    pub at: [i64; 2],
+    #[serde(default)]
+    pub part: Option<String>,
+}
+
+impl GridSpec {
+    pub fn check(&self) -> Result<()> {
+        if self.rows.iter().all(|row| row.is_empty()) {
+            bail!("a pixel grid needs rows: a list of strings, one character per pixel");
+        }
+        if let Some(sign) = self.legend.keys().find(|k| k.chars().count() != 1) {
+            bail!("a legend names single characters, not {sign:?}");
+        }
+        Ok(())
+    }
+
+    pub fn specs(&self) -> Result<Vec<PixelSpec>> {
+        self.check()?;
+        let placed = crate::pixel::placed(&self.rows, &self.legend, self.at)?;
+        if placed.is_empty() {
+            bail!("every character of the grid is empty: nothing to draw");
+        }
+        Ok(placed
+            .into_iter()
+            .map(|(_, meaning, cells)| PixelSpec {
+                layer: self.layer.clone(),
+                frame: self.frame,
+                color: match &meaning {
+                    crate::pixel::Sign::Colour(value) => Some(value.clone()),
+                    _ => None,
+                },
+                erase: matches!(meaning, crate::pixel::Sign::Erase),
+                cells,
+                part: self.part.clone(),
+                ..PixelSpec::default()
+            })
+            .collect())
+    }
+}
+
+impl PixelSpec {
+    pub fn check(&self) -> Result<()> {
+        match (&self.color, self.erase, self.shade) {
+            (Some(_), true, _) => bail!("pixel takes a color or erase, not both"),
+            (Some(_), _, Some(_)) | (_, true, Some(_)) => {
+                bail!("shade steps the colours that are there along their ramps: leave out color and erase")
+            }
+            (None, false, None) => {
+                bail!(
+                    "pixel needs a color (a palette name or #rrggbb), \"erase\":true or \"shade\" (steps along the ramp)"
+                )
+            }
+            _ => {}
+        }
+        if self.shade == Some(0) {
+            bail!("shade takes a number of steps along the ramp: 1 is one lighter, -1 one darker");
+        }
+        if self.dither.is_some_and(|d| d > 100) {
+            bail!("dither is a share of the pixels in percent, 0 to 100");
+        }
+        if self.second.is_some() && self.dither.is_none() {
+            bail!("second is the other colour of a dither: give dither too");
+        }
+        if self.dither.is_some() && (self.erase || self.shade.is_some()) {
+            bail!("dither goes with a color (and a second one), not with erase or shade");
+        }
+        if self.inside && !self.outline {
+            bail!("inside goes with outline");
+        }
+        if self.diagonal && !self.outline && self.fill.is_none() {
+            bail!("diagonal goes with fill or outline");
+        }
+        let sources = [
+            !self.cells.is_empty(),
+            self.path.is_some(),
+            self.line.is_some(),
+            self.rect.is_some(),
+            self.ellipse.is_some(),
+            self.fill.is_some(),
+            self.outline,
+        ]
+        .iter()
+        .filter(|given| **given)
+        .count();
+        match sources {
+            0 => bail!(
+                "pixel needs one of: cells (a list of [x, y]), path (SVG path data), line ([x0, y0, x1, y1]), rect or ellipse ([x, y, w, h]), fill ([x, y], a flood fill) or outline"
+            ),
+            1 => {}
+            _ => bail!("pixel takes one of cells, path, line, rect, ellipse, fill and outline, not several"),
+        }
+        if [self.rect, self.ellipse]
+            .iter()
+            .flatten()
+            .any(|b| b[2] <= 0 || b[3] <= 0)
+        {
+            bail!("a rect or ellipse is [x, y, w, h] with a width and height of at least 1 pixel");
+        }
+        if self.filled && self.rect.is_none() && self.ellipse.is_none() {
+            bail!("filled goes with rect or ellipse");
+        }
+        if !(1..=crate::pixel::MAX_SIZE).contains(&self.size) {
+            bail!(
+                "a pixel size is a whole number of pixels from 1 to {}, not {}",
+                crate::pixel::MAX_SIZE,
+                self.size
+            );
+        }
+        Ok(())
+    }
+
+    pub fn settled(&self) -> bool {
+        self.fill.is_none() && !self.outline && self.shade.is_none() && self.dither.is_none()
+    }
+
+    pub fn drawn(&self) -> Result<Vec<[i64; 2]>> {
+        use crate::pixel;
+        if let Some(d) = &self.path {
+            return Ok(self.twinned(pixel::drawn(&pixel::of_path(d)?, self.size)));
+        }
+        if !self.settled() {
+            bail!(
+                "a fill, an outline, a shade or a dither of pixels is worked out from the drawing by klad pixel, klad apply or the editor"
+            );
+        }
+        let cells = match (self.line, self.rect, self.ellipse) {
+            (Some([x0, y0, x1, y1]), _, _) => pixel::line([x0, y0], [x1, y1]),
+            (_, Some([x, y, w, h]), _) => pixel::rect([x, y], [w, h], self.filled),
+            (_, _, Some([x, y, w, h])) => pixel::ellipse([x, y], [w, h], self.filled),
+            _ => self.cells.clone(),
+        };
+        Ok(self.twinned(pixel::stamp(&cells, self.size)))
+    }
+
+    pub fn twinned(&self, cells: Vec<[i64; 2]>) -> Vec<[i64; 2]> {
+        match self.mirror_x.is_some() || self.mirror_y.is_some() {
+            true => crate::pixel::mirrored(&cells, self.mirror_x, self.mirror_y),
+            false => cells,
+        }
+    }
+
+    pub fn coverage(&self, doc: &Document) -> Result<Coverage> {
+        let (w, h) = (doc.canvas.width as i64, doc.canvas.height as i64);
+        let drawn = match doc.canvas.wrap {
+            true => crate::pixel::wrapped(&self.drawn()?, doc.canvas.width, doc.canvas.height),
+            false => self.drawn()?,
+        };
+        let inside: Vec<[u32; 2]> = drawn
+            .iter()
+            .filter(|c| c[0] >= 0 && c[1] >= 0 && c[0] < w && c[1] < h)
+            .map(|c| [c[0] as u32, c[1] as u32])
+            .collect();
+        if inside.is_empty() {
+            bail!("none of the {} cells is on the {w}x{h} canvas", drawn.len());
+        }
+        Ok(Coverage::from_cells(&inside))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -1470,6 +1763,16 @@ impl Op {
                 spec.check()?;
                 Op::Fill(spec)
             }
+            "pixel" if map.contains_key("rows") => {
+                let grid: GridSpec = serde_json::from_value(Value::Object(std::mem::take(&mut map)))?;
+                grid.check()?;
+                Op::PixelGrid(grid)
+            }
+            "pixel" => {
+                let spec: PixelSpec = serde_json::from_value(Value::Object(std::mem::take(&mut map)))?;
+                spec.check()?;
+                Op::Pixel(spec)
+            }
             "palette" => Op::Palette(parse_palette(&mut map)?),
             "transform" if map.contains_key("layer") => {
                 let layer = take_str(&mut map, "layer")?.unwrap_or_default();
@@ -1519,6 +1822,29 @@ impl Op {
                 Some(Value::Bool(true)) => Op::Atmosphere(None),
                 Some(other) if other != Value::Bool(false) => bail!("atmosphere: off takes true or false"),
                 _ => Op::Atmosphere(Some(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?)),
+            },
+            "canvas" => Op::Canvas {
+                wrap: match map.remove("wrap") {
+                    None => None,
+                    Some(Value::Bool(wrap)) => Some(wrap),
+                    Some(other) => bail!("wrap takes true or false, not {other}"),
+                },
+                tile: match map.remove("tile") {
+                    None => None,
+                    Some(Value::Null) | Some(Value::Bool(false)) => Some(None),
+                    Some(Value::Number(side)) => {
+                        let side = side
+                            .as_u64()
+                            .ok_or_else(|| anyhow!("tile takes a whole number of pixels, [width, height] or null"))?
+                            as u32;
+                        Some(Some([side, side]))
+                    }
+                    Some(other) => {
+                        Some(Some(serde_json::from_value(other).map_err(|_| {
+                            anyhow!("tile takes a whole number of pixels, [width, height] or null")
+                        })?))
+                    }
+                },
             },
             "timeline" => Op::Timeline {
                 fps: whole(&mut map, "fps")?,
@@ -1612,7 +1938,7 @@ impl Op {
             },
             other => {
                 bail!(
-                    "unknown op {other:?}: use add, set, rm, mv, stroke, fill, palette, transform, path, lasso, copy, timeline, frames, cel, clip, retime, inbetween, duplicate, ink, light, hatch, scatter, paint, foliage, grass, paintover, part, key, bone, ik, weights, pose or export"
+                    "unknown op {other:?}: use add, set, rm, mv, stroke, fill, pixel, palette, canvas, transform, path, lasso, copy, timeline, frames, cel, clip, retime, inbetween, duplicate, ink, light, hatch, scatter, paint, foliage, grass, paintover, part, key, bone, ik, weights, pose or export"
                 )
             }
         };
@@ -2699,7 +3025,187 @@ fn parse_palette(map: &mut Map<String, Value>) -> Result<PaletteEdit> {
             .context("palette set takes a list like [{\"color\":\"#1b1b1b\",\"name\":\"ink\"}]")?;
         return Ok(PaletteEdit::Set { swatches });
     }
-    bail!("palette needs \"add\" (with \"name\"), \"rm\" or \"set\"")
+    if let Some(key) = map.remove("recolour").or_else(|| map.remove("recolor")) {
+        let key = match key {
+            Value::String(s) => s,
+            Value::Number(n) => n.to_string(),
+            other => bail!("palette recolour takes a name, a colour, an index or an id, not {other}"),
+        };
+        let color = take_str(map, "to")?
+            .ok_or_else(|| anyhow!("palette recolour needs \"to\": the new colour, #rrggbb or #rrggbbaa"))?;
+        return Ok(PaletteEdit::Recolour { key, color });
+    }
+    if let Some(load) = map.remove("load") {
+        let swatches = match load {
+            Value::String(name) => crate::palettes::shipped(&name)
+                .ok_or_else(|| {
+                    anyhow!(
+                        "klad has no palette {name:?}: it comes with {}",
+                        crate::palettes::names()
+                    )
+                })?
+                .swatches(),
+            list => serde_json::from_value(list).context(
+                "palette load takes the name of a palette that comes with klad, or a list like [{\"color\":\"#1b1b1b\"}]",
+            )?,
+        };
+        return Ok(PaletteEdit::Load { swatches });
+    }
+    if let Some(name) = take_str(map, "ramp")? {
+        let keys = match map.remove("of") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Array(items)) => items
+                .into_iter()
+                .map(|v| match v {
+                    Value::String(s) => Ok(s),
+                    Value::Number(n) => Ok(n.to_string()),
+                    other => bail!("a ramp lists palette names, colours, indexes or ids, not {other}"),
+                })
+                .collect::<Result<_>>()?,
+            Some(other) => bail!("\"of\" is the list of the ramp's colours, dark to light, not {other}"),
+        };
+        return Ok(PaletteEdit::Ramp { name, keys });
+    }
+    if let Some(name) = take_str(map, "variant")? {
+        return Ok(PaletteEdit::Variant { name });
+    }
+    if let Some(name) = take_str(map, "newVariant")? {
+        return Ok(PaletteEdit::NewVariant { name });
+    }
+    if let Some(name) = take_str(map, "rmVariant")? {
+        return Ok(PaletteEdit::RemoveVariant { name });
+    }
+    if let Some(name) = take_str(map, "renameVariant")? {
+        let to = take_str(map, "to")?.ok_or_else(|| anyhow!("palette renameVariant needs \"to\": the new name"))?;
+        return Ok(PaletteEdit::RenameVariant { name, to });
+    }
+    bail!(
+        "palette needs \"add\" (with \"name\"), \"rm\", \"set\", \"recolour\" (with \"to\"), \"load\", \"ramp\" (with \"of\"), or for its variants \"variant\" (show one), \"newVariant\", \"rmVariant\" or \"renameVariant\" (with \"to\")"
+    )
+}
+
+fn variant_name(doc: &Document, name: &str) -> Result<String> {
+    let name = name.trim();
+    if name.is_empty() || crate::doc::Variants::key(name).is_empty() {
+        bail!("a palette variant needs a name other than base, which is the palette itself");
+    }
+    if name.starts_with('#') || name.contains(['/', '\\']) {
+        bail!("a palette variant's name cannot start with # or hold a slash: {name:?}");
+    }
+    if doc.variants.find(name).is_some() {
+        bail!("the drawing already has a palette variant {name}");
+    }
+    Ok(name.to_string())
+}
+
+fn show_variant(doc: &mut Document, name: &str) -> Result<()> {
+    let colours = doc.variant_colours(name)?;
+    let set = doc.variants.find(name);
+    let base: BTreeMap<String, String> = match set {
+        None => BTreeMap::new(),
+        Some(at) => doc
+            .palette
+            .iter()
+            .filter(|s| doc.variants.sets[at].colors.contains_key(&s.id))
+            .map(|s| (s.id.clone(), doc.base_colour(s).to_string()))
+            .collect(),
+    };
+    colours.into_iter().for_each(|(id, colour)| {
+        if let Some(swatch) = doc.palette.iter_mut().find(|s| s.id == id) {
+            swatch.color = colour;
+        }
+    });
+    doc.variants.shown = set.map_or(String::new(), |at| doc.variants.sets[at].name.clone());
+    doc.variants.base = base;
+    Ok(())
+}
+
+fn edit_variants(doc: &mut Document, edit: &PaletteEdit) -> Result<()> {
+    match edit {
+        PaletteEdit::Variant { name } => show_variant(doc, name)?,
+        PaletteEdit::NewVariant { name } => {
+            let name = variant_name(doc, name)?;
+            doc.bind_all();
+            let colors = doc
+                .variants
+                .find(&doc.variants.shown)
+                .map(|at| doc.variants.sets[at].colors.clone())
+                .unwrap_or_default();
+            doc.variants.sets.push(crate::doc::Variant {
+                name: name.clone(),
+                colors,
+            });
+            doc.variants.shown = name;
+        }
+        PaletteEdit::RemoveVariant { name } => {
+            let Some(at) = doc.variants.find(name) else {
+                doc.variant_colours(name)?;
+                bail!("base is the palette itself and cannot be removed");
+            };
+            if doc.variants.shown == doc.variants.sets[at].name {
+                show_variant(doc, crate::doc::BASE_VARIANT)?;
+            }
+            doc.variants.sets.remove(at);
+        }
+        PaletteEdit::RenameVariant { name, to } => {
+            let Some(at) = doc.variants.find(name) else {
+                doc.variant_colours(name)?;
+                bail!("base is the palette itself and keeps its name");
+            };
+            let old = doc.variants.sets[at].name.clone();
+            if !old.eq_ignore_ascii_case(to.trim()) {
+                variant_name(doc, to)?;
+            }
+            let to = to.trim().to_string();
+            if doc.variants.shown == old {
+                doc.variants.shown = to.clone();
+            }
+            doc.variants.sets[at].name = to;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn keep_variant(doc: &mut Document, before: &[Swatch]) {
+    if doc.variants.sets.is_empty() {
+        return;
+    }
+    doc.bind_all();
+    let live: BTreeSet<String> = doc.palette.iter().map(|s| s.id.clone()).collect();
+    doc.variants.base.retain(|id, _| live.contains(id));
+    doc.variants
+        .sets
+        .iter_mut()
+        .for_each(|v| v.colors.retain(|id, _| live.contains(id)));
+    let Some(at) = doc
+        .variants
+        .find(&doc.variants.shown)
+        .filter(|_| !doc.variants.shown.is_empty())
+    else {
+        return;
+    };
+    let changed: Vec<(String, String, String)> = before
+        .iter()
+        .filter(|old| !old.id.is_empty())
+        .filter_map(|old| {
+            doc.entry(&old.id)
+                .filter(|now| !now.color.eq_ignore_ascii_case(&old.color))
+                .map(|now| (old.id.clone(), old.color.clone(), now.color.clone()))
+        })
+        .collect();
+    changed.into_iter().for_each(|(id, old, now)| {
+        let base = doc.variants.base.entry(id.clone()).or_insert(old).clone();
+        match base.eq_ignore_ascii_case(&now) {
+            true => {
+                doc.variants.base.remove(&id);
+                doc.variants.sets[at].colors.remove(&id);
+            }
+            false => {
+                doc.variants.sets[at].colors.insert(id, now);
+            }
+        }
+    });
 }
 
 fn edit_palette(doc: &mut Document, edit: &PaletteEdit) -> Result<()> {
@@ -2727,6 +3233,8 @@ fn edit_palette(doc: &mut Document, edit: &PaletteEdit) -> Result<()> {
                 Swatch {
                     color: color.clone(),
                     name: name.clone(),
+                    id: String::new(),
+                    ramp: String::new(),
                 },
             );
         }
@@ -2736,8 +3244,139 @@ fn edit_palette(doc: &mut Document, edit: &PaletteEdit) -> Result<()> {
                 .ok_or_else(|| anyhow!("the palette has no {key:?} (give a name, a colour or an index)"))?;
             doc.palette.remove(at);
         }
-        PaletteEdit::Set { swatches } => doc.palette = swatches.clone(),
+        PaletteEdit::Set { swatches } => doc.palette = carry_ids(&doc.palette, swatches),
+        PaletteEdit::Recolour { key, color } => {
+            parse_hex(color)?;
+            let at = doc
+                .swatch(key)
+                .ok_or_else(|| anyhow!("the palette has no {key:?} (give a name, a colour, an index or an id)"))?;
+            doc.palette[at].color = color.clone();
+        }
+        PaletteEdit::Load { swatches } => {
+            swatches.iter().try_for_each(|swatch| {
+                parse_hex(&swatch.color)?;
+                let held = doc.palette.iter().any(|s| s.color.eq_ignore_ascii_case(&swatch.color));
+                let named = !swatch.name.is_empty() && doc.palette.iter().any(|s| s.name == swatch.name);
+                if !held {
+                    doc.palette.push(Swatch {
+                        color: swatch.color.clone(),
+                        name: match named {
+                            true => String::new(),
+                            false => swatch.name.clone(),
+                        },
+                        id: String::new(),
+                        ramp: swatch.ramp.clone(),
+                    });
+                }
+                Ok::<_, anyhow::Error>(())
+            })?;
+        }
+        PaletteEdit::Ramp { name, keys } => {
+            let name = name.trim();
+            if name.is_empty() || name.starts_with('#') {
+                bail!("a ramp needs a name that does not start with #");
+            }
+            let places = keys
+                .iter()
+                .map(|key| {
+                    doc.swatch(key)
+                        .ok_or_else(|| anyhow!("the palette has no {key:?} (give a name, a colour, an index or an id)"))
+                })
+                .collect::<Result<Vec<usize>>>()?;
+            doc.palette
+                .iter_mut()
+                .filter(|s| s.ramp == name)
+                .for_each(|s| s.ramp.clear());
+            let Some(&first) = places.iter().min() else {
+                return Ok(());
+            };
+            let chosen: Vec<Swatch> = places
+                .iter()
+                .map(|&at| Swatch {
+                    ramp: name.to_string(),
+                    ..doc.palette[at].clone()
+                })
+                .collect();
+            let before = places.iter().filter(|&&at| at < first).count();
+            let mut rest: Vec<Swatch> = doc
+                .palette
+                .iter()
+                .enumerate()
+                .filter(|(at, _)| !places.contains(at))
+                .map(|(_, s)| s.clone())
+                .collect();
+            let at = (first - before).min(rest.len());
+            rest.splice(at..at, chosen);
+            doc.palette = rest;
+        }
+        _ => {}
     }
+    Ok(())
+}
+
+fn carry_ids(old: &[Swatch], new: &[Swatch]) -> Vec<Swatch> {
+    let mut free: Vec<&Swatch> = old.iter().filter(|s| !s.id.is_empty()).collect();
+    free.retain(|s| !new.iter().any(|n| n.id == s.id));
+    new.iter()
+        .map(|swatch| {
+            if !swatch.id.is_empty() {
+                return swatch.clone();
+            }
+            let found = free
+                .iter()
+                .position(|s| !swatch.name.is_empty() && s.name == swatch.name)
+                .or_else(|| {
+                    free.iter().position(|s| {
+                        s.name.is_empty() == swatch.name.is_empty() && s.color.eq_ignore_ascii_case(&swatch.color)
+                    })
+                });
+            match found {
+                Some(at) => Swatch {
+                    id: free.remove(at).id.clone(),
+                    ..swatch.clone()
+                },
+                None => swatch.clone(),
+            }
+        })
+        .collect()
+}
+
+fn follow_palette(doc: &Document, before: &[Swatch], out: &mut Applied) -> Result<()> {
+    let changes: Vec<MarkChange> = before
+        .iter()
+        .filter(|old| !old.id.is_empty())
+        .filter_map(|old| match doc.entry(&old.id) {
+            Some(now) if now.color.eq_ignore_ascii_case(&old.color) => None,
+            Some(now) => Some(parse_hex(&now.color).map(|c| MarkChange::Entry {
+                entry: old.id.clone(),
+                color: Some(crate::color::to_u16(c)),
+                changed: Vec::new(),
+            })),
+            None => Some(Ok(MarkChange::Entry {
+                entry: old.id.clone(),
+                color: None,
+                changed: Vec::new(),
+            })),
+        })
+        .collect::<Result<_>>()?;
+    if changes.is_empty() {
+        return Ok(());
+    }
+    doc.all_layers()
+        .into_iter()
+        .filter(|layer| layer.pixel())
+        .flat_map(|layer| {
+            layer
+                .cels()
+                .iter()
+                .filter(|c| c.link.is_none())
+                .map(move |c| (layer, c))
+        })
+        .for_each(|(layer, cel)| {
+            changes
+                .iter()
+                .for_each(|change| out.push(&layer.id, &cel.id, change.clone()));
+        });
     Ok(())
 }
 
@@ -2802,8 +3441,17 @@ fn assign_layer_ids(doc: &mut Document, taken: &mut BTreeSet<String>, value: &mu
     let kind = value
         .get("kind")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("a layer needs a kind: paint, vector, group or adjust"))?
+        .ok_or_else(|| anyhow!("a layer needs a kind: paint, pixel, vector, group or adjust"))?
         .to_string();
+    let pixel = kind == "pixel" || value.get("pixel").and_then(Value::as_bool) == Some(true);
+    if kind == "pixel" {
+        value["kind"] = Value::from("paint");
+        value["pixel"] = Value::from(true);
+    }
+    let kind = match pixel {
+        true => "pixel".to_string(),
+        false => kind,
+    };
     let id = ensure_id(doc, taken, value, 'l')?;
     if value.get("name").is_none() {
         let names: BTreeSet<String> = doc.all_layers().iter().map(|l| l.name.clone()).collect();
@@ -2814,7 +3462,7 @@ fn assign_layer_ids(doc: &mut Document, taken: &mut BTreeSet<String>, value: &mu
         value["name"] = Value::String(name);
     }
     match kind.as_str() {
-        "paint" | "vector" => {
+        "paint" | "pixel" | "vector" => {
             if value.get("cels").is_none_or(|c| c.as_array().is_none_or(Vec::is_empty)) {
                 value["cels"] = serde_json::json!([{ "frame": 0 }]);
             }
@@ -3272,6 +3920,7 @@ fn move_item(doc: &mut Document, id: &str, place: &Place) -> Result<()> {
 }
 
 pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
+    grid_refusal(doc, op)?;
     match op {
         Op::AddLayer { layer, place } => {
             let mut value = layer.clone();
@@ -3300,7 +3949,7 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
             let path = layer_path(doc, layer)?;
             let target = doc.layer_at_mut(&path);
             let cels = match &mut target.content {
-                LayerContent::Paint { cels } | LayerContent::Vector { cels } => cels,
+                LayerContent::Paint { cels, .. } | LayerContent::Vector { cels } => cels,
                 LayerContent::Group { .. } => bail!("{layer} is a group; cels go into paint or vector layers"),
                 LayerContent::Adjust { .. } => bail!("{layer} is an adjustment; cels go into paint or vector layers"),
                 LayerContent::Bones {} => bail!("{layer} is a bones layer; cels go into paint or vector layers"),
@@ -3356,8 +4005,20 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
                 Some((cel, mark)) => {
                     let layer = mark_owner(doc, cel)?;
                     let mut props = props.clone();
-                    if let Some(color) = props.get("color").and_then(Value::as_str) {
-                        let hex = doc.resolve_color(color).with_context(|| format!("set {id}"))?;
+                    let on_grid = doc.layer(&layer).is_some_and(Layer::pixel);
+                    if let Some(color) = props.get("color").and_then(Value::as_str).map(String::from) {
+                        let hex = match on_grid {
+                            true => {
+                                let before = doc.palette.clone();
+                                let (entry, hex) = doc.bind_swatch(&color).with_context(|| format!("set {id}"))?;
+                                if doc.palette != before && !out.changed.iter().any(|c| c == "palette") {
+                                    out.changed.push("palette".into());
+                                }
+                                props.insert("entry".into(), Value::String(entry));
+                                hex
+                            }
+                            false => doc.resolve_color(&color).with_context(|| format!("set {id}"))?,
+                        };
                         props.insert("color".into(), Value::String(hex));
                     }
                     out.push(&layer, cel, MarkChange::Set { id: mark, props });
@@ -3438,6 +4099,7 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
             out.changed.push(id.clone());
         }
         Op::Stroke(spec) => {
+            off_the_grid(doc, &spec.layer, "brush strokes")?;
             let resolved = StrokeSpec {
                 color: doc.resolve_color(&spec.color)?,
                 second: spec.second.as_deref().map(|c| doc.resolve_color(c)).transpose()?,
@@ -3482,7 +4144,14 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
                 Ok::<_, anyhow::Error>(())
             })?;
         }
+        Op::Pixel(spec) => put_pixels(doc, spec, out)?,
+        Op::PixelGrid(grid) => grid
+            .specs()
+            .with_context(|| format!("pixel grid on {}", grid.layer))?
+            .iter()
+            .try_for_each(|spec| put_pixels(doc, spec, out))?,
         Op::Fill(spec) => {
+            off_the_grid(doc, &spec.layer, "flood and lasso fills")?;
             let mut fill = spec.build(doc).with_context(|| format!("fill on {}", spec.layer))?;
             fill.lock = locks_alpha(doc, &spec.layer);
             let cel = paint_cel_at(doc, &spec.layer, spec.frame, out)?;
@@ -3533,7 +4202,15 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
             out.changed.push(id.clone());
         }
         Op::Palette(edit) => {
-            edit_palette(doc, edit)?;
+            let before = doc.palette.clone();
+            match edit.of_variants() {
+                true => edit_variants(doc, edit)?,
+                false => {
+                    edit_palette(doc, edit)?;
+                    keep_variant(doc, &before);
+                }
+            }
+            follow_palette(doc, &before, out)?;
             if !out.changed.iter().any(|c| c == "palette") {
                 out.changed.push("palette".into());
             }
@@ -3544,6 +4221,23 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
             }
             doc.atmosphere = air.clone();
             out.changed.push("atmosphere".into());
+        }
+        Op::Canvas { wrap, tile } => {
+            if wrap.is_none() && tile.is_none() {
+                bail!(
+                    "canvas needs \"wrap\": true or false (a drawing that repeats at its edges), or \"tile\": the size of its tiles as 16 or [16, 16], null for none"
+                );
+            }
+            if let Some(wrap) = wrap {
+                doc.canvas.wrap = *wrap;
+            }
+            if let Some(tile) = tile {
+                if let Some(size) = tile {
+                    doc.canvas.cut(*size)?;
+                }
+                doc.canvas.tile = *tile;
+            }
+            out.changed.push("canvas".into());
         }
         Op::Timeline { fps, frames, origin } => {
             timing::timeline(doc, *fps, *frames)?;
@@ -3626,6 +4320,84 @@ fn edit_path(doc: &mut Document, id: &str, edit: &PathEdit) -> Result<()> {
     node.shape = Shape::Path {
         d: pathedit::to_d(&subs),
     };
+    Ok(())
+}
+
+fn put_pixels(doc: &mut Document, spec: &PixelSpec, out: &mut Applied) -> Result<()> {
+    spec.check().with_context(|| format!("pixel on {}", spec.layer))?;
+    let path = layer_path(doc, &spec.layer)?;
+    let target = doc.layer_at(&path);
+    if !target.pixel() {
+        bail!(
+            "{} is a {} layer; pixels go into pixel layers (klad add <bundle> layer pixel)",
+            spec.layer,
+            target.kind().name()
+        );
+    }
+    let coverage = spec.coverage(doc).with_context(|| format!("pixel on {}", spec.layer))?;
+    let mut fill = match &spec.color {
+        Some(color) => {
+            let before = doc.palette.clone();
+            let (entry, hex) = doc
+                .bind_swatch(color)
+                .with_context(|| format!("pixel on {}", spec.layer))?;
+            if doc.palette != before && !out.changed.iter().any(|c| c == "palette") {
+                out.changed.push("palette".into());
+            }
+            Fill::cells(0, parse_hex(&hex)?, &entry, false, coverage)
+        }
+        None => Fill::cells(0, [0.0, 0.0, 0.0, 1.0], "", true, coverage),
+    }
+    .by(match spec.by_hand {
+        true => Author::Human,
+        false => Author::Agent,
+    });
+    fill.lock = !fill.erases() && locks_alpha(doc, &spec.layer);
+    let cel = paint_cel_at(doc, &spec.layer, spec.frame, out)?;
+    out.push(&spec.layer, &cel, MarkChange::Add(vec![Mark::Fill(fill)]));
+    if let Some(name) = spec.part.as_ref().filter(|_| !spec.erase) {
+        out.push(
+            &spec.layer,
+            &cel,
+            MarkChange::Part {
+                name: name.clone(),
+                count: 1,
+                ids: Vec::new(),
+            },
+        );
+    }
+    Ok(())
+}
+
+pub fn grid_refusal(doc: &Document, op: &Op) -> Result<()> {
+    let pixel = |key: &str| doc.find_layer(key).is_ok_and(Layer::pixel);
+    match op {
+        Op::Inbetween(spec) => match spec.layers.iter().find(|l| pixel(l)) {
+            Some(layer) => bail!(
+                "{layer} is a pixel layer: in-betweens move the points of strokes, and pixel marks have none. Draw the frames in between, or key the layer's position (klad key) to move it by whole pixels"
+            ),
+            None => Ok(()),
+        },
+        Op::Pose(spec) if pixel(&spec.layer) => bail!(
+            "{} is a pixel layer: a pose bends strokes point by point, which would take pixels off the grid. Draw each pose as a frame",
+            spec.layer
+        ),
+        Op::Weights(spec) if pixel(&spec.layer) => bail!(
+            "{} is a pixel layer: bone weights bend strokes, and pixel layers stay on the grid",
+            spec.layer
+        ),
+        Op::Attach(spec) if pixel(&spec.layer) && (spec.skeleton.is_some() || spec.bone.is_some()) => bail!(
+            "{} is a pixel layer: bones turn and bend what they hold, which would take pixels off the grid. Draw the frames, or key the layer's position",
+            spec.layer
+        ),
+        _ => Ok(()),
+    }
+}
+
+fn off_the_grid(doc: &Document, layer: &str, what: &str) -> Result<()> {
+    if doc.layer(layer).is_some_and(Layer::pixel) {
+        bail!("{layer} is a pixel layer: it takes whole pixels (klad pixel), not {what}");
+    }
     Ok(())
 }
 
@@ -3753,7 +4525,10 @@ fn paint_cel_at(doc: &mut Document, layer: &str, frame: u32, out: &mut Applied) 
             target.kind().name()
         );
     }
-    if let Some(cel) = target.cel_at(frame).filter(|_| frame < doc.timeline.frames) {
+    if let Some(cel) = target
+        .cel_at(frame)
+        .filter(|c| frame < doc.timeline.frames || c.frame == frame)
+    {
         if let Some(source) = &cel.link {
             bail!(
                 "cel {} at frame {frame} links to {source}; paint into {source} instead",
@@ -4305,6 +5080,77 @@ mod tests {
                 .len(),
             2
         );
+    }
+
+    #[test]
+    fn a_canvas_is_cut_into_tiles_that_fit_it_whole() {
+        let mut doc = Document::new(48, 32);
+        let run = |doc: &mut Document, value: Value| apply(doc, &Op::parse(value).unwrap(), &mut Applied::default());
+        run(&mut doc, json!({"op":"canvas","tile":16})).unwrap();
+        assert_eq!((doc.canvas.tile, doc.canvas.tiles()), (Some([16, 16]), Some((3, 2))));
+        assert_eq!(doc.canvas.tile_at(2, 1).unwrap(), [32, 16, 16, 16]);
+        assert!(
+            doc.canvas
+                .tile_at(3, 0)
+                .unwrap_err()
+                .to_string()
+                .contains("3 by 2 tiles")
+        );
+        run(&mut doc, json!({"op":"canvas","tile":[24, 8],"wrap":true})).unwrap();
+        assert_eq!((doc.canvas.tile, doc.canvas.wrap), (Some([24, 8]), true));
+        let odd = format!("{:#}", run(&mut doc, json!({"op":"canvas","tile":10})).unwrap_err());
+        assert!(odd.contains("does not cut into tiles of 10x10"), "{odd}");
+        assert!(run(&mut doc, json!({"op":"canvas","tile":[64, 8]})).is_err());
+        assert_eq!(
+            doc.canvas.tile,
+            Some([24, 8]),
+            "a size that does not fit changes nothing"
+        );
+        run(&mut doc, json!({"op":"canvas","tile":null})).unwrap();
+        assert_eq!(
+            (doc.canvas.tile, doc.canvas.wrap),
+            (None, true),
+            "taking the tiles away leaves the rest"
+        );
+        assert!(
+            doc.canvas
+                .tile_at(0, 0)
+                .unwrap_err()
+                .to_string()
+                .contains("not cut into tiles")
+        );
+        assert!(run(&mut doc, json!({"op":"canvas"})).is_err());
+        doc.canvas.tile = Some([7, 7]);
+        assert!(
+            doc.validate().is_err(),
+            "a drawing whose tiles do not fit is not opened"
+        );
+    }
+
+    #[test]
+    fn in_betweens_poses_weights_and_bones_say_why_they_do_not_take_pixel_layers() {
+        let (doc, _) = apply_all(
+            &base(),
+            &ops(&[
+                json!({"op":"add","layer":{"kind":"pixel","name":"sprite","id":"lp"}}),
+                json!({"op":"add","layer":{"kind":"group","name":"both","id":"g1","children":[{"kind":"pixel","name":"a","id":"la"}]}}),
+            ]),
+        )
+        .unwrap();
+        assert!(doc.layer("lp").unwrap().grid_only() && doc.layer("g1").unwrap().grid_only());
+        assert!(!doc.find_layer("ink").unwrap().grid_only() && !doc.find_layer("shapes").unwrap().grid_only());
+        let why = |value: Value| {
+            let op = Op::parse(value).unwrap();
+            format!("{:#}", grid_refusal(&doc, &op).unwrap_err())
+        };
+        assert!(why(json!({"op":"inbetween","layers":["lp"],"from":0,"to":4})).contains("Draw the frames in between"));
+        assert!(why(json!({"op":"pose","layer":"lp","to":2})).contains("Draw each pose as a frame"));
+        assert!(why(json!({"op":"weights","layer":"lp","auto":true})).contains("stay on the grid"));
+        assert!(why(json!({"op":"attach","layer":"lp","bone":"arm"})).contains("off the grid"));
+        let fine = |value: Value| grid_refusal(&doc, &Op::parse(value).unwrap()).is_ok();
+        assert!(fine(json!({"op":"attach","layer":"lp"})), "unrigging is always fine");
+        assert!(fine(json!({"op":"inbetween","layers":["l2"],"from":0,"to":4})));
+        assert!(fine(json!({"op":"key","id":"lp","frame":2,"x":3})));
     }
 
     #[test]

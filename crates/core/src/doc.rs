@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const FORMAT: &str = "klad/6";
+pub const FORMAT: &str = "klad/7";
 pub const MAX_SIZE: u32 = 16384;
 pub const MASK: usize = usize::MAX;
 
@@ -21,6 +21,8 @@ pub struct Document {
     pub timeline: Timeline,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub palette: Vec<Swatch>,
+    #[serde(default, skip_serializing_if = "Variants::is_empty")]
+    pub variants: Variants,
     pub layers: Vec<Layer>,
     #[serde(default, skip_serializing_if = "Exports::is_empty")]
     pub export: Exports,
@@ -38,6 +40,7 @@ impl PartialEq for Document {
             && self.canvas == other.canvas
             && self.timeline == other.timeline
             && self.palette == other.palette
+            && self.variants == other.variants
             && self.layers == other.layers
             && self.export == other.export
             && self.atmosphere == other.atmosphere
@@ -69,6 +72,42 @@ pub struct Canvas {
     pub height: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub wrap: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tile: Option<[u32; 2]>,
+}
+
+impl Canvas {
+    pub fn cut(&self, tile: [u32; 2]) -> Result<()> {
+        let [tw, th] = tile;
+        if tw == 0 || th == 0 || tw > self.width || th > self.height {
+            bail!("tiles of {tw}x{th} do not fit a {}x{} canvas", self.width, self.height);
+        }
+        if !self.width.is_multiple_of(tw) || !self.height.is_multiple_of(th) {
+            bail!(
+                "a {}x{} canvas does not cut into tiles of {tw}x{th}: each side has to be a whole number of tiles",
+                self.width,
+                self.height
+            );
+        }
+        Ok(())
+    }
+
+    pub fn tiles(&self) -> Option<(u32, u32)> {
+        self.tile
+            .map(|[tw, th]| (self.width / tw.max(1), self.height / th.max(1)))
+    }
+
+    pub fn tile_at(&self, column: u32, row: u32) -> Result<[u32; 4]> {
+        let (Some([tw, th]), Some((columns, rows))) = (self.tile, self.tiles()) else {
+            bail!("this drawing is not cut into tiles: klad canvas <bundle> --tile 16 sets the tile size");
+        };
+        if column >= columns || row >= rows {
+            bail!("tile {column},{row} is past the drawing's {columns} by {rows} tiles (the first is 0,0)");
+        }
+        Ok([column * tw, row * th, tw, th])
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,6 +115,49 @@ pub struct Swatch {
     pub color: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ramp: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Variant {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub colors: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Variants {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub shown: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub base: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sets: Vec<Variant>,
+}
+
+pub const BASE_VARIANT: &str = "base";
+
+impl Variants {
+    pub fn is_empty(&self) -> bool {
+        self.sets.is_empty()
+    }
+
+    pub fn key(name: &str) -> &str {
+        match name.trim() {
+            n if n.eq_ignore_ascii_case(BASE_VARIANT) => "",
+            n => n,
+        }
+    }
+
+    pub fn find(&self, name: &str) -> Option<usize> {
+        let key = Self::key(name);
+        self.sets.iter().position(|v| v.name.eq_ignore_ascii_case(key))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -182,6 +264,8 @@ pub enum LayerContent {
     Paint {
         #[serde(default)]
         cels: Vec<Cel>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        pixel: bool,
     },
     Vector {
         #[serde(default)]
@@ -561,8 +645,39 @@ impl Layer {
             name,
             LayerContent::Paint {
                 cels: vec![Cel::at(cel, 0)],
+                pixel: false,
             },
         )
+    }
+
+    pub fn pixels(id: &str, name: &str, cel: &str) -> Self {
+        Self::with(
+            id,
+            name,
+            LayerContent::Paint {
+                cels: vec![Cel::at(cel, 0)],
+                pixel: true,
+            },
+        )
+    }
+
+    pub fn pixel(&self) -> bool {
+        matches!(self.content, LayerContent::Paint { pixel: true, .. })
+    }
+
+    pub fn grid_only(&self) -> bool {
+        match &self.content {
+            LayerContent::Paint { pixel, .. } => *pixel,
+            LayerContent::Group { children } => !children.is_empty() && children.iter().all(Layer::grid_only),
+            _ => false,
+        }
+    }
+
+    pub fn kind_name(&self) -> &'static str {
+        match self.pixel() {
+            true => "pixel",
+            false => self.kind().name(),
+        }
     }
 
     pub fn vector(id: &str, name: &str, cel: &str, nodes: Vec<Node>) -> Self {
@@ -610,14 +725,14 @@ impl Layer {
 
     pub fn cels(&self) -> &[Cel] {
         match &self.content {
-            LayerContent::Paint { cels } | LayerContent::Vector { cels } => cels,
+            LayerContent::Paint { cels, .. } | LayerContent::Vector { cels } => cels,
             LayerContent::Group { .. } | LayerContent::Adjust { .. } | LayerContent::Bones {} => &[],
         }
     }
 
     pub fn cels_mut(&mut self) -> Option<&mut Vec<Cel>> {
         match &mut self.content {
-            LayerContent::Paint { cels } | LayerContent::Vector { cels } => Some(cels),
+            LayerContent::Paint { cels, .. } | LayerContent::Vector { cels } => Some(cels),
             LayerContent::Group { .. } | LayerContent::Adjust { .. } | LayerContent::Bones {} => None,
         }
     }
@@ -1017,15 +1132,22 @@ impl Document {
                 width,
                 height,
                 background: None,
+                wrap: false,
+                tile: None,
             },
             timeline: Timeline::default(),
             palette: Vec::new(),
+            variants: Variants::default(),
             layers: Vec::new(),
             export: Exports::default(),
             atmosphere: None,
             next_id: 0,
             here: Here::default(),
         }
+    }
+
+    pub fn pixel_art(&self) -> bool {
+        self.all_layers().iter().any(|l| l.pixel())
     }
 
     pub fn all_layers(&self) -> Vec<&Layer> {
@@ -1201,6 +1323,122 @@ impl Document {
                     .position(|s| key.starts_with('#') && s.color.eq_ignore_ascii_case(key))
             })
             .or_else(|| key.parse::<usize>().ok().filter(|i| *i < self.palette.len()))
+            .or_else(|| self.palette.iter().position(|s| !s.id.is_empty() && s.id == key))
+    }
+
+    pub fn ramp(&self, name: &str) -> Vec<&Swatch> {
+        self.palette
+            .iter()
+            .filter(|s| !s.ramp.is_empty() && s.ramp == name)
+            .collect()
+    }
+
+    pub fn ramp_step(&self, at: usize, by: i32) -> Option<usize> {
+        let ramp = &self.palette.get(at)?.ramp;
+        if ramp.is_empty() {
+            return None;
+        }
+        let members: Vec<usize> = (0..self.palette.len())
+            .filter(|i| &self.palette[*i].ramp == ramp)
+            .collect();
+        let here = members.iter().position(|i| *i == at)? as i64;
+        let there = (here + by as i64).clamp(0, members.len() as i64 - 1);
+        (there != here).then(|| members[there as usize])
+    }
+
+    pub fn entry(&self, id: &str) -> Option<&Swatch> {
+        self.palette.iter().find(|s| !s.id.is_empty() && s.id == id)
+    }
+
+    pub fn bind_all(&mut self) {
+        let mut taken: BTreeSet<String> = self.palette.iter().map(|s| s.id.clone()).collect();
+        (0..self.palette.len()).for_each(|at| {
+            if self.palette[at].id.is_empty() {
+                self.palette[at].id = self.alloc_id_in('p', &mut taken);
+            }
+        });
+    }
+
+    pub fn shown_variant(&self) -> &str {
+        match self.variants.shown.is_empty() {
+            true => BASE_VARIANT,
+            false => &self.variants.shown,
+        }
+    }
+
+    pub fn variant_names(&self) -> Vec<&str> {
+        std::iter::once(BASE_VARIANT)
+            .chain(self.variants.sets.iter().map(|v| v.name.as_str()))
+            .collect()
+    }
+
+    pub fn base_colour<'a>(&'a self, swatch: &'a Swatch) -> &'a str {
+        self.variants.base.get(&swatch.id).map_or(&swatch.color, String::as_str)
+    }
+
+    pub fn variant_colours(&self, name: &str) -> Result<Vec<(String, String)>> {
+        let set = match Variants::key(name) {
+            "" => None,
+            _ => Some(
+                self.variants
+                    .find(name)
+                    .map(|at| &self.variants.sets[at])
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "the drawing has no palette variant {name:?}: it has {}",
+                            self.variant_names().join(", ")
+                        )
+                    })?,
+            ),
+        };
+        Ok(self
+            .palette
+            .iter()
+            .filter(|s| !s.id.is_empty())
+            .map(|s| {
+                let colour = set
+                    .and_then(|v| v.colors.get(&s.id))
+                    .map_or(self.base_colour(s), String::as_str);
+                (s.id.clone(), colour.to_string())
+            })
+            .collect())
+    }
+
+    pub fn dress(&self, name: &str) -> Result<BTreeMap<String, [u16; 4]>> {
+        self.variant_colours(name)?
+            .into_iter()
+            .filter(|(id, colour)| {
+                self.entry(id)
+                    .is_some_and(|now| !now.color.eq_ignore_ascii_case(colour))
+            })
+            .map(|(id, colour)| Ok((id, crate::color::to_u16(parse_hex(&colour)?))))
+            .collect()
+    }
+
+    pub fn bind_swatch(&mut self, key: &str) -> Result<(String, String)> {
+        let key = key.trim();
+        let at = match self.swatch(key) {
+            Some(at) => at,
+            None if key.starts_with('#') => {
+                parse_hex(key)?;
+                self.palette.push(Swatch {
+                    color: key.to_string(),
+                    name: String::new(),
+                    id: String::new(),
+                    ramp: String::new(),
+                });
+                self.palette.len() - 1
+            }
+            None => {
+                self.resolve_color(key)?;
+                bail!("the palette has no {key:?}");
+            }
+        };
+        if self.palette[at].id.is_empty() {
+            let mut taken: BTreeSet<String> = self.palette.iter().map(|s| s.id.clone()).collect();
+            self.palette[at].id = self.alloc_id_in('p', &mut taken);
+        }
+        Ok((self.palette[at].id.clone(), self.palette[at].color.clone()))
     }
 
     pub fn effects_of<'a>(&self, layer: &'a Layer) -> Cow<'a, [Effect]> {
@@ -1257,16 +1495,54 @@ impl Document {
         if let Some(bg) = &self.canvas.background {
             check_color(bg).context("canvas background")?;
         }
+        if let Some(tile) = self.canvas.tile {
+            self.canvas.cut(tile)?;
+        }
         let mut swatch_names = BTreeSet::new();
+        let mut swatch_ids = BTreeSet::new();
         self.palette.iter().try_for_each(|swatch| {
             parse_hex(&swatch.color).with_context(|| format!("palette colour {}", swatch.color))?;
+            if !swatch.id.is_empty() && !swatch_ids.insert(&swatch.id) {
+                bail!("palette id {} is used twice", swatch.id);
+            }
             if swatch.name.starts_with('#') {
                 bail!("palette name {} cannot start with #", swatch.name);
+            }
+            if swatch.ramp.starts_with('#') {
+                bail!("ramp name {} cannot start with #", swatch.ramp);
             }
             if !swatch.name.is_empty() && !swatch_names.insert(&swatch.name) {
                 bail!("palette name {} is used twice", swatch.name);
             }
             Ok(())
+        })?;
+        let sets = &self.variants;
+        let mut variant_names = BTreeSet::new();
+        sets.sets.iter().try_for_each(|variant| {
+            let name = variant.name.trim();
+            if name.is_empty() || name != variant.name || Variants::key(name).is_empty() {
+                bail!("palette variant {:?} needs a name other than base", variant.name);
+            }
+            if !variant_names.insert(name.to_ascii_lowercase()) {
+                bail!("palette variant {name} is there twice");
+            }
+            variant.colors.iter().try_for_each(|(id, colour)| {
+                parse_hex(colour).with_context(|| format!("palette variant {name}, colour of {id}"))?;
+                Ok::<_, anyhow::Error>(())
+            })
+        })?;
+        if !sets.shown.is_empty() && sets.find(&sets.shown).is_none() {
+            bail!(
+                "the drawing shows palette variant {}, which it does not have",
+                sets.shown
+            );
+        }
+        if sets.shown.is_empty() && !sets.base.is_empty() {
+            bail!("the base palette is shown, so no base colours should be kept aside");
+        }
+        sets.base.values().try_for_each(|colour| {
+            parse_hex(colour).context("a base colour kept aside for a palette variant")?;
+            Ok::<_, anyhow::Error>(())
         })?;
         let t = &self.timeline;
         if t.fps == 0 || t.fps > 240 || t.frames == 0 {
@@ -1500,10 +1776,14 @@ mod tests {
             Swatch {
                 color: "#1b1b1b".into(),
                 name: "ink".into(),
+                id: String::new(),
+                ramp: String::new(),
             },
             Swatch {
                 color: "#F4EFE6".into(),
                 name: String::new(),
+                id: String::new(),
+                ramp: String::new(),
             },
         ];
         doc.next_id = 10;

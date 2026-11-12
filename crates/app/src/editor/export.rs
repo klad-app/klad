@@ -11,6 +11,8 @@ pub(super) enum What {
     Image,
     Frames,
     Sheet,
+    Gif,
+    Aseprite,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -20,6 +22,8 @@ pub(super) struct Form {
     pub scale: f32,
     pub background: bool,
     pub deep: bool,
+    pub dither: bool,
+    pub variant: String,
     pub range: String,
     pub padding: u32,
     pub max: u32,
@@ -34,6 +38,8 @@ impl Default for Form {
             scale: 1.0,
             background: false,
             deep: false,
+            dither: false,
+            variant: String::new(),
             range: "all".into(),
             padding: 2,
             max: 4096,
@@ -41,6 +47,8 @@ impl Default for Form {
         }
     }
 }
+
+pub(super) const EVERY: &str = "*";
 
 pub(super) fn args(bundle: &Path, home: &Path, frame: u32, form: &Form) -> Vec<String> {
     let mut args = vec!["export".to_string(), bundle.to_string_lossy().to_string()];
@@ -52,18 +60,32 @@ pub(super) fn args(bundle: &Path, home: &Path, frame: u32, form: &Form) -> Vec<S
         What::Image => push("--frame", Some(frame.to_string())),
         What::Frames => push("--frames", Some(form.range.trim().to_string())),
         What::Sheet => push("--sheet", Some(form.range.trim().to_string())),
+        What::Gif => push("--gif", Some(form.range.trim().to_string())),
+        What::Aseprite => push("--aseprite", None),
     }
-    if let Some(layer) = form.layer.as_ref().filter(|_| form.what != What::Frames) {
+    if let Some(layer) = form
+        .layer
+        .as_ref()
+        .filter(|_| !matches!(form.what, What::Frames | What::Aseprite))
+    {
         push("--layer", Some(layer.clone()));
     }
-    if form.scale != 1.0 {
+    if form.scale != 1.0 && form.what != What::Aseprite {
         push("--scale", Some(form.scale.to_string()));
     }
-    if form.deep && form.what != What::Frames {
+    if form.deep && matches!(form.what, What::Image | What::Sheet) {
         push("--depth", Some("16".into()));
     }
-    if form.background && form.what == What::Image {
+    if form.background && matches!(form.what, What::Image | What::Gif) {
         push("--background", None);
+    }
+    if form.dither && form.what == What::Gif {
+        push("--dither", None);
+    }
+    match form.variant.as_str() {
+        "" => {}
+        EVERY => push("--variants", None),
+        name => push("--variant", Some(name.to_string())),
     }
     if form.what == What::Sheet {
         push("--padding", Some(form.padding.to_string()));
@@ -79,7 +101,14 @@ fn written(out: &str, err: &str) -> String {
     out.lines()
         .chain(err.lines())
         .map(str::trim)
-        .filter(|l| l.ends_with(".png") || l.ends_with(".json") || l.contains(" in all"))
+        .filter(|l| {
+            l.ends_with(".png")
+                || l.ends_with(".json")
+                || l.ends_with(".gif")
+                || l.ends_with(".aseprite")
+                || l.starts_with("note: ")
+                || l.contains(" in all")
+        })
         .take(3)
         .collect::<Vec<_>>()
         .join("; ")
@@ -88,7 +117,7 @@ fn written(out: &str, err: &str) -> String {
 impl Editor {
     pub(super) fn export(&mut self) -> Result<()> {
         let form = self.export.clone();
-        if form.what != What::Image && form.range.trim().is_empty() {
+        if !matches!(form.what, What::Image | What::Aseprite) && form.range.trim().is_empty() {
             bail!("say which frames: all, a clip's name or a range like 0-11");
         }
         let args = args(&self.scene.bundle.root, &self.bundle_home(), self.scene.frame, &form);
@@ -96,6 +125,8 @@ impl Editor {
             What::Image => format!("export frame {}", self.scene.frame),
             What::Frames => format!("export frames {}", form.range.trim()),
             What::Sheet => format!("export the sheet of {}", form.range.trim()),
+            What::Gif => format!("export a GIF of {}", form.range.trim()),
+            What::Aseprite => "export an Aseprite file".to_string(),
         };
         self.start_job(Spec {
             tag: Tag::Export,
@@ -129,7 +160,14 @@ impl Editor {
             .iter()
             .map(|c| c.name.clone())
             .collect();
+        let doc = &self.scene.bundle.doc;
+        let (pixel, most) = (doc.pixel_art(), klad_render::export::pixel_most(doc));
+        let (width, height) = (doc.canvas.width, doc.canvas.height);
+        let variants: Vec<String> = doc.variant_names().into_iter().map(String::from).collect();
         let form = &mut self.export;
+        if form.variant != EVERY && !form.variant.is_empty() && !variants.contains(&form.variant) {
+            form.variant.clear();
+        }
         ui.horizontal(|ui| {
             ui.selectable_value(&mut form.what, What::Image, "image")
                 .hint("this frame as one PNG");
@@ -137,8 +175,17 @@ impl Editor {
                 .hint("numbered PNGs, one per frame");
             ui.selectable_value(&mut form.what, What::Sheet, "sprite sheet")
                 .hint("sheet pages and Aseprite JSON");
+            ui.selectable_value(&mut form.what, What::Gif, "GIF")
+                .hint("an animated GIF: one for each clip, or one of the whole timeline");
+            if pixel || form.what == What::Aseprite {
+                ui.selectable_value(&mut form.what, What::Aseprite, "Aseprite")
+                    .hint("an .aseprite file of the pixel layers: groups, every frame's drawing, the palette, and clips as tags");
+            }
         });
-        if form.what != What::Frames {
+        if form.what == What::Aseprite {
+            ui.weak("pixel layers and groups only; frames that show the same drawings become one frame");
+        }
+        if !matches!(form.what, What::Frames | What::Aseprite) {
             let shown = form
                 .layer
                 .as_ref()
@@ -155,7 +202,7 @@ impl Editor {
                 .response
                 .hint("export the whole image or one layer or group");
         }
-        if form.what != What::Image {
+        if !matches!(form.what, What::Image | What::Aseprite) {
             ui.horizontal(|ui| {
                 let label = ui.label("frames");
                 ui.add(
@@ -172,19 +219,61 @@ impl Editor {
                 });
             });
         }
-        ui.add(
-            egui::Slider::new(&mut form.scale, 0.125..=4.0)
-                .logarithmic(true)
-                .text("scale"),
-        )
-        .hint("the size of the export against the canvas");
-        if form.what != What::Frames {
+        match pixel {
+            _ if form.what == What::Aseprite => {}
+            true => {
+                form.scale = form.scale.round().clamp(1.0, most);
+                ui.add(
+                    egui::Slider::new(&mut form.scale, 1.0..=most.min(32.0))
+                        .step_by(1.0)
+                        .fixed_decimals(0)
+                        .text("times real size"),
+                )
+                .hint("pixel art is enlarged by whole numbers only, so every pixel stays a sharp square");
+                ui.weak(format!(
+                    "{} x {} px",
+                    width * form.scale as u32,
+                    height * form.scale as u32
+                ));
+            }
+            false => {
+                ui.add(
+                    egui::Slider::new(&mut form.scale, 0.125..=4.0)
+                        .logarithmic(true)
+                        .text("scale"),
+                )
+                .hint("the size of the export against the canvas");
+            }
+        }
+        if matches!(form.what, What::Image | What::Sheet) {
             ui.checkbox(&mut form.deep, "16 bits per channel")
                 .hint("16-bit PNGs; 8-bit ones are dithered so gradients do not band");
         }
-        if form.what == What::Image {
+        if matches!(form.what, What::Image | What::Gif) {
             ui.checkbox(&mut form.background, "keep the background colour")
-                .hint("off: a transparent PNG");
+                .hint("off: a transparent picture");
+        }
+        if variants.len() > 1 {
+            let chosen = match form.variant.as_str() {
+                "" => "as shown".to_string(),
+                EVERY => "every variant".to_string(),
+                name => name.to_string(),
+            };
+            egui::ComboBox::from_label("palette variant")
+                .selected_text(chosen)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut form.variant, String::new(), "as shown");
+                    ui.selectable_value(&mut form.variant, EVERY.to_string(), "every variant");
+                    variants.iter().for_each(|name| {
+                        ui.selectable_value(&mut form.variant, name.clone(), name);
+                    });
+                })
+                .response
+                .hint("the colours to export in: what the drawing shows now, one variant, or a file for each (the variant's name is added to the file name)");
+        }
+        if form.what == What::Gif && !pixel {
+            ui.checkbox(&mut form.dither, "dither")
+                .hint("a GIF holds 255 colours: mix them in a fine pattern so soft gradients do not band; off keeps flat areas of one colour");
         }
         if form.what == What::Sheet {
             ui.add(egui::Slider::new(&mut form.padding, 0..=16).text("padding px"))
@@ -227,6 +316,14 @@ impl Editor {
                 .clicked()
             {
                 self.export_godot_as("--godot-rig");
+            }
+            let tiled = self.scene.bundle.doc.canvas.tile.is_some();
+            if ui
+                .add_enabled(tiled, egui::Button::new("as a tile set"))
+                .hint("a Godot TileSet with a tile for every cell that is not empty; needs the drawing cut into tiles (View > Tileset: cut into tiles…)")
+                .clicked()
+            {
+                self.export_godot_as("--tileset");
             }
         });
         if run {
@@ -277,6 +374,67 @@ mod tests {
         assert_eq!(
             args(bundle, home, 0, &frames).join(" "),
             "export /w/art.klad --frames 0-11 --scale 0.5"
+        );
+        let gif = Form {
+            what: What::Gif,
+            range: "hop".into(),
+            scale: 8.0,
+            deep: true,
+            background: true,
+            dither: true,
+            ..Form::default()
+        };
+        assert_eq!(
+            args(bundle, home, 0, &gif).join(" "),
+            "export /w/art.klad --gif hop --scale 8 --background --dither"
+        );
+        let file = Form {
+            what: What::Aseprite,
+            scale: 4.0,
+            layer: Some("l2".into()),
+            range: String::new(),
+            variant: "blue".into(),
+            ..Form::default()
+        };
+        assert_eq!(
+            args(bundle, home, 0, &file).join(" "),
+            "export /w/art.klad --aseprite --variant blue"
+        );
+        assert_eq!(
+            written(
+                "/w/art.aseprite\n",
+                "16x12, 1 layers, 2 frames\nnote: left out, since an Aseprite file holds only pixel layers: notes\n"
+            ),
+            "/w/art.aseprite; note: left out, since an Aseprite file holds only pixel layers: notes"
+        );
+        let every = Form {
+            what: What::Sheet,
+            variant: EVERY.into(),
+            ..Form::default()
+        };
+        assert_eq!(
+            args(bundle, home, 0, &every).join(" "),
+            "export /w/art.klad --sheet all --variants --padding 2 --max 4096"
+        );
+        let blue = Form {
+            variant: "blue".into(),
+            ..Form::default()
+        };
+        assert_eq!(
+            args(bundle, home, 2, &blue).join(" "),
+            "export /w/art.klad --frame 2 --variant blue"
+        );
+        let image = Form {
+            dither: true,
+            ..Form::default()
+        };
+        assert!(!args(bundle, home, 0, &image).contains(&"--dither".to_string()));
+        assert_eq!(
+            written(
+                "/w/art-hop@8x.gif\n",
+                "128x96  4 frames (2 pictures), 500 ms, loops  0.5 KB\n"
+            ),
+            "/w/art-hop@8x.gif"
         );
     }
 }

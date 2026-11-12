@@ -98,6 +98,7 @@ fn doc_shell(doc: &Document) -> Document {
         canvas: doc.canvas.clone(),
         timeline: doc.timeline.clone(),
         palette: doc.palette.clone(),
+        variants: doc.variants.clone(),
         layers: Vec::new(),
         export: doc.export.clone(),
         atmosphere: doc.atmosphere.clone(),
@@ -108,7 +109,10 @@ fn doc_shell(doc: &Document) -> Document {
 
 fn layer_shell(layer: &Layer) -> Layer {
     let content = match &layer.content {
-        LayerContent::Paint { .. } => LayerContent::Paint { cels: Vec::new() },
+        LayerContent::Paint { pixel, .. } => LayerContent::Paint {
+            cels: Vec::new(),
+            pixel: *pixel,
+        },
         LayerContent::Vector { .. } => LayerContent::Vector { cels: Vec::new() },
         LayerContent::Group { .. } => LayerContent::Group { children: Vec::new() },
         LayerContent::Adjust { adjust } => LayerContent::Adjust { adjust: adjust.clone() },
@@ -187,8 +191,8 @@ fn layer(out: &mut Out, at: &str, a: &Layer, b: &Layer) -> Result<()> {
             list(out, &format!("{at}/children"), x, y, same_layer, layer)
         }
         (
-            LayerContent::Paint { cels: x } | LayerContent::Vector { cels: x },
-            LayerContent::Paint { cels: y } | LayerContent::Vector { cels: y },
+            LayerContent::Paint { cels: x, .. } | LayerContent::Vector { cels: x },
+            LayerContent::Paint { cels: y, .. } | LayerContent::Vector { cels: y },
         ) => list(out, &format!("{at}/cels"), x, y, same_cel, cel),
         (LayerContent::Adjust { .. }, LayerContent::Adjust { .. })
         | (LayerContent::Bones {}, LayerContent::Bones {}) => Ok(()),
@@ -242,7 +246,7 @@ fn step<'a>(target: Target<'a>, part: &str) -> Result<Target<'a>> {
         (Target::Doc(doc), "layers") => Target::Layers(&mut doc.layers),
         (Target::Layers(list), part) => Target::Layer(nth(list, part)?),
         (Target::Layer(layer), "cels") => match &mut layer.content {
-            LayerContent::Paint { cels } | LayerContent::Vector { cels } => Target::Cels(cels),
+            LayerContent::Paint { cels, .. } | LayerContent::Vector { cels } => Target::Cels(cels),
             LayerContent::Group { .. } | LayerContent::Adjust { .. } | LayerContent::Bones {} => {
                 bail!("layer {} has no cels", layer.id)
             }
@@ -312,7 +316,7 @@ fn merge<T: Serialize + DeserializeOwned>(item: &T, old: &Value, new: &Value) ->
 
 fn lists(content: &mut LayerContent) -> (Option<&mut Vec<Cel>>, Option<&mut Vec<Layer>>) {
     match content {
-        LayerContent::Paint { cels } | LayerContent::Vector { cels } => (Some(cels), None),
+        LayerContent::Paint { cels, .. } | LayerContent::Vector { cels } => (Some(cels), None),
         LayerContent::Group { children } => (None, Some(children)),
         LayerContent::Adjust { .. } | LayerContent::Bones {} => (None, None),
     }

@@ -102,6 +102,73 @@ pub fn load_cels_at(
         .collect()
 }
 
+pub fn dress_of(doc: &Document, variant: Option<&str>) -> Result<BTreeMap<String, [u16; 4]>> {
+    match variant {
+        Some(name) => doc.dress(name),
+        None => Ok(BTreeMap::new()),
+    }
+}
+
+pub fn variant_tag(variant: Option<&str>) -> String {
+    match variant.map(klad_core::doc::Variants::key) {
+        None | Some("") => String::new(),
+        Some(name) => format!("-{}", crate::sprites::file_safe(name)),
+    }
+}
+
+pub fn dressed(
+    bundle: &Bundle,
+    brushes: &BrushSet,
+    mut rasters: Rasters,
+    dress: &BTreeMap<String, [u16; 4]>,
+) -> Result<Rasters> {
+    if dress.is_empty() {
+        return Ok(rasters);
+    }
+    let (width, height) = (bundle.doc.canvas.width, bundle.doc.canvas.height);
+    let cels: Vec<(String, String)> = bundle
+        .doc
+        .all_layers()
+        .into_iter()
+        .filter(|layer| layer.pixel())
+        .flat_map(|layer| {
+            layer
+                .cels()
+                .iter()
+                .filter(|c| rasters.contains_key(&c.id))
+                .map(move |c| (layer.id.clone(), c.id.clone()))
+        })
+        .collect();
+    let redrawn = cels
+        .par_iter()
+        .map(|(layer, cel)| {
+            let mut marks = bundle.read_marks(layer, cel)?;
+            let swapped = marks
+                .iter_mut()
+                .filter_map(|mark| match mark {
+                    klad_core::stroke::Mark::Fill(fill) => Some(fill),
+                    _ => None,
+                })
+                .filter_map(|fill| {
+                    let colour = fill.entry().and_then(|entry| dress.get(entry)).copied()?;
+                    fill.color = colour;
+                    Some(())
+                })
+                .count();
+            match swapped {
+                0 => Ok(None),
+                _ => {
+                    let (_, raster, _) =
+                        CelReplay::replay_tiled(width, height, marks, brushes).with_context(|| format!("cel {cel}"))?;
+                    Ok(Some((cel.clone(), raster)))
+                }
+            }
+        })
+        .collect::<Result<Vec<_>>>()?;
+    rasters.extend(redrawn.into_iter().flatten());
+    Ok(rasters)
+}
+
 pub fn load_at(bundle: &Bundle, frame: u32, brushes: &BrushSet, detail: f32) -> Result<Rasters> {
     if detail == 1.0 {
         return Ok(load(bundle, frame, brushes, true)?.rasters);

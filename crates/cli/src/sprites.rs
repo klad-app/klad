@@ -5,7 +5,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use klad_brush::BrushSet;
 use klad_core::bundle::{Bundle, write_atomic};
 use klad_core::ops::Op;
-use klad_render::export::{Options, Target, detail_for, render};
+use klad_render::export::{Options, Target, detail_of, render};
 use klad_render::sprites::{self, Animation, Pixels, Placed, Rect, Run, Scene, Sheet, SpriteFrames, Texture};
 use rayon::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -18,6 +18,26 @@ pub struct Look {
     pub scale: f32,
     pub depth: u8,
     pub background: bool,
+    pub variant: Option<String>,
+}
+
+pub fn tagged(path: &Path, tag: &str) -> PathBuf {
+    let stem = path
+        .file_stem()
+        .map_or(String::new(), |s| s.to_string_lossy().to_string());
+    let name = match path.extension() {
+        Some(ext) => format!("{stem}{tag}.{}", ext.to_string_lossy()),
+        None => format!("{stem}{tag}"),
+    };
+    path.with_file_name(name)
+}
+
+fn stem_for(bundle: &Bundle, look: &Look) -> String {
+    format!(
+        "{}{}",
+        bundle_stem(bundle),
+        crate::layers::variant_tag(look.variant.as_deref())
+    )
 }
 
 pub struct Packing {
@@ -86,8 +106,9 @@ pub fn pictures(bundle: &Bundle, animations: Vec<Animation>, look: &Look) -> Res
         scale: look.scale,
         background: look.background,
         references: false,
-        detail: detail_for(look.scale),
+        detail: detail_of(doc, look.scale),
     };
+    let dress = crate::layers::dress_of(doc, look.variant.as_deref())?;
     let frames: BTreeSet<u32> = animations.iter().flat_map(|a| a.from..=a.to).collect();
     let mut firsts: BTreeMap<Vec<String>, u32> = BTreeMap::new();
     let first_of: BTreeMap<u32, u32> = frames
@@ -108,7 +129,12 @@ pub fn pictures(bundle: &Bundle, animations: Vec<Animation>, look: &Look) -> Res
                 .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect();
-            let rasters = load_cels_at(bundle, &brushes, &needed, options.detail)?;
+            let rasters = crate::layers::dressed(
+                bundle,
+                &brushes,
+                load_cels_at(bundle, &brushes, &needed, options.detail)?,
+                &dress,
+            )?;
             let done = batch
                 .par_iter()
                 .map(|(frame, _)| {
@@ -262,19 +288,24 @@ pub fn sheet(path: &Path, spec: &str, look: &Look, packing: &Packing, out: Optio
     check_look(look)?;
     let bundle = Bundle::open(path)?;
     let animations = sprites::animations(&bundle.doc, spec)?;
-    let stem = bundle_stem(&bundle);
+    let stem = stem_for(&bundle, look);
+    let usual = format!(
+        "{stem}-{}{}",
+        if spec == "all" { "sheet".into() } else { file_safe(spec) },
+        scale_tag(look.scale)
+    );
     let name = match out {
+        Some(folder) if folder.is_dir() => Name {
+            dir: folder,
+            stem: usual,
+        },
         Some(out) => Name {
             dir: out.parent().map_or(PathBuf::from("."), Path::to_path_buf),
             stem: file_name(&out).trim_end_matches(".png").to_string(),
         },
         None => Name {
             dir: bundle_dir(&bundle),
-            stem: format!(
-                "{stem}-{}{}",
-                if spec == "all" { "sheet".into() } else { file_safe(spec) },
-                scale_tag(look.scale)
-            ),
+            stem: usual,
         },
     };
     let pics = pictures(&bundle, animations, look)?;
@@ -321,7 +352,7 @@ pub fn frames(path: &Path, spec: &str, look: &Look, out: Option<PathBuf>) -> Res
     check_look(look)?;
     let bundle = Bundle::open(path)?;
     let animations = sprites::animations(&bundle.doc, spec)?;
-    let stem = bundle_stem(&bundle);
+    let stem = stem_for(&bundle, look);
     let prefix = match spec {
         "all" => stem.clone(),
         other => file_safe(other),
@@ -377,6 +408,80 @@ pub fn frames(path: &Path, spec: &str, look: &Look, out: Option<PathBuf>) -> Res
     Ok(())
 }
 
+pub fn gif(path: &Path, spec: &str, look: &Look, dither: bool, out: Option<PathBuf>) -> Result<()> {
+    let start = Instant::now();
+    let bundle = Bundle::open(path)?;
+    let animations = sprites::animations(&bundle.doc, spec)?;
+    let look = Look {
+        layer: look.layer.clone(),
+        scale: look.scale,
+        depth: 8,
+        background: look.background,
+        variant: look.variant.clone(),
+    };
+    let stem = stem_for(&bundle, &look);
+    let pics = pictures(&bundle, animations, &look)?;
+    let (sw, sh) = pics.source;
+    let full: Vec<Vec<u8>> = pics
+        .cut
+        .par_iter()
+        .zip(&pics.trims)
+        .map(|(cut, trim)| {
+            let mut whole = Pixels::blank(sw, sh, 8);
+            let all = Rect {
+                x: 0,
+                y: 0,
+                w: cut.width,
+                h: cut.height,
+            };
+            whole.blit(cut, all, trim.x, trim.y);
+            whole.bytes().to_vec()
+        })
+        .collect();
+    let alone = pics.animations.len() == 1;
+    let folder = out.as_ref().filter(|_| !alone);
+    if let Some(dir) = folder {
+        fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
+    }
+    pics.animations.iter().try_for_each(|(animation, runs)| {
+        let shots: Vec<klad_render::gif::Shot> = runs
+            .iter()
+            .map(|r| klad_render::gif::Shot {
+                rgba: full[r.picture].clone(),
+                ms: r.ms,
+            })
+            .collect();
+        let bytes = klad_render::gif::encode(sw, sh, &shots, animation.looping, dither)?;
+        let name = match animation.clip {
+            true => format!("{stem}-{}{}.gif", file_safe(&animation.name), scale_tag(look.scale)),
+            false => format!("{stem}{}.gif", scale_tag(look.scale)),
+        };
+        let file = match (&out, folder) {
+            (_, Some(dir)) => dir.join(name),
+            (Some(given), None) if given.is_dir() => given.join(name),
+            (Some(given), None) => given.clone(),
+            (None, None) => bundle_dir(&bundle).join(name),
+        };
+        write_atomic(&file, &bytes)?;
+        println!("{}", file.display());
+        eprintln!(
+            "{sw}x{sh}  {} frames ({} pictures), {} ms, {}  {:.1} KB",
+            runs.iter().map(|r| r.frames).sum::<u32>(),
+            shots.len(),
+            shots.iter().map(|s| s.ms).sum::<u32>(),
+            match (shots.len(), animation.looping) {
+                (1, _) => "one still picture",
+                (_, true) => "loops",
+                (_, false) => "plays once",
+            },
+            bytes.len() as f64 / 1024.0
+        );
+        Ok::<_, anyhow::Error>(())
+    })?;
+    eprintln!("{:.0} ms", start.elapsed().as_secs_f64() * 1000.0);
+    Ok(())
+}
+
 pub fn relative(from: &Path, to: &Path) -> PathBuf {
     let a: Vec<Component> = from.components().collect();
     let b: Vec<Component> = to.components().collect();
@@ -399,13 +504,10 @@ pub(crate) fn read(path: &Path) -> Option<String> {
     fs::read_to_string(path).ok()
 }
 
-pub fn godot(path: &Path, dir: Option<PathBuf>, store: bool, look: &Look, packing: &Packing) -> Result<()> {
-    let start = Instant::now();
-    check_look(look)?;
-    let mut bundle = Bundle::open(path)?;
-    let home = bundle_dir(&bundle);
+fn godot_folder(bundle: &mut Bundle, dir: &Option<PathBuf>, store: bool) -> Result<PathBuf> {
+    let home = bundle_dir(bundle);
     let stored = bundle.doc.export.godot.clone();
-    let target = match (&dir, &stored) {
+    let target = match (dir, &stored) {
         (Some(d), _) => d.clone(),
         (None, Some(s)) => home.join(s),
         (None, None) => bail!(
@@ -415,7 +517,7 @@ pub fn godot(path: &Path, dir: Option<PathBuf>, store: bool, look: &Look, packin
     fs::create_dir_all(&target).with_context(|| format!("making {}", target.display()))?;
     let target = target.canonicalize()?;
     let rel = kept_folder(&home.canonicalize()?, &target);
-    let keep = match (&dir, &stored) {
+    let keep = match (dir, &stored) {
         (Some(_), None) => true,
         (Some(_), Some(s)) => store && *s != rel,
         _ => false,
@@ -426,14 +528,122 @@ pub fn godot(path: &Path, dir: Option<PathBuf>, store: bool, look: &Look, packin
         }])?;
         bundle.stamp("cli")?;
         eprintln!("kept {rel} as this document's Godot folder (export.godot)");
-    } else if let (Some(_), Some(s)) = (&dir, &stored)
+    } else if let (Some(_), Some(s)) = (dir, &stored)
         && *s != rel
     {
         eprintln!("exported to {rel}; the document's Godot folder stays {s} (add --store to replace it)");
     }
+    Ok(target)
+}
+
+pub fn tileset(path: &Path, dir: Option<PathBuf>, store: bool, look: &Look, frame: u32) -> Result<()> {
+    check_look(look)?;
+    let mut bundle = Bundle::open(path)?;
+    let Some([tile_width, tile_height]) = bundle.doc.canvas.tile else {
+        bail!(
+            "this drawing is not cut into tiles: klad canvas <bundle> --tile 16 sets the tile size (the canvas has to be a whole number of tiles each way)"
+        );
+    };
+    if frame >= bundle.doc.timeline.frames {
+        bail!(
+            "frame {frame} is past the last frame {}",
+            bundle.doc.timeline.frames - 1
+        );
+    }
+    let target = godot_folder(&mut bundle, &dir, store)?;
+    let doc = &bundle.doc;
+    klad_render::export::check_scale(doc, look.scale)?;
+    let size = |side: u32| (side as f32 * look.scale).round() as u32;
+    if size(tile_width) as f32 != tile_width as f32 * look.scale
+        || size(tile_height) as f32 != tile_height as f32 * look.scale
+    {
+        bail!(
+            "at scale {} a tile of {tile_width}x{tile_height} is not a whole number of pixels",
+            look.scale
+        );
+    }
+    let layer = look.layer.as_deref().map(|k| doc.find_layer(k)).transpose()?;
+    let detail = detail_of(doc, look.scale);
+    let brushes = BrushSet::for_bundle(&bundle)?;
+    let dress = crate::layers::dress_of(doc, look.variant.as_deref())?;
+    let rasters = crate::layers::dressed(
+        &bundle,
+        &brushes,
+        crate::layers::load_at(&bundle, frame, &brushes, detail)?,
+        &dress,
+    )?;
+    let options = Options {
+        scale: look.scale,
+        background: look.background,
+        references: false,
+        detail,
+    };
+    let image = render(
+        doc,
+        frame,
+        &rasters,
+        &layer.map_or(Target::Frame, Target::Layer),
+        options,
+    )?;
+    let shown = klad_render::export::dither8(&image)?;
+    let (cell_width, cell_height) = (size(tile_width), size(tile_height));
+    let (columns, rows) = (image.width() as u32 / cell_width, image.height() as u32 / cell_height);
+    let across = image.width() as usize;
+    let tiles: Vec<(u32, u32)> = (0..rows)
+        .flat_map(|row| (0..columns).map(move |column| (column, row)))
+        .filter(|(column, row)| {
+            (0..cell_height).any(|y| {
+                (0..cell_width).any(|x| {
+                    let at = ((row * cell_height + y) as usize * across + (column * cell_width + x) as usize) * 4;
+                    shown[at + 3] > 0
+                })
+            })
+        })
+        .collect();
+    if tiles.is_empty() {
+        bail!("frame {frame} shows nothing: there are no tiles to export");
+    }
+    let stem = format!("{}-tiles", file_safe(&stem_for(&bundle, look)));
+    let (png, tres) = (target.join(format!("{stem}.png")), target.join(format!("{stem}.tres")));
+    let bytes = match look.depth {
+        16 => klad_render::export::png16(&image)?,
+        _ => klad_render::export::png8(&image)?,
+    };
+    let uid = read(&tres)
+        .and_then(|t| sprites::header_uid(&t))
+        .unwrap_or_else(|| sprites::uid_for(&tres.to_string_lossy()));
+    let text = sprites::tile_set(&sprites::TileSet {
+        uid: &uid,
+        texture: &Texture {
+            path: file_name(&png),
+            uid: read(&png.with_extension("png.import")).and_then(|t| sprites::import_uid(&t)),
+        },
+        tile: [cell_width, cell_height],
+        tiles: &tiles,
+    });
+    write_atomic(&png, &bytes)?;
+    write_atomic(&tres, text.as_bytes())?;
+    println!("{}", png.display());
+    println!("{}", tres.display());
+    eprintln!(
+        "{} tiles of {cell_width}x{cell_height} ({columns} across, {rows} down, {} empty left out)",
+        tiles.len(),
+        (columns * rows) as usize - tiles.len()
+    );
+    if doc.pixel_art() {
+        eprintln!("note: in Godot, set the TileMapLayer's texture filter to Nearest so the tiles stay sharp");
+    }
+    Ok(())
+}
+
+pub fn godot(path: &Path, dir: Option<PathBuf>, store: bool, look: &Look, packing: &Packing) -> Result<()> {
+    let start = Instant::now();
+    check_look(look)?;
+    let mut bundle = Bundle::open(path)?;
+    let target = godot_folder(&mut bundle, &dir, store)?;
     let doc = &bundle.doc;
     let animations = sprites::animations(doc, "all")?;
-    let stem = file_safe(&bundle_stem(&bundle));
+    let stem = file_safe(&stem_for(&bundle, look));
     let name = Name {
         dir: target.clone(),
         stem: stem.clone(),
@@ -474,11 +684,12 @@ pub fn godot(path: &Path, dir: Option<PathBuf>, store: bool, look: &Look, packin
         .ok_or_else(|| anyhow!("nothing to export"))?;
     let scene_text = sprites::scene(&Scene {
         uid: &scene_uid,
-        node: &sprites::node_name(&bundle_stem(&bundle)),
+        node: &sprites::node_name(&stem_for(&bundle, look)),
         frames_path: &file_name(&tres),
         frames_uid: &frames_uid,
         animation: &first,
         origin: [ox * sx, oy * sy],
+        pixel: bundle.doc.pixel_art(),
     });
     write_atomic(&tres, frames_text.as_bytes())?;
     write_atomic(&tscn, scene_text.as_bytes())?;
@@ -616,10 +827,118 @@ func _init():
             scale,
             depth: 8,
             background: false,
+            variant: None,
         }
     }
 
     const PACKING: Packing = Packing { padding: 2, max: 4096 };
+
+    const TILES: &str = r#"extends SceneTree
+
+func _init():
+	var out = {}
+	var tiles = load("res://art/ground-tiles.tres")
+	out["class"] = tiles.get_class()
+	out["tile_size"] = [tiles.tile_size.x, tiles.tile_size.y]
+	out["sources"] = tiles.get_source_count()
+	var source = tiles.get_source(tiles.get_source_id(0))
+	out["source"] = source.get_class()
+	out["region"] = [source.texture_region_size.x, source.texture_region_size.y]
+	out["count"] = source.get_tiles_count()
+	out["has"] = [source.has_tile(Vector2i(0, 0)), source.has_tile(Vector2i(1, 0)), source.has_tile(Vector2i(2, 1))]
+	out["texture"] = [source.texture.get_width(), source.texture.get_height()]
+	out["path"] = tiles.resource_path
+	print("RESULT ", JSON.stringify(out))
+	quit()
+"#;
+
+    #[test]
+    fn godot_loads_the_tile_set_with_a_tile_for_every_cell_that_is_drawn() {
+        let dir = std::env::temp_dir().join(format!("draw-godot-tiles-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let project = dir.join("game");
+        fs::create_dir_all(project.join("art")).unwrap();
+        let path = dir.join("ground.klad");
+        let mut bundle = Bundle::blank(
+            &path,
+            &klad_core::bundle::Blank {
+                width: 48,
+                height: 32,
+                pixel: true,
+                ..klad_core::bundle::Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let layer = bundle.doc.layers[0].id.clone();
+        assert!(
+            tileset(&path, Some(project.join("art")), false, &look(1.0), 0)
+                .unwrap_err()
+                .to_string()
+                .contains("not cut into tiles")
+        );
+        bundle
+            .apply(
+                &klad_core::ops::parse_lines(&format!(
+                    "{}\n{}\n{}",
+                    r##"{"op":"canvas","tile":16}"##,
+                    format_args!(
+                        r##"{{"op":"pixel","layer":"{layer}","color":"#3a5a40","rect":[0,0,16,16],"filled":true}}"##
+                    ),
+                    format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"#8b5a2b","cells":[[40,20]]}}"##),
+                ))
+                .unwrap(),
+            )
+            .unwrap();
+        tileset(&path, Some(project.join("art")), false, &look(2.0), 0).unwrap();
+        let tres = fs::read_to_string(project.join("art/ground-tiles.tres")).unwrap();
+        assert!(tres.starts_with("[gd_resource type=\"TileSet\" load_steps=3 format=3 uid=\"uid://"));
+        assert!(tres.contains("texture_region_size = Vector2i(32, 32)\n0:0/0 = 0\n2:1/0 = 0\n\n[resource]"));
+        assert!(tres.contains("path=\"ground-tiles.png\""));
+        assert!(!tres.contains("1:0/0"), "an empty cell is no tile");
+        assert_eq!(
+            Bundle::open(&path).unwrap().doc.export.godot.as_deref(),
+            Some("game/art"),
+            "the folder is kept, as for the other Godot exports"
+        );
+        let uid = sprites::header_uid(&tres).unwrap();
+        tileset(&path, None, false, &look(2.0), 0).unwrap();
+        assert_eq!(
+            sprites::header_uid(&fs::read_to_string(project.join("art/ground-tiles.tres")).unwrap()).unwrap(),
+            uid,
+            "a second export keeps the uid"
+        );
+        assert!(tileset(&path, None, false, &look(1.5), 0).is_err());
+        let Some(binary) = godot_binary() else {
+            eprintln!("no godot on PATH (or $GODOT): skipping the import check");
+            fs::remove_dir_all(&dir).unwrap();
+            return;
+        };
+        fs::write(
+            project.join("project.godot"),
+            "config_version=5\n\n[application]\n\nconfig/name=\"klad tiles\"\n",
+        )
+        .unwrap();
+        fs::write(project.join("tiles.gd"), TILES).unwrap();
+        godot_run(&binary, &project, &["--import"]);
+        let text = godot_run(&binary, &project, &["--script", "res://tiles.gd"]);
+        let line = text
+            .lines()
+            .find_map(|l| l.strip_prefix("RESULT "))
+            .unwrap_or_else(|| panic!("no result from godot:\n{text}"));
+        let got: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(got["class"], "TileSet", "{got}");
+        assert_eq!(got["tile_size"], serde_json::json!([32, 32]));
+        assert_eq!(
+            (got["sources"].as_u64(), got["source"].as_str()),
+            (Some(1), Some("TileSetAtlasSource"))
+        );
+        assert_eq!(got["region"], serde_json::json!([32, 32]));
+        assert_eq!(got["count"].as_u64(), Some(2));
+        assert_eq!(got["has"], serde_json::json!([true, false, true]));
+        assert_eq!(got["texture"], serde_json::json!([96, 64]));
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn godot_imports_the_export_with_its_clips_timing_origin_and_uids() {

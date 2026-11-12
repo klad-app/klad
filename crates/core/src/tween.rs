@@ -455,6 +455,7 @@ fn points_of_mark(mark: &Mark) -> Vec<(f32, f32)> {
         Mark::Fill(f) => match &f.source {
             FillSource::Polygon(points) => points.iter().map(|p| (p[0], p[1])).collect(),
             FillSource::Seed { seed, .. } => vec![(seed.x, seed.y)],
+            FillSource::Cells { .. } => f.centre().into_iter().collect(),
         },
     }
 }
@@ -503,6 +504,7 @@ pub fn carry(mark: &Mark, from: &Lines, to: &Lines, within: Option<&[usize]>) ->
             FillSource::Seed { seed, .. } => {
                 (seed.x, seed.y) = mv((seed.x, seed.y));
             }
+            FillSource::Cells { .. } => {}
         },
     }
     out
@@ -583,7 +585,7 @@ fn sort_of(mark: &Mark) -> Sort {
         Mark::Stroke(_) => Sort::Stroke,
         Mark::Fill(f) => match f.source {
             FillSource::Polygon(_) => Sort::Polygon,
-            FillSource::Seed { .. } => Sort::Flood,
+            FillSource::Seed { .. } | FillSource::Cells { .. } => Sort::Flood,
         },
     }
 }
@@ -606,6 +608,15 @@ fn outline(mark: &Mark) -> Vec<P> {
                 y: seed.y as f64,
                 ..P::default()
             }],
+            FillSource::Cells { .. } => f
+                .centre()
+                .map(|(x, y)| P {
+                    x: x as f64,
+                    y: y as f64,
+                    ..P::default()
+                })
+                .into_iter()
+                .collect(),
         },
     }
 }

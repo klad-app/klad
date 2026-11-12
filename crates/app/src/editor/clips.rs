@@ -341,7 +341,11 @@ impl Editor {
             tag: Tag::Export,
             name: format!(
                 "export a Godot {} ({typed})",
-                if how == "--godot-rig" { "rig" } else { "parallax scene" }
+                match how {
+                    "--godot-rig" => "rig",
+                    "--tileset" => "tile set",
+                    _ => "parallax scene",
+                }
             ),
             exe: PathBuf::new(),
             args,

@@ -9,8 +9,10 @@ use skia_safe::{
 
 pub const SNAP: f32 = 0.13;
 pub const MAX_SCALE: f32 = 8.0;
+pub const PIXEL_MAX_SCALE: f32 = 64.0;
+pub const PIXEL_MAX_SIDE: f32 = 16384.0;
 
-const BAYER: [u8; 64] = [
+pub(crate) const BAYER: [u8; 64] = [
     0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 26, 12, 44, 4, 36, 14, 46, 6, 38, 60, 28, 52, 20, 62, 30,
     54, 22, 3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57, 25, 15, 47, 7, 39, 13, 45, 5, 37, 63, 31, 55, 23,
     61, 29, 53, 21,
@@ -36,10 +38,51 @@ pub fn detail_for(scale: f32) -> f32 {
     }
 }
 
+pub fn detail_of(doc: &Document, scale: f32) -> f32 {
+    match doc.pixel_art() {
+        true => 1.0,
+        false => detail_for(scale),
+    }
+}
+
+pub fn pixel_most(doc: &Document) -> f32 {
+    let longest = doc.canvas.width.max(doc.canvas.height) as f32;
+    PIXEL_MAX_SCALE.min((PIXEL_MAX_SIDE / longest).floor()).max(1.0)
+}
+
+pub fn check_scale(doc: &Document, scale: f32) -> Result<()> {
+    if !doc.pixel_art() {
+        if !(1.0 / 16.0..=MAX_SCALE).contains(&scale) {
+            bail!("export scale {scale} is outside 1/16..{MAX_SCALE}");
+        }
+        return Ok(());
+    }
+    let most = pixel_most(doc);
+    if scale.fract() != 0.0 || scale < 1.0 {
+        bail!(
+            "a pixel drawing exports at whole-number scales (1, 2, 3 up to {most}), so every pixel stays a square: not {scale}"
+        );
+    }
+    if scale > most {
+        bail!(
+            "export scale {scale} is past {most} for this {}x{} pixel drawing",
+            doc.canvas.width,
+            doc.canvas.height
+        );
+    }
+    Ok(())
+}
+
 pub fn render(doc: &Document, frame: u32, rasters: &Rasters, target: &Target, options: Options) -> Result<Image> {
     let scale = options.scale;
-    if !(1.0 / 16.0..=MAX_SCALE).contains(&scale) {
-        bail!("export scale {scale} is outside 1/16..{MAX_SCALE}");
+    check_scale(doc, scale)?;
+    if doc.pixel_art() && scale > 1.0 {
+        let real = Options {
+            scale: 1.0,
+            detail: 1.0,
+            ..options
+        };
+        return crate::resample(&render(doc, frame, rasters, target, real)?, scale);
     }
     let (w, h) = (
         ((doc.canvas.width as f32 * scale).round() as u32).max(1),

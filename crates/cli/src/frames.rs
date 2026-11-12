@@ -84,7 +84,7 @@ pub fn sheet_json(doc: &Document, from: u32, to: u32) -> Value {
             json!({
                 "id": layer.id,
                 "name": layer.name,
-                "kind": layer.kind().name(),
+                "kind": layer.kind_name(),
                 "maskOf": mask_of,
                 "cels": cels,
                 "cells": all[from as usize..].to_vec(),

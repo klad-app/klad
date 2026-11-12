@@ -46,6 +46,7 @@ pub fn compute(doc: &Document, frame: u32, rasters: &Rasters, cel: &str, source:
             reference_ms: 0.0,
             fill_ms: ms(start),
         }),
+        FillSource::Cells { .. } => bail!("a pixel mark keeps its own cells: there is nothing to compute"),
     }
 }
 
@@ -200,7 +201,7 @@ pub fn refill(path: &Path, layer: &str, frame: u32, only: Option<u32>, out: &Out
         let redo = match mark {
             Mark::Fill(fill) if only.is_none_or(|id| id == fill.id) => match &fill.source {
                 FillSource::Seed { reference, .. } => Some(reference.clone()),
-                FillSource::Polygon(_) => None,
+                FillSource::Polygon(_) | FillSource::Cells { .. } => None,
             },
             _ => None,
         };

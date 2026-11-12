@@ -20,6 +20,7 @@ mod options;
 mod paintover;
 mod panels;
 mod pins;
+mod pixels;
 mod prefs;
 mod selection;
 mod shift;
@@ -82,6 +83,10 @@ const FINISH_WAIT: Duration = Duration::from_secs(2);
 const DRAG_SLOP: f32 = 3.0;
 const KNOB: f32 = 30.0;
 const IDENTITY: [f32; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+const GRID_FROM: f32 = 8.0;
+pub(crate) const REAL_MAX: u32 = 512;
+
+type RealKey = (u64, u32, u64);
 
 fn raw_of(e: &PenEvent, c: Vec2, dt_ms: f32) -> Raw {
     Raw {
@@ -330,6 +335,7 @@ struct Drag {
     grab: Grab,
     node: String,
     strokes: bool,
+    whole: bool,
     fresh: bool,
     copy: bool,
     start: Vec2,
@@ -350,14 +356,30 @@ impl Drag {
         if self.grab != Grab::Scale {
             return 1.0;
         }
-        ((self.now - self.center).length() / (self.start - self.center).length().max(1.0)).clamp(0.02, 50.0)
+        let free = ((self.now - self.center).length() / (self.start - self.center).length().max(1.0)).clamp(0.02, 50.0);
+        match self.whole {
+            true => free.round().max(1.0),
+            false => free,
+        }
     }
 
     fn angle(&self) -> f32 {
         if self.grab != Grab::Rotate {
             return 0.0;
         }
-        (self.now - self.center).angle() - (self.start - self.center).angle()
+        let free = (self.now - self.center).angle() - (self.start - self.center).angle();
+        match self.whole {
+            true => (free / std::f32::consts::FRAC_PI_2).round() * std::f32::consts::FRAC_PI_2,
+            false => free,
+        }
+    }
+
+    fn slide(&self) -> Vec2 {
+        let d = self.now - self.start;
+        match self.whole {
+            true => vec2(d.x.round(), d.y.round()),
+            false => d,
+        }
     }
 
     fn stretch(&self) -> Option<(usize, Vec2, f32)> {
@@ -377,6 +399,11 @@ impl Drag {
         } else {
             k.clamp(-50.0, 50.0)
         };
+        let k = match self.whole {
+            true if k.round() == 0.0 => 1.0f32.copysign(k),
+            true => k.round(),
+            false => k,
+        };
         Some((axis, pivot, k))
     }
 
@@ -390,7 +417,7 @@ impl Drag {
         }
         match self.grab {
             Grab::Move => {
-                let d = self.now - self.start;
+                let d = self.slide();
                 [1.0, 0.0, 0.0, 1.0, d.x, d.y]
             }
             Grab::Scale => {
@@ -429,7 +456,7 @@ impl Drag {
         }
         match self.grab {
             Grab::Move => {
-                let d = self.now - self.start;
+                let d = self.slide();
                 MarkTransform {
                     x: d.x,
                     y: d.y,
@@ -480,6 +507,25 @@ impl PreviewState {
             .chain(self.finish.take().into_iter().flat_map(|f| f.dirty))
             .collect()
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PixelMode {
+    Draw,
+    Lighter,
+    Darker,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PixelShape {
+    Rect,
+    Ellipse,
+    Line,
+}
+
+struct PixelLive {
+    run: Vec<klad_core::pixel::Cell>,
+    erase: bool,
 }
 
 struct Live {
@@ -558,8 +604,11 @@ struct Windows {
     clip: bool,
     between: bool,
     import: bool,
+    palettes: bool,
     about: bool,
     export: bool,
+    pixels: bool,
+    tiles: bool,
     report: bool,
     font: bool,
     paintover: bool,
@@ -655,6 +704,8 @@ pub(crate) struct Editor {
     mirror_buffer: StrokeBuffer,
     typing: BTreeMap<String, String>,
     import_path: String,
+    palette_path: String,
+    swatch_picked: Option<usize>,
     depth: depth::Parallax,
     batch: usize,
     pen_path: Option<PenPath>,
@@ -665,6 +716,8 @@ pub(crate) struct Editor {
     between: between::Between,
     checks: checks::Checks,
     export: export::Form,
+    pixels: pixels::Form,
+    tile_size: [u32; 2],
     paintover: paintover::Form,
     compare: Option<compare::Compared>,
     bones: bones::BoneTool,
@@ -700,6 +753,22 @@ pub(crate) struct Editor {
     preview: Option<PreviewState>,
     outbox: Arc<Mutex<Outbox>>,
     zoom_px: f32,
+    zoom_wanted: Option<f32>,
+    pub(crate) pixel_size: u32,
+    pub(crate) pixel_perfect: bool,
+    pub(crate) pixel_shape: PixelShape,
+    pub(crate) pixel_filled: bool,
+    pub(crate) pixel_diagonal: bool,
+    pub(crate) pixel_fill_all: bool,
+    pub(crate) pixel_box: bool,
+    pub(crate) pixel_mode: PixelMode,
+    pub(crate) pixel_dither: u32,
+    pub(crate) pixel_two: bool,
+    pixel_live: Option<PixelLive>,
+    pixel_last: Option<klad_core::pixel::Cell>,
+    hover_cell: Option<[i32; 2]>,
+    painted: u64,
+    real: Option<(RealKey, egui::TextureHandle)>,
     picked: Option<Picked>,
     also: Vec<String>,
     direct: Option<Direct>,
@@ -743,7 +812,8 @@ impl Editor {
                 .ok_or_else(|| crate::report::bug("the ink brush is missing from the library"))?,
         );
         let settings_path = settings::default_path();
-        let settings = settings_path.as_deref().map(Settings::load).unwrap_or_default();
+        let mut settings = settings_path.as_deref().map(Settings::load).unwrap_or_default();
+        let offered = settings.offer_real_size(scene.bundle.doc.pixel_art());
         let open = format!(
             "{} layers, opened in {:.0} ms",
             scene.bundle.doc.all_layers().len(),
@@ -786,7 +856,7 @@ impl Editor {
             flow: 1.0,
             settings,
             settings_path,
-            settings_dirty: false,
+            settings_dirty: offered,
             update: None,
             update_feed: crate::updates::feed(),
             update_check: None,
@@ -837,6 +907,8 @@ impl Editor {
             mirror_buffer: StrokeBuffer::new(size.0, size.1),
             typing: BTreeMap::new(),
             import_path: String::new(),
+            palette_path: String::new(),
+            swatch_picked: None,
             depth: depth::Parallax::default(),
             batch: timeline::FILL,
             pen_path: None,
@@ -847,6 +919,8 @@ impl Editor {
             between: between::Between::default(),
             checks: checks::Checks::default(),
             export: export::Form::default(),
+            pixels: pixels::Form::default(),
+            tile_size: [16, 16],
             paintover: paintover::Form::default(),
             compare: None,
             bones: bones::BoneTool::default(),
@@ -882,6 +956,22 @@ impl Editor {
             preview: None,
             outbox: Arc::default(),
             zoom_px: 1.0,
+            zoom_wanted: None,
+            pixel_size: 1,
+            pixel_perfect: true,
+            pixel_shape: PixelShape::Rect,
+            pixel_filled: false,
+            pixel_diagonal: false,
+            pixel_fill_all: false,
+            pixel_box: true,
+            pixel_mode: PixelMode::Draw,
+            pixel_dither: 100,
+            pixel_two: false,
+            pixel_live: None,
+            pixel_last: None,
+            hover_cell: None,
+            painted: 0,
+            real: None,
             picked: None,
             also: Vec::new(),
             direct: None,
@@ -1336,10 +1426,16 @@ impl Editor {
 
     fn picked_corners(&self) -> Option<(String, [Vec2; 4])> {
         let picked = self.picked.as_ref()?;
+        let area = picked.cut.as_ref().filter(|_| self.scene.on_grid()).map(|polygon| {
+            polygon.iter().fold([f32::MAX, f32::MAX, f32::MIN, f32::MIN], |b, p| {
+                [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])]
+            })
+        });
         let [x0, y0, x1, y1] = self
             .picked_parts()
             .iter()
             .map(|(_, _, marks, ids)| markedit::bounds_of(marks, ids))
+            .chain(std::iter::once(area))
             .fold(None, union_box)?;
         Some((picked.key(), [vec2(x0, y0), vec2(x1, y0), vec2(x1, y1), vec2(x0, y1)]))
     }
@@ -1698,6 +1794,9 @@ impl Editor {
     }
 
     fn visible_tiles(&self, view: View, rect: Rect) -> BTreeSet<usize> {
+        if self.scene.bundle.doc.canvas.wrap {
+            return self.scene.all_tiles().into_iter().collect();
+        }
         let size = rect.size();
         let corners = [vec2(0.0, 0.0), vec2(size.x, 0.0), vec2(0.0, size.y), size].map(|p| view.to_canvas(p, size));
         let range = |lo: f32, hi: f32, count: usize| {
@@ -1741,11 +1840,17 @@ impl Editor {
         if !strokes && self.shifting.is_none() && !matches!(self.scene.bundle.doc.item(&id), Some(Item::Node(..))) {
             return;
         }
+        let whole = strokes && self.scene.on_grid();
         let center = corners.iter().fold(Vec2::ZERO, |a, c| a + *c) / 4.0;
+        let center = match whole {
+            true => vec2(center.x.round(), center.y.round()),
+            false => center,
+        };
         self.drag = Some(Drag {
             grab,
             node: id,
             strokes,
+            whole,
             fresh,
             copy: grab == Grab::Move && self.modifiers.alt,
             start: at,
@@ -2025,6 +2130,18 @@ impl Editor {
             .collect()
     }
 
+    fn lasso_outline(&self, lasso: &Lasso) -> Vec<Vec2> {
+        let boxed = self.pixel_box && self.scene.on_grid() && matches!(self.tool, Tool::Strokes | Tool::Select);
+        match (boxed, lasso.points.first(), lasso.points.last()) {
+            (true, Some(a), Some(b)) => {
+                let (x0, y0) = (a.x.min(b.x).floor(), a.y.min(b.y).floor());
+                let (x1, y1) = (a.x.max(b.x).ceil(), a.y.max(b.y).ceil());
+                vec![vec2(x0, y0), vec2(x1, y0), vec2(x1, y1), vec2(x0, y1)]
+            }
+            _ => lasso.points.clone(),
+        }
+    }
+
     fn finish_pick(&mut self) -> Result<()> {
         let Some(lasso) = self.lasso.take() else {
             return Ok(());
@@ -2052,8 +2169,8 @@ impl Editor {
         };
         let at = lasso.points[0];
         let erased = self.erased();
-        let polygon: Option<Vec<[f32; 2]>> =
-            (lasso.far && lasso.points.len() >= 3).then(|| lasso.points.iter().map(|p| [p.x, p.y]).collect());
+        let polygon: Option<Vec<[f32; 2]>> = (lasso.far && lasso.points.len() >= 3)
+            .then(|| self.lasso_outline(&lasso).iter().map(|p| [p.x, p.y]).collect());
         let pick = |marks: &[Mark]| -> (Vec<u32>, bool) {
             match &polygon {
                 Some(polygon) => {
@@ -2933,6 +3050,29 @@ impl Editor {
         match (self.tool, e.phase) {
             (_, Phase::Down) if !was_focused || !on_canvas || self.navigating => {}
             (_, Phase::Down) if picking => self.pick_colour(c, self.modifiers.shift)?,
+            (Tool::Fill, Phase::Down) if self.scene.on_grid() => {
+                if self.scene.can_paint() {
+                    self.fill_pixels(klad_core::pixel::cell_at(c.x, c.y))?;
+                }
+            }
+            (Tool::Fill, Phase::Move | Phase::Up) if self.scene.on_grid() => {}
+            (Tool::Brush, Phase::Down) if self.scene.on_grid() => {
+                if self.pixel_live.is_none() && self.scene.can_paint() {
+                    let at = klad_core::pixel::cell_at(c.x, c.y);
+                    let run = match self.pixel_last.filter(|_| self.modifiers.shift) {
+                        Some(last) => klad_core::pixel::line(last, at),
+                        None => vec![at],
+                    };
+                    let erase = e.eraser || self.brush == "eraser";
+                    self.pixel_live = Some(PixelLive { run, erase });
+                }
+            }
+            (Tool::Brush, Phase::Move) if self.pixel_live.is_some() => {
+                if let Some(live) = self.pixel_live.as_mut() {
+                    klad_core::pixel::extend(&mut live.run, klad_core::pixel::cell_at(c.x, c.y));
+                }
+            }
+            (Tool::Brush, Phase::Up) if self.pixel_live.is_some() => self.finish_pixels()?,
             (Tool::Fill, Phase::Down) => {
                 if self.scene.can_paint() {
                     self.lasso = Some(Lasso {
@@ -3278,6 +3418,173 @@ impl Editor {
         }
     }
 
+    fn pixel_cells(&self, live: &PixelLive) -> Vec<klad_core::pixel::Cell> {
+        let run = match self.pixel_perfect && self.pixel_size == 1 {
+            true => klad_core::pixel::perfect(&live.run),
+            false => live.run.clone(),
+        };
+        klad_core::pixel::stamp(&run, self.pixel_size)
+    }
+
+    pub(super) fn pixel_spec(&self, erase: bool) -> Option<klad_core::ops::PixelSpec> {
+        let shade = match (erase, self.pixel_mode) {
+            (false, PixelMode::Lighter) => Some(1),
+            (false, PixelMode::Darker) => Some(-1),
+            _ => None,
+        };
+        let dither = (!erase && shade.is_none() && self.pixel_dither < 100).then_some(self.pixel_dither);
+        Some(klad_core::ops::PixelSpec {
+            layer: self.scene.active_id()?,
+            frame: self.scene.frame,
+            color: (!erase && shade.is_none()).then(|| color::hex(self.color)),
+            erase,
+            shade,
+            dither,
+            second: dither.filter(|_| self.pixel_two).map(|_| color::hex(self.second)),
+            mirror_x: self.mirror.map(|axis| (axis * 2.0).round() / 2.0),
+            by_hand: true,
+            ..klad_core::ops::PixelSpec::default()
+        })
+    }
+
+    fn pixel_preview(&self, cells: Vec<klad_core::pixel::Cell>) -> Vec<klad_core::pixel::Cell> {
+        let twinned = match self.mirror {
+            Some(axis) => klad_core::pixel::mirrored(&cells, Some((axis * 2.0).round() / 2.0), None),
+            None => cells,
+        };
+        let canvas = &self.scene.bundle.doc.canvas;
+        match canvas.wrap {
+            true => klad_core::pixel::wrapped(&twinned, canvas.width, canvas.height),
+            false => twinned,
+        }
+    }
+
+    fn erases_nothing(&self, ops: &[Op]) -> bool {
+        let (w, h) = self.scene.size();
+        let grid = klad_core::pixel::grid_of(self.scene.active_marks(), w, h);
+        let painted = |c: &klad_core::pixel::Cell| {
+            c[0] >= 0 && c[1] >= 0 && c[0] < w as i64 && c[1] < h as i64 && grid.at(c[0] as u32, c[1] as u32).is_some()
+        };
+        ops.iter().all(|op| match op {
+            Op::Pixel(spec) => spec.erase && !spec.cells.iter().any(painted),
+            _ => false,
+        })
+    }
+
+    pub(super) fn apply_pixels(&mut self, spec: klad_core::ops::PixelSpec) -> Result<()> {
+        let drew = spec.color.is_some();
+        match self.scene.bundle.settle_pixels(&[Op::Pixel(spec)]) {
+            Ok(ops) if self.erases_nothing(&ops) => {}
+            Ok(ops) => {
+                self.apply(ops)?;
+                if drew {
+                    self.used_colour();
+                }
+            }
+            Err(e) => {
+                let why = e.chain().last().map_or_else(|| format!("{e:#}"), ToString::to_string);
+                self.say(Tone::Refused, why);
+            }
+        }
+        Ok(())
+    }
+
+    fn step_picked(&mut self, by: i32) -> Result<()> {
+        let doc = &self.scene.bundle.doc;
+        let sets: Vec<(String, u32, &'static str, Value)> = self.chosen_marks().map_or(Vec::new(), |(_, chosen)| {
+            chosen
+                .iter()
+                .filter_map(|(cel, m)| {
+                    let fill = m.as_fill().filter(|f| f.on_grid() && !f.erases())?;
+                    let at = fill
+                        .entry()
+                        .and_then(|entry| doc.swatch(entry))
+                        .or_else(|| doc.swatch(&klad_core::color::to_hex(fill.color())))?;
+                    let to = doc.ramp_step(at, by)?;
+                    Some((cel.clone(), m.id(), "color", json!(to.to_string())))
+                })
+                .collect()
+        });
+        if sets.is_empty() {
+            self.say(
+                Tone::Refused,
+                match by > 0 {
+                    true => "nothing to step lighter: these colours are in no ramp, or at its light end (the ramp button makes one)",
+                    false => "nothing to step darker: these colours are in no ramp, or at its dark end (the ramp button makes one)",
+                },
+            );
+            return Ok(());
+        }
+        self.set_picked(sets)
+    }
+
+    fn fill_pixels(&mut self, at: klad_core::pixel::Cell) -> Result<()> {
+        let (w, h) = self.scene.size();
+        if at[0] < 0 || at[1] < 0 || at[0] >= w as i64 || at[1] >= h as i64 {
+            return Ok(());
+        }
+        let Some(spec) = self.pixel_spec(false) else {
+            return Ok(());
+        };
+        self.apply_pixels(klad_core::ops::PixelSpec {
+            fill: Some(at),
+            diagonal: self.pixel_diagonal,
+            reference: self.pixel_fill_all.then(|| "all".to_string()),
+            ..spec
+        })
+    }
+
+    pub(super) fn pixel_shape_spec(&self) -> Option<klad_core::ops::PixelSpec> {
+        let (a, b) = self.shapes.drag?;
+        let (a, b) = (klad_core::pixel::cell_at(a.x, a.y), klad_core::pixel::cell_at(b.x, b.y));
+        let b = match (self.modifiers.shift, self.pixel_shape) {
+            (true, PixelShape::Rect | PixelShape::Ellipse) => {
+                let side = (b[0] - a[0]).abs().max((b[1] - a[1]).abs());
+                let sign = |v: i64| if v < 0 { -1 } else { 1 };
+                [a[0] + side * sign(b[0] - a[0]), a[1] + side * sign(b[1] - a[1])]
+            }
+            _ => b,
+        };
+        let bounds = [
+            a[0].min(b[0]),
+            a[1].min(b[1]),
+            (b[0] - a[0]).abs() + 1,
+            (b[1] - a[1]).abs() + 1,
+        ];
+        let spec = self.pixel_spec(false)?;
+        Some(match self.pixel_shape {
+            PixelShape::Rect => klad_core::ops::PixelSpec {
+                rect: Some(bounds),
+                filled: self.pixel_filled,
+                size: self.pixel_size,
+                ..spec
+            },
+            PixelShape::Ellipse => klad_core::ops::PixelSpec {
+                ellipse: Some(bounds),
+                filled: self.pixel_filled,
+                size: self.pixel_size,
+                ..spec
+            },
+            PixelShape::Line => klad_core::ops::PixelSpec {
+                line: Some([a[0], a[1], b[0], b[1]]),
+                size: self.pixel_size,
+                ..spec
+            },
+        })
+    }
+
+    fn finish_pixels(&mut self) -> Result<()> {
+        let Some(live) = self.pixel_live.take() else {
+            return Ok(());
+        };
+        self.pixel_last = live.run.last().copied();
+        let cells = self.pixel_cells(&live);
+        let Some(spec) = self.pixel_spec(live.erase).filter(|_| !cells.is_empty()) else {
+            return Ok(());
+        };
+        self.apply_pixels(klad_core::ops::PixelSpec { cells, ..spec })
+    }
+
     fn finish_fill(&mut self) -> Result<()> {
         let Some(lasso) = self.lasso.take() else {
             return Ok(());
@@ -3354,7 +3661,14 @@ impl Editor {
         };
         let at = hover.filter(|p| rect.contains(*p)).map_or(area / 2.0, |p| p - rect.min);
         if response.hovered() || response.dragged() {
-            if zoom != 1.0 {
+            if zoom != 1.0 && self.scene.bundle.doc.pixel_art() {
+                let wanted = (self.zoom_wanted.unwrap_or(view.zoom) * zoom).clamp(0.02, 64.0);
+                self.zoom_wanted = Some(wanted);
+                let target = View::whole(wanted, ui.ctx().pixels_per_point());
+                if target != view.zoom {
+                    view.zoom_at(target / view.zoom, at, area);
+                }
+            } else if zoom != 1.0 {
                 view.zoom_at(zoom, at, area);
             }
             if scroll != Vec2::ZERO {
@@ -3380,7 +3694,9 @@ impl Editor {
         self.canvas_rect = rect;
         let area = rect.size();
         let canvas = self.canvas_size();
-        self.view.get_or_insert_with(|| View::fit(canvas, area));
+        if self.view.is_none() {
+            self.view = Some(self.fitted(area));
+        }
         self.navigate(ui, &response, rect);
         self.keep_typing_focus(ui, &response)?;
         self.typing_keys(ui)?;
@@ -3411,7 +3727,7 @@ impl Editor {
         {
             self.select_pin(view.to_canvas(p - rect.min, rect.size()))?;
         }
-        let view = self.view.unwrap_or_else(|| View::fit(canvas, area));
+        let view = self.view.unwrap_or_else(|| self.fitted(area));
         self.double_click_text(&response, view, rect)?;
         self.zoom_px = view.zoom * ctx.pixels_per_point();
         self.refresh_box();
@@ -3424,7 +3740,7 @@ impl Editor {
         };
         self.frames.set_level(level);
         let show = self.tend_frames()?;
-        let view_uniform = view.uniform(area, ctx.pixels_per_point(), canvas);
+        let view_uniform = view.uniform(area, ctx.pixels_per_point(), canvas, self.scene.bundle.doc.canvas.wrap);
         let (w, h) = self.scene.size();
         let visible = self.visible_tiles(view, rect);
         let previewed = self.tend_preview(visible)?;
@@ -3470,6 +3786,9 @@ impl Editor {
             stats.tiles.push(uploads.len() as f32);
         }
         let uploads: Tiles = previewed.into_iter().chain(uploads).collect();
+        if !uploads.is_empty() {
+            self.painted += 1;
+        }
         let (frame_uploads, frame_drops) = self.frames.take();
         lock(&self.outbox).send(uploads, frame_uploads, frame_drops);
         ui.painter().add(egui_wgpu::Callback::new_paint_callback(
@@ -3486,11 +3805,16 @@ impl Editor {
         ));
         self.parallax(ui, view, rect);
         self.prepare_typing(&ctx, view, rect);
-        self.decorate(ui, view, rect);
         let hover = ui
             .input(|i| i.pointer.hover_pos())
             .filter(|p| rect.contains(*p))
             .map(|p| view.to_canvas(p - rect.min, rect.size()));
+        self.hover_cell = hover
+            .filter(|_| self.scene.bundle.doc.pixel_art())
+            .filter(|p| p.x >= 0.0 && p.y >= 0.0 && p.x < canvas.x && p.y < canvas.y)
+            .map(|p| [p.x.floor() as i32, p.y.floor() as i32]);
+        self.decorate_grid(ui, view, rect);
+        self.decorate(ui, view, rect);
         let painter = ui.painter().with_clip_rect(rect);
         self.decorate_bones(&painter, |c| rect.min + view.to_screen(c, rect.size()), hover);
         if self.live.is_some()
@@ -3507,6 +3831,118 @@ impl Editor {
         }
         self.share_selection();
         Ok(())
+    }
+
+    pub(super) fn fitted(&self, area: Vec2) -> View {
+        match self.scene.bundle.doc.pixel_art() {
+            true => View::fit_whole(self.canvas_size(), area, self.ctx.pixels_per_point()),
+            false => View::fit(self.canvas_size(), area),
+        }
+    }
+
+    pub(super) fn grid_shows(&self) -> bool {
+        self.settings.pixel_grid && self.zoom_px >= GRID_FROM && self.scene.bundle.doc.pixel_art()
+    }
+
+    fn decorate_grid(&self, ui: &egui::Ui, view: View, rect: Rect) {
+        let painter = ui.painter().with_clip_rect(rect);
+        let canvas = self.canvas_size();
+        if self.grid_shows() {
+            let corners = [
+                rect.left_top(),
+                rect.right_top(),
+                rect.right_bottom(),
+                rect.left_bottom(),
+            ]
+            .map(|p| view.to_canvas(p - rect.min, rect.size()));
+            let low = |f: fn(&Vec2) -> f32| corners.iter().map(f).fold(f32::MAX, f32::min);
+            let high = |f: fn(&Vec2) -> f32| corners.iter().map(f).fold(f32::MIN, f32::max);
+            let (x0, x1) = (low(|p| p.x).floor().max(0.0), high(|p| p.x).ceil().min(canvas.x));
+            let (y0, y1) = (low(|p| p.y).floor().max(0.0), high(|p| p.y).ceil().min(canvas.y));
+            let dark = egui::Stroke::new(1.0, Color32::from_black_alpha(70));
+            let light = egui::Stroke::new(1.0, Color32::from_white_alpha(90));
+            let to_screen = |x: f32, y: f32| self.screen(view, rect, vec2(x, y));
+            let rule = |a: Pos2, b: Pos2| {
+                painter.line_segment([a, b], dark);
+                painter.extend(egui::Shape::dashed_line(&[a, b], light, 2.0, 2.0));
+            };
+            (x0 as i32..=x1 as i32)
+                .map(|x| x as f32)
+                .for_each(|x| rule(to_screen(x, y0), to_screen(x, y1)));
+            (y0 as i32..=y1 as i32)
+                .map(|y| y as f32)
+                .for_each(|y| rule(to_screen(x0, y), to_screen(x1, y)));
+        }
+        if let Some([tile_width, tile_height]) = self.scene.bundle.doc.canvas.tile {
+            let edge = egui::Stroke::new(1.5, Color32::from_black_alpha(150));
+            let glow = egui::Stroke::new(1.0, Color32::from_white_alpha(140));
+            let to_screen = |x: f32, y: f32| self.screen(view, rect, vec2(x, y));
+            let rule = |a: Pos2, b: Pos2| {
+                painter.line_segment([a, b], edge);
+                painter.extend(egui::Shape::dashed_line(&[a, b], glow, 4.0, 4.0));
+            };
+            (0..=(canvas.x as u32 / tile_width.max(1)))
+                .map(|column| (column * tile_width) as f32)
+                .for_each(|x| rule(to_screen(x, 0.0), to_screen(x, canvas.y)));
+            (0..=(canvas.y as u32 / tile_height.max(1)))
+                .map(|row| (row * tile_height) as f32)
+                .for_each(|y| rule(to_screen(0.0, y), to_screen(canvas.x, y)));
+        }
+        let shaped = self
+            .pixel_shape_spec()
+            .filter(|_| self.tool == Tool::Shape && self.scene.on_grid())
+            .and_then(|spec| {
+                klad_core::ops::PixelSpec {
+                    shade: None,
+                    dither: None,
+                    ..spec.clone()
+                }
+                .drawn()
+                .ok()
+                .map(|cells| (self.pixel_preview(cells), spec.erase))
+            });
+        let drawing = self
+            .pixel_live
+            .as_ref()
+            .map(|live| (self.pixel_preview(self.pixel_cells(live)), live.erase))
+            .or(shaped);
+        if let Some((cells, erase)) = drawing {
+            let shading = !erase && self.pixel_mode != PixelMode::Draw;
+            let dither = (!erase && !shading && self.pixel_dither < 100).then_some(self.pixel_dither);
+            cells.iter().for_each(|c| {
+                let fill = match (erase, self.pixel_mode, dither) {
+                    (true, _, _) => Color32::from_rgba_unmultiplied(255, 255, 255, 120),
+                    (false, PixelMode::Lighter, _) => Color32::from_white_alpha(90),
+                    (false, PixelMode::Darker, _) => Color32::from_black_alpha(90),
+                    (false, PixelMode::Draw, Some(percent)) if !klad_core::pixel::dithered(*c, percent) => {
+                        match self.pixel_two {
+                            true => color::color32(self.second),
+                            false => Color32::TRANSPARENT,
+                        }
+                    }
+                    (false, PixelMode::Draw, _) => color::color32(self.color),
+                };
+                let (x, y) = (c[0] as f32, c[1] as f32);
+                let corners = [(x, y), (x + 1.0, y), (x + 1.0, y + 1.0), (x, y + 1.0)]
+                    .map(|(x, y)| self.screen(view, rect, vec2(x, y)))
+                    .to_vec();
+                painter.add(egui::Shape::convex_polygon(corners, fill, egui::Stroke::NONE));
+            });
+        }
+        let pencil = self.tool == Tool::Brush && self.scene.on_grid();
+        if let Some([x, y]) = self.hover_cell.filter(|_| self.scene.on_grid() && self.zoom_px >= 3.0) {
+            let side = if pencil { self.pixel_size.max(1) as f32 } else { 1.0 };
+            let low = ((side - 1.0) / 2.0).floor();
+            let (x, y) = (x as f32 - low, y as f32 - low);
+            let cell = [(x, y), (x + side, y), (x + side, y + side), (x, y + side)]
+                .map(|(x, y)| self.screen(view, rect, vec2(x, y)))
+                .to_vec();
+            painter.add(egui::Shape::closed_line(
+                cell.clone(),
+                egui::Stroke::new(3.0, Color32::from_black_alpha(150)),
+            ));
+            painter.add(egui::Shape::closed_line(cell, egui::Stroke::new(1.0, Color32::WHITE)));
+        }
     }
 
     fn decorate(&self, ui: &egui::Ui, view: View, rect: Rect) {
@@ -3558,7 +3994,9 @@ impl Editor {
         }
         self.decorate_shape(&painter, &|x, y| self.screen(view, rect, vec2(x, y)), accent);
         self.decorate_typing(&painter, view, rect, accent);
-        if let Some(axis) = self.mirror.filter(|_| self.tool == Tool::Brush) {
+        let mirrors =
+            self.tool == Tool::Brush || (self.scene.on_grid() && matches!(self.tool, Tool::Shape | Tool::Fill));
+        if let Some(axis) = self.mirror.filter(|_| mirrors) {
             let h = self.scene.size().1 as f32;
             painter.add(egui::Shape::dashed_line(
                 &[
@@ -3615,7 +4053,11 @@ impl Editor {
         self.draw_pins(&painter, |c| self.screen(view, rect, c));
         self.draw_checks(&painter, |c| self.screen(view, rect, c));
         if let Some(lasso) = self.lasso.as_ref().filter(|l| l.far) {
-            let line: Vec<Pos2> = lasso.points.iter().map(|p| self.screen(view, rect, *p)).collect();
+            let line: Vec<Pos2> = self
+                .lasso_outline(lasso)
+                .iter()
+                .map(|p| self.screen(view, rect, *p))
+                .collect();
             let tint = if matches!(self.tool, Tool::Strokes | Tool::Select) {
                 accent
             } else {
@@ -3921,10 +4363,66 @@ impl Editor {
             klad_core::color::recolour(&colours, target)
                 .into_iter()
                 .zip(&chosen)
-                .map(|(c, (cel, m))| (cel.clone(), m.id(), "color", json!(klad_core::color::to_hex(c))))
+                .map(|(shade, (cel, m))| {
+                    let colour = match m.as_fill().is_some_and(|f| f.on_grid()) {
+                        true => target,
+                        false => shade,
+                    };
+                    (cel.clone(), m.id(), "color", json!(klad_core::color::to_hex(colour)))
+                })
                 .collect()
         });
         self.set_picked(sets)
+    }
+
+    fn select_same_colour(&mut self) {
+        let Some(cel) = self.scene.active_cel() else {
+            return;
+        };
+        let marks = self.scene.active_marks();
+        let key = |m: &Mark| {
+            m.as_fill().filter(|f| f.on_grid() && !f.erases()).map(|f| {
+                f.entry()
+                    .map_or_else(|| klad_core::color::to_hex(f.color()), String::from)
+            })
+        };
+        let held: Vec<u32> = self
+            .picked
+            .as_ref()
+            .filter(|p| p.cel == cel)
+            .map_or(Vec::new(), |p| p.ids.clone());
+        let wanted: BTreeSet<String> = match held.is_empty() {
+            false => marks
+                .iter()
+                .filter(|m| held.contains(&m.id()))
+                .filter_map(key)
+                .collect(),
+            true => {
+                let current = klad_core::color::to_hex(self.color);
+                marks
+                    .iter()
+                    .filter(|m| klad_core::color::to_hex(m.color()).eq_ignore_ascii_case(&current))
+                    .filter_map(key)
+                    .collect()
+            }
+        };
+        let ids: Vec<u32> = marks
+            .iter()
+            .filter(|m| key(m).is_some_and(|k| wanted.contains(&k)))
+            .map(Mark::id)
+            .collect();
+        match ids.is_empty() {
+            true => self.say(
+                Tone::Info,
+                "no pixels of this drawing have that colour: click a palette colour, or select a mark first",
+            ),
+            false => {
+                let count = ids.len();
+                self.tool = Tool::Strokes;
+                self.picked = Some(Picked::whole(cel, ids));
+                self.say(Tone::Done, format!("{count} marks of that colour selected"));
+            }
+        }
     }
 
     fn attached_parts(&self) -> Vec<(String, String, Vec<u32>)> {
@@ -4656,7 +5154,7 @@ impl Editor {
             return Ok(());
         };
         let id = layer.id.clone();
-        ui.label(format!("{} layer", layer.kind().name()));
+        ui.label(format!("{} layer", layer.kind_name()));
         let mut props: Vec<(String, Value)> = Vec::new();
         ui.horizontal(|ui| {
             if let Some(name) = self.text(
@@ -4757,6 +5255,32 @@ impl Editor {
         });
         ui.label("palette");
         let edit = self.palette_row(ui);
+        let variants: Vec<String> = self
+            .scene
+            .bundle
+            .doc
+            .variant_names()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let shown = self.scene.bundle.doc.shown_variant().to_string();
+        let mut show = None;
+        if variants.len() > 1 {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("variant");
+                variants.iter().for_each(|name| {
+                    let hint = match name == klad_core::doc::BASE_VARIANT {
+                        true => "show the palette itself".to_string(),
+                        false => format!(
+                            "show the drawing in the colours of {name}; colours changed while it is shown are its own"
+                        ),
+                    };
+                    if ui.selectable_label(*name == shown, name).hint(hint).clicked() && *name != shown {
+                        show = Some(name.clone());
+                    }
+                });
+            });
+        }
         ui.horizontal_wrapped(|ui| {
             let label = ui.label("name");
             ui.add(
@@ -4767,7 +5291,20 @@ impl Editor {
             .labelled_by(label.id)
             .hint("a name for the colour; agents can use it in place of the hex");
             self.command_button(ui, Cmd::AddSwatch, Some("add colour"));
+            if self.can_run(Cmd::UpdateSwatch).is_none() {
+                self.command_button(ui, Cmd::UpdateSwatch, Some("update"));
+            }
+            self.command_button(ui, Cmd::AddRamp, Some("ramp"));
+            self.command_button(ui, Cmd::LoadPalette, Some("palettes"));
+            if variants.len() > 1 || self.can_run(Cmd::NewVariant).is_none() {
+                self.command_button(ui, Cmd::NewVariant, Some("new variant"));
+            }
+            if !self.scene.bundle.doc.variants.shown.is_empty() {
+                self.command_button(ui, Cmd::RenameVariant, Some("rename variant"));
+                self.command_button(ui, Cmd::RemoveVariant, Some("remove variant"));
+            }
         });
+        let edit = edit.or(show.map(|name| klad_core::ops::PaletteEdit::Variant { name }));
         if !self.settings.recent.is_empty() {
             ui.label("recent");
             let recent = self.settings.recent.clone();
@@ -4999,6 +5536,7 @@ mod tests {
                 grab,
                 node: "c1:1,2".into(),
                 strokes: true,
+                whole: false,
                 fresh: false,
                 copy: false,
                 start: vec2(140.0, 80.0),

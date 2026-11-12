@@ -39,6 +39,7 @@ pub struct Seed {
 pub enum FillSource {
     Seed { seed: Seed, reference: FillRef },
     Polygon(Vec<[f32; 2]>),
+    Cells { entry: String, erase: bool },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -75,6 +76,35 @@ impl Coverage {
             height: (y1 - y0 + 1) as u32,
             alpha,
         }
+    }
+
+    pub fn from_cells(cells: &[[u32; 2]]) -> Self {
+        let (Some(x0), Some(y0)) = (cells.iter().map(|c| c[0]).min(), cells.iter().map(|c| c[1]).min()) else {
+            return Self::default();
+        };
+        let x1 = cells.iter().map(|c| c[0]).max().unwrap_or(x0);
+        let y1 = cells.iter().map(|c| c[1]).max().unwrap_or(y0);
+        let (width, height) = (x1 - x0 + 1, y1 - y0 + 1);
+        let mut alpha = vec![0u8; width as usize * height as usize];
+        cells
+            .iter()
+            .for_each(|c| alpha[((c[1] - y0) * width + (c[0] - x0)) as usize] = 255);
+        Self {
+            x: x0,
+            y: y0,
+            width,
+            height,
+            alpha,
+        }
+    }
+
+    pub fn cells(&self) -> impl Iterator<Item = [u32; 2]> + '_ {
+        let width = self.width.max(1);
+        self.alpha
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| **a > 0)
+            .map(move |(i, _)| [self.x + i as u32 % width, self.y + i as u32 / width])
     }
 
     pub fn is_empty(&self) -> bool {
@@ -188,8 +218,39 @@ impl Fill {
     pub fn reference(&self) -> Option<&FillRef> {
         match &self.source {
             FillSource::Seed { reference, .. } => Some(reference),
-            FillSource::Polygon(_) => None,
+            FillSource::Polygon(_) | FillSource::Cells { .. } => None,
         }
+    }
+
+    pub fn cells(id: u32, color: Rgba, entry: &str, erase: bool, coverage: Coverage) -> Self {
+        Self::new(
+            id,
+            color,
+            FillSource::Cells {
+                entry: entry.to_string(),
+                erase,
+            },
+            coverage,
+        )
+    }
+
+    pub fn centre(&self) -> Option<(f32, f32)> {
+        self.bounds().map(|[x0, y0, x1, y1]| ((x0 + x1) / 2.0, (y0 + y1) / 2.0))
+    }
+
+    pub fn entry(&self) -> Option<&str> {
+        match &self.source {
+            FillSource::Cells { entry, .. } if !entry.is_empty() => Some(entry),
+            _ => None,
+        }
+    }
+
+    pub fn on_grid(&self) -> bool {
+        matches!(self.source, FillSource::Cells { .. })
+    }
+
+    pub fn erases(&self) -> bool {
+        matches!(self.source, FillSource::Cells { erase: true, .. })
     }
 }
 
@@ -228,6 +289,12 @@ pub(crate) fn encode(out: &mut Vec<u8>, fill: &Fill) {
             out.push(1 | flags);
             varint::put(out, points.len() as u64);
             points.iter().flatten().for_each(|v| put_f32(out, *v));
+        }
+        FillSource::Cells { entry, erase } => {
+            out.push(2 | flags);
+            varint::put(out, entry.len() as u64);
+            out.extend_from_slice(entry.as_bytes());
+            out.push(u8::from(*erase));
         }
     }
     fill.coverage.encode(out);
@@ -278,6 +345,14 @@ pub(crate) fn decode(reader: &mut Reader) -> Result<Fill> {
                     .map(|_| Ok([reader.f32()?, reader.f32()?]))
                     .collect::<Result<_>>()?,
             )
+        }
+        2 => {
+            let len = reader.varint()? as usize;
+            let entry = String::from_utf8(reader.take(len)?.to_vec())?;
+            FillSource::Cells {
+                entry,
+                erase: reader.u8()? == 1,
+            }
         }
         other => bail!("unknown fill source {other}"),
     };
@@ -364,7 +439,20 @@ mod tests {
             keep: cut::Keep::Inside,
             polygon: vec![[0.0, 0.0], [20.0, 0.0], [0.0, 20.0]],
         }];
-        fills.iter().chain([&locked]).for_each(|fill| {
+        let cells = Coverage::from_cells(&[[4, 9], [5, 9], [7, 11]]);
+        assert_eq!((cells.x, cells.y, cells.width, cells.height), (4, 9, 4, 3));
+        assert_eq!(cells.cells().collect::<Vec<_>>(), [[4, 9], [5, 9], [7, 11]]);
+        assert!(Coverage::from_cells(&[]).is_empty());
+        let mut pixels = Fill::cells(6, [0.5, 0.25, 0.125, 1.0], "p3qa", false, cells.clone());
+        pixels.lock = true;
+        let eraser = Fill::cells(7, [0.0, 0.0, 0.0, 1.0], "", true, cells);
+        assert_eq!(
+            (pixels.entry(), pixels.erases(), pixels.on_grid()),
+            (Some("p3qa"), false, true)
+        );
+        assert_eq!((eraser.entry(), eraser.erases()), (None, true));
+        assert!(!locked.on_grid() && locked.entry().is_none());
+        fills.iter().chain([&locked, &pixels, &eraser]).for_each(|fill| {
             let mut bytes = Vec::new();
             encode(&mut bytes, fill);
             let mut reader = Reader::new(&bytes);

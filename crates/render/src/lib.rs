@@ -1,11 +1,14 @@
 pub mod align;
+pub mod aseprite;
 pub mod assets;
 pub mod effects;
 pub mod export;
 pub mod fonts;
 pub mod form;
+pub mod gif;
 pub mod onion;
 pub mod overlay;
+pub mod pixelise;
 pub mod pngwrite;
 pub mod shapes;
 pub mod sheet;
@@ -44,6 +47,22 @@ pub struct Frame {
 impl Frame {
     pub fn hash(&self) -> u64 {
         fnv(FNV_OFFSET, &self.rgba)
+    }
+
+    pub fn tiled(&self, times: u32) -> Frame {
+        let times = times.max(1) as usize;
+        let row = self.width as usize * 4;
+        let rgba = (0..self.height as usize * times)
+            .flat_map(|y| {
+                let line = &self.rgba[(y % self.height as usize) * row..][..row];
+                (0..times).flat_map(move |_| line.iter().copied())
+            })
+            .collect();
+        Frame {
+            width: self.width * times as u32,
+            height: self.height * times as u32,
+            rgba,
+        }
     }
 
     pub fn png(&mut self) -> Result<Vec<u8>> {
@@ -740,17 +759,24 @@ fn draw_content(canvas: &Canvas, layer: &Layer, ctx: Ctx) -> Result<()> {
     let pivot = ctx.doc.map_or((0.0, 0.0), |d| {
         (d.canvas.width as f32 / 2.0, d.canvas.height as f32 / 2.0)
     });
+    let grid = layer.grid_only();
+    let (x, y) = match grid {
+        true => (moved.x.round(), moved.y.round()),
+        false => (moved.x, moved.y),
+    };
     canvas.save();
-    canvas.translate((moved.x + pivot.0, moved.y + pivot.1));
+    canvas.translate((x + pivot.0, y + pivot.1));
     canvas.rotate(moved.rotate, None);
     canvas.scale((moved.sx, moved.sy));
     canvas.translate((-pivot.0, -pivot.1));
     let whole = Ctx {
         area: None,
-        sampling: Some(
-            ctx.sampling
+        sampling: Some(match grid {
+            true => SamplingOptions::new(FilterMode::Nearest, MipmapMode::None),
+            false => ctx
+                .sampling
                 .unwrap_or(SamplingOptions::new(FilterMode::Linear, MipmapMode::None)),
-        ),
+        }),
         ..ctx
     };
     let drawn = draw_unmoved(canvas, layer, whole);
@@ -1036,7 +1062,7 @@ pub fn compose_image(doc: &Document, frame: u32, rasters: &Rasters) -> Result<Im
     Ok(surface.image_snapshot())
 }
 
-fn resample(image: &Image, scale: f32) -> Result<Image> {
+pub(crate) fn resample(image: &Image, scale: f32) -> Result<Image> {
     let (w, h) = (
         ((image.width() as f32 * scale).round() as u32).max(1),
         ((image.height() as f32 * scale).round() as u32).max(1),

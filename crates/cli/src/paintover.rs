@@ -522,7 +522,7 @@ fn covers(mark: &Mark, at: P, reach: f32) -> bool {
         }
         Mark::Fill(f) => match &f.source {
             klad_core::fill::FillSource::Polygon(points) => crate::shapes::inside(std::slice::from_ref(points), at),
-            klad_core::fill::FillSource::Seed { .. } => {
+            klad_core::fill::FillSource::Seed { .. } | klad_core::fill::FillSource::Cells { .. } => {
                 at[0] >= 0.0 && at[1] >= 0.0 && f.coverage.at(at[0] as u32, at[1] as u32) > 0
             }
         },
@@ -546,7 +546,7 @@ fn outline_of(mark: &Mark) -> Option<Vec<(f32, f32)>> {
             klad_core::fill::FillSource::Polygon(points) => {
                 Some(points.iter().chain(points.first()).map(|p| (p[0], p[1])).collect())
             }
-            klad_core::fill::FillSource::Seed { .. } => None,
+            klad_core::fill::FillSource::Seed { .. } | klad_core::fill::FillSource::Cells { .. } => None,
         },
     }
 }

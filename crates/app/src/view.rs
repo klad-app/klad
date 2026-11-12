@@ -30,6 +30,26 @@ impl View {
         }
     }
 
+    pub fn whole(zoom: f32, pixels_per_point: f32) -> f32 {
+        let px = zoom * pixels_per_point;
+        match px >= 1.0 {
+            true => px.round().clamp(1.0, 64.0) / pixels_per_point,
+            false => zoom,
+        }
+    }
+
+    pub fn fit_whole(canvas: Vec2, area: Vec2, pixels_per_point: f32) -> Self {
+        let fit = Self::fit(canvas, area);
+        let px = fit.zoom * pixels_per_point;
+        Self {
+            zoom: match px >= 1.0 {
+                true => px.floor().clamp(1.0, 64.0) / pixels_per_point,
+                false => fit.zoom,
+            },
+            ..fit
+        }
+    }
+
     pub fn to_screen(self, canvas: Vec2, area: Vec2) -> Vec2 {
         rotate(mirror(canvas - self.center, self.flip), self.angle) * self.zoom + area / 2.0
     }
@@ -64,7 +84,7 @@ impl View {
         self.keep(anchor, at, area);
     }
 
-    pub fn uniform(self, area: Vec2, pixels_per_point: f32, canvas: Vec2) -> [f32; 12] {
+    pub fn uniform(self, area: Vec2, pixels_per_point: f32, canvas: Vec2, repeat: bool) -> [f32; 12] {
         let (s, c) = self.angle.sin_cos();
         let k = pixels_per_point * self.zoom;
         let f = if self.flip { -1.0 } else { 1.0 };
@@ -85,7 +105,7 @@ impl View {
             area.y * pixels_per_point,
             canvas.x,
             canvas.y,
-            pixels_per_point,
+            if repeat { 1.0 } else { 0.0 },
             8.0 * pixels_per_point,
         ]
     }
@@ -109,6 +129,33 @@ mod tests {
     }
 
     #[test]
+    fn a_pixel_drawing_fits_and_zooms_at_whole_screen_pixels_per_pixel() {
+        let area = Vec2::new(900.0, 700.0);
+        let fit = View::fit_whole(Vec2::new(64.0, 64.0), area, 2.0);
+        assert_eq!(
+            fit.zoom * 2.0,
+            20.0,
+            "the largest whole number under 700 * 0.92 * 2 / 64"
+        );
+        assert_eq!(fit.center, Vec2::new(32.0, 32.0));
+        let large = View::fit_whole(Vec2::new(4096.0, 4096.0), area, 2.0);
+        assert_eq!(
+            large.zoom,
+            View::fit(Vec2::new(4096.0, 4096.0), area).zoom,
+            "under real size it fits freely"
+        );
+        assert_eq!(View::whole(3.4, 1.0), 3.0);
+        assert_eq!(View::whole(3.6, 1.0), 4.0);
+        assert_eq!(
+            View::whole(1.3, 2.0),
+            1.5,
+            "on a dense screen half steps are whole screen pixels"
+        );
+        assert_eq!(View::whole(0.4, 1.0), 0.4);
+        assert_eq!(View::whole(200.0, 1.0), 64.0);
+    }
+
+    #[test]
     fn zoom_and_rotate_keep_the_anchor() {
         let area = Vec2::new(1000.0, 700.0);
         let mut view = View::fit(Vec2::new(2048.0, 2048.0), area);
@@ -124,7 +171,7 @@ mod tests {
         let area = Vec2::new(900.0, 600.0);
         let mut view = View::fit(Vec2::new(1024.0, 1024.0), area);
         view.angle = -0.3;
-        let u = view.uniform(area, 2.0, Vec2::new(1024.0, 1024.0));
+        let u = view.uniform(area, 2.0, Vec2::new(1024.0, 1024.0), false);
         let p = Vec2::new(100.0, 700.0);
         let px = Vec2::new(u[0] * p.x + u[1] * p.y + u[4], u[2] * p.x + u[3] * p.y + u[5]);
         assert!(close(px, view.to_screen(p, area) * 2.0));
@@ -145,7 +192,7 @@ mod tests {
         view.zoom_at(1.7, Vec2::new(200.0, 100.0), area);
         let p = Vec2::new(321.0, 654.0);
         assert!(close(view.to_canvas(view.to_screen(p, area), area), p));
-        let u = view.uniform(area, 2.0, Vec2::new(1000.0, 800.0));
+        let u = view.uniform(area, 2.0, Vec2::new(1000.0, 800.0), false);
         let px = Vec2::new(u[0] * p.x + u[1] * p.y + u[4], u[2] * p.x + u[3] * p.y + u[5]);
         assert!(close(px, view.to_screen(p, area) * 2.0));
         let before = view.to_screen(p, area);

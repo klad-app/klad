@@ -91,6 +91,16 @@ pub struct Settings {
     pub developer: bool,
     #[serde(default, rename = "eraserFeather", skip_serializing_if = "Option::is_none")]
     pub eraser_feather: Option<f32>,
+    #[serde(default = "yes", rename = "pixelGrid")]
+    pub pixel_grid: bool,
+    #[serde(default, rename = "realSizeShown", skip_serializing_if = "std::ops::Not::not")]
+    pub real_size_shown: bool,
+    #[serde(default = "one_u32", rename = "realSizeScale")]
+    pub real_size_scale: u32,
+}
+
+fn one_u32() -> u32 {
+    1
 }
 
 fn yes() -> bool {
@@ -116,12 +126,15 @@ impl Default for Settings {
             pick_all_layers: true,
             developer: false,
             eraser_feather: None,
+            pixel_grid: true,
+            real_size_shown: false,
+            real_size_scale: 1,
         }
     }
 }
 
 fn migrate(mut value: serde_json::Value) -> serde_json::Value {
-    const PANES: [&str; 5] = ["tool", "layers", "inspector", "notes", "history"];
+    const PANES: [&str; 7] = ["tool", "brush", "layers", "inspector", "notes", "history", "preview"];
     if let Some(panes) = value.pointer_mut("/layout/panes").and_then(|p| p.as_array_mut()) {
         panes.retain(|p| p["pane"].as_str().is_some_and(|name| PANES.contains(&name)));
     }
@@ -173,6 +186,17 @@ impl Settings {
         settings.layout = settings.layout.repaired();
         settings.ui_scale = settings.ui_scale.clamp(0.75, 2.0);
         settings
+    }
+
+    pub fn offer_real_size(&mut self, pixel_art: bool) -> bool {
+        if !pixel_art || self.real_size_shown {
+            return false;
+        }
+        self.real_size_shown = true;
+        if !self.layout.is_open(crate::layout::Pane::Preview) {
+            self.layout.toggle(crate::layout::Pane::Preview);
+        }
+        true
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
@@ -250,15 +274,36 @@ mod tests {
             &path,
             r#"{"uiScale":1.25,"recentDocuments":["/w/a.klad"],"agent":{"model":"m","limit":2.0},
                 "layout":{"dockWidth":400,"panes":[{"pane":"agent","open":true,"collapsed":false,"body":300},
-                {"pane":"layers","open":true,"collapsed":false,"body":200}]}}"#,
+                {"pane":"layers","open":true,"collapsed":false,"body":200},
+                {"pane":"brush","open":false,"collapsed":false,"body":150},
+                {"pane":"preview","open":true,"collapsed":true,"body":150}]}}"#,
         )
         .unwrap();
         let settings = Settings::load(&path);
         assert_eq!(settings.ui_scale, 1.25);
         assert_eq!(settings.documents, ["/w/a.klad"]);
         assert_eq!(settings.layout.dock_width, 400.0);
-        assert_eq!(settings.layout.panes.len(), 6);
+        assert_eq!(settings.layout.panes.len(), 7);
         assert_eq!(settings.layout.panes[0].pane, crate::layout::Pane::Layers);
+        let pane = |pane| settings.layout.pane(pane).map(|p| (p.open, p.collapsed));
+        assert_eq!(
+            pane(crate::layout::Pane::Brush),
+            Some((false, false)),
+            "a closed brush pane stays closed"
+        );
+        assert_eq!(
+            pane(crate::layout::Pane::Preview),
+            Some((true, true)),
+            "the real size pane comes back as it was left"
+        );
+        assert_eq!(
+            Settings::default()
+                .layout
+                .pane(crate::layout::Pane::Preview)
+                .map(|p| p.open),
+            Some(false),
+            "and is closed until a pixel drawing opens it"
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 

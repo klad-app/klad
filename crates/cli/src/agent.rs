@@ -14,6 +14,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 pub const PREVIEW_SIDE: f32 = 1024.0;
+pub const PIXEL_SIDE: f32 = 512.0;
 const STRING_KEYS: [&str; 5] = ["name", "d", "id", "link", "text"];
 
 pub struct Output {
@@ -32,6 +33,7 @@ pub struct Look {
     pub onion_layers: Option<Vec<String>>,
     pub tracks: Vec<String>,
     pub references: bool,
+    pub repeat: u32,
 }
 
 impl Look {
@@ -44,6 +46,7 @@ impl Look {
             onion_layers: None,
             tracks: Vec::new(),
             references: false,
+            repeat: 1,
         }
     }
 
@@ -126,7 +129,9 @@ pub fn add_op(what: &str, rest: &[String], place: Place) -> Result<Op> {
         "layer" => {
             let (kind, props) = match rest.split_first() {
                 Some((kind, props)) if !kind.contains('=') => (kind.clone(), props),
-                _ => bail!("say which kind: klad add <bundle> layer paint|vector|group|adjust|image [key=value ...]"),
+                _ => bail!(
+                    "say which kind: klad add <bundle> layer paint|pixel|vector|group|adjust|image [key=value ...]"
+                ),
             };
             let layer = match kind.as_str() {
                 "adjust" => crate::looks::adjust_layer(props)?,
@@ -173,10 +178,14 @@ pub fn add_op(what: &str, rest: &[String], place: Place) -> Result<Op> {
     }
 }
 
+pub fn pixel_scale(bundle: &Bundle, longest: f32) -> Option<f32> {
+    (bundle.doc.pixel_art() && longest <= PIXEL_SIDE).then(|| (PIXEL_SIDE / longest.max(1.0)).floor().clamp(1.0, 64.0))
+}
+
 fn preview_scale(bundle: &Bundle, scale: Option<f32>) -> f32 {
     scale.unwrap_or_else(|| {
         let longest = bundle.doc.canvas.width.max(bundle.doc.canvas.height) as f32;
-        (PREVIEW_SIDE / longest).min(1.0)
+        pixel_scale(bundle, longest).unwrap_or((PREVIEW_SIDE / longest).min(1.0))
     })
 }
 
@@ -366,7 +375,7 @@ pub fn focus_view(bundle: &Bundle, id: &str, frame: u32, scale: Option<f32>) -> 
     }
     let (rw, rh) = (x1 - x0, y1 - y0);
     Ok(View {
-        scale: scale.unwrap_or_else(|| PREVIEW_SIDE / rw.max(rh)),
+        scale: scale.unwrap_or_else(|| pixel_scale(bundle, rw.max(rh)).unwrap_or(PREVIEW_SIDE / rw.max(rh))),
         region: Some([x0 as i32, y0 as i32, rw as i32, rh as i32]),
         references: false,
     })
@@ -408,6 +417,7 @@ pub fn render_look(
                 boxes: kinds.bbox || kinds.parts,
                 ids: kinds.ids || kinds.parts,
                 grid: kinds.grid,
+                cells: bundle.doc.pixel_art(),
                 arcs: arcs_of(bundle, look, frame, kinds.arcs)?,
                 frame: Some(frame),
                 numbers: true,
@@ -432,14 +442,22 @@ pub fn render_look(
         .then(|| onions(bundle, frame, &onion_layers(bundle, look)?, look, &brushes))
         .transpose()?;
     let rasters: &Rasters = &loaded.rasters;
-    let mut image = compose_view(&bundle.doc, frame, rasters, view, overlay.as_ref(), onions.as_ref())?;
+    let image = compose_view(&bundle.doc, frame, rasters, view, overlay.as_ref(), onions.as_ref())?;
     let tag = match (overlay.is_some(), onions.is_some()) {
         (true, true) => "-overlay-onion",
         (true, false) => "-overlay",
         (false, true) => "-onion",
         (false, false) => "",
     };
-    let path = out.unwrap_or_else(|| render_path(bundle, frame, view, tag));
+    let tag = match look.repeat > 1 {
+        true => format!("{tag}-x{}", look.repeat),
+        false => tag.to_string(),
+    };
+    let mut image = match look.repeat > 1 {
+        true => image.tiled(look.repeat),
+        false => image,
+    };
+    let path = out.unwrap_or_else(|| render_path(bundle, frame, view, &tag));
     write_atomic(&path, &image.png()?)?;
     let note = match loaded.updated {
         0 => format!(
@@ -528,14 +546,21 @@ fn report(bundle: &Bundle, applied: &Applied, render: Option<PathBuf>, out: &Out
         .filter(|p| p.added().next().is_some())
         .for_each(|p| {
             let (fills, strokes): (Vec<&PaintMark>, Vec<&PaintMark>) = p.added().partition(|m| m.as_fill().is_some());
+            let (pixels, fills): (Vec<&PaintMark>, Vec<&PaintMark>) = fills
+                .into_iter()
+                .partition(|m| m.as_fill().is_some_and(|f| f.on_grid()));
             let list = |marks: &[&PaintMark], what: &str| {
                 let ids: Vec<String> = marks.iter().map(|m| m.id().to_string()).collect();
                 (!ids.is_empty()).then(|| format!("{what} {}", ids.join(" ")))
             };
-            let parts: Vec<String> = [list(&strokes, "strokes"), list(&fills, "fills")]
-                .into_iter()
-                .flatten()
-                .collect();
+            let parts: Vec<String> = [
+                list(&strokes, "strokes"),
+                list(&fills, "fills"),
+                list(&pixels, "pixel marks"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
             println!("painted on {} cel {}: {}", p.layer, p.cel, parts.join(", "));
         });
     applied
@@ -580,6 +605,8 @@ pub fn preview(bundle: &Bundle, out: &Output) -> Result<Option<PathBuf>> {
 pub fn edit(path: &Path, ops: &[Op], out: &Output) -> Result<()> {
     let mut bundle = Bundle::open(path)?;
     let mut ops = ops.to_vec();
+    ops.iter()
+        .try_for_each(|op| klad_core::ops::grid_refusal(&bundle.doc, op))?;
     crate::paintover::resolve(&bundle, &mut ops)?
         .iter()
         .for_each(|n| eprintln!("{n}"));
@@ -678,7 +705,7 @@ fn layer_summary(bundle: &Bundle, layer: &Layer, frame: u32) -> Result<Value> {
     let content = layer.content_at(frame);
     let mut value = json!({
         "id": layer.id,
-        "kind": layer.kind().name(),
+        "kind": layer.kind_name(),
         "name": layer.name,
         "visible": layer.visible,
         "opacity": layer.opacity,
@@ -822,6 +849,7 @@ fn print_layer(v: &Value, depth: usize, frames: u32) {
             Some(fills) => format!("{} strokes, {fills} fills", v["strokes"].as_u64().unwrap_or(0)),
             None => format!("{} strokes", v["strokes"].as_u64().unwrap_or(0)),
         },
+        Some("pixel") => format!("{} pixel marks", v["fills"].as_u64().unwrap_or(0)),
         Some("vector") => format!("{} nodes", v["nodes"].as_array().map_or(0, Vec::len)),
         Some("adjust") => v["adjust"]
             .as_object()

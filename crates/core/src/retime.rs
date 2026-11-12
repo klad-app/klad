@@ -171,7 +171,7 @@ fn rebuild(doc: &mut Document, path: &[usize], runs: Vec<Run>, out: &mut Applied
             }
         })
         .collect();
-    if let LayerContent::Paint { cels: list } | LayerContent::Vector { cels: list } =
+    if let LayerContent::Paint { cels: list, .. } | LayerContent::Vector { cels: list } =
         &mut doc.layer_at_mut(path).content
     {
         *list = cels;
