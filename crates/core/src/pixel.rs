@@ -1,4 +1,5 @@
 use crate::doc::Document;
+use crate::fill::{Coverage, Fill};
 use crate::path;
 use crate::stroke::Mark;
 use anyhow::{Result, bail};
@@ -361,6 +362,57 @@ pub fn grid_of(marks: &[Mark], width: u32, height: u32) -> Grid {
             });
     });
     Grid { width, height, cells }
+}
+
+fn shown(fill: &Fill) -> Vec<[u32; 2]> {
+    fill.coverage
+        .cells()
+        .filter(|c| crate::cut::keeps(&fill.cuts, (c[0] as f32 + 0.5, c[1] as f32 + 0.5)))
+        .collect()
+}
+
+fn keep(fill: &mut Fill, cells: &[[u32; 2]]) {
+    fill.coverage = Coverage::from_cells(cells);
+    fill.cuts.clear();
+}
+
+pub fn bake(marks: &mut Vec<Mark>) {
+    let settles = |m: &Mark| matches!(m, Mark::Fill(f) if f.on_grid() && (f.erases() || f.lock));
+    if !marks.iter().any(settles) {
+        return;
+    }
+    let mut out: Vec<Mark> = Vec::with_capacity(marks.len());
+    std::mem::take(marks).into_iter().for_each(|mark| match mark {
+        Mark::Fill(eraser) if eraser.on_grid() && eraser.erases() => {
+            let gone: BTreeSet<[u32; 2]> = shown(&eraser).into_iter().collect();
+            out.iter_mut().for_each(|m| {
+                if let Mark::Fill(under) = m
+                    && under.on_grid()
+                {
+                    let all = shown(under);
+                    let kept: Vec<[u32; 2]> = all.iter().copied().filter(|c| !gone.contains(c)).collect();
+                    if kept.len() != all.len() {
+                        keep(under, &kept);
+                    }
+                }
+            });
+            out.retain(|m| !matches!(m, Mark::Fill(f) if f.on_grid() && f.coverage.is_empty()));
+        }
+        Mark::Fill(mut locked) if locked.on_grid() && locked.lock => {
+            let painted: BTreeSet<[u32; 2]> = crate::stroke::fills_of(&out)
+                .filter(|f| f.on_grid())
+                .flat_map(shown)
+                .collect();
+            let kept: Vec<[u32; 2]> = shown(&locked).into_iter().filter(|c| painted.contains(c)).collect();
+            if !kept.is_empty() {
+                keep(&mut locked, &kept);
+                locked.lock = false;
+                out.push(Mark::Fill(locked));
+            }
+        }
+        other => out.push(other),
+    });
+    *marks = out;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

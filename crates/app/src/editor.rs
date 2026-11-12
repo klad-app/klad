@@ -3459,9 +3459,22 @@ impl Editor {
         }
     }
 
+    fn erases_nothing(&self, ops: &[Op]) -> bool {
+        let (w, h) = self.scene.size();
+        let grid = klad_core::pixel::grid_of(self.scene.active_marks(), w, h);
+        let painted = |c: &klad_core::pixel::Cell| {
+            c[0] >= 0 && c[1] >= 0 && c[0] < w as i64 && c[1] < h as i64 && grid.at(c[0] as u32, c[1] as u32).is_some()
+        };
+        ops.iter().all(|op| match op {
+            Op::Pixel(spec) => spec.erase && !spec.cells.iter().any(painted),
+            _ => false,
+        })
+    }
+
     pub(super) fn apply_pixels(&mut self, spec: klad_core::ops::PixelSpec) -> Result<()> {
         let drew = spec.color.is_some();
         match self.scene.bundle.settle_pixels(&[Op::Pixel(spec)]) {
+            Ok(ops) if self.erases_nothing(&ops) => {}
             Ok(ops) => {
                 self.apply(ops)?;
                 if drew {
@@ -3510,8 +3523,7 @@ impl Editor {
         if at[0] < 0 || at[1] < 0 || at[0] >= w as i64 || at[1] >= h as i64 {
             return Ok(());
         }
-        let erase = self.brush == "eraser";
-        let Some(spec) = self.pixel_spec(erase) else {
+        let Some(spec) = self.pixel_spec(false) else {
             return Ok(());
         };
         self.apply_pixels(klad_core::ops::PixelSpec {
@@ -3539,7 +3551,7 @@ impl Editor {
             (b[0] - a[0]).abs() + 1,
             (b[1] - a[1]).abs() + 1,
         ];
-        let spec = self.pixel_spec(self.brush == "eraser")?;
+        let spec = self.pixel_spec(false)?;
         Some(match self.pixel_shape {
             PixelShape::Rect => klad_core::ops::PixelSpec {
                 rect: Some(bounds),

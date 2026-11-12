@@ -1956,19 +1956,53 @@ fn the_brush_tool_is_a_pixel_pencil_and_eraser_on_a_pixel_layer() {
     click_with(&mut h, dot, Modifiers::NONE);
     h.run_steps(3);
     ready(&mut h);
-    let marks = h.state().scene.active_marks().to_vec();
-    assert!(marks[before + 3].as_fill().unwrap().erases());
-    let raster = h.state().scene.active_raster().unwrap();
-    assert_eq!(raster.alpha_at(25.5, 5.5), 0.0, "the erased pixel is clear");
-    assert_eq!(raster.alpha_at(24.5, 5.5), 1.0, "its neighbour is still there");
-    let palette = h.state().scene.bundle.doc.palette.len();
-    h.state_mut().invoke(Cmd::Undo).unwrap();
-    h.run_steps(3);
     assert_eq!(
         h.state().scene.active_marks().len(),
         before + 3,
-        "undo takes the eraser mark back"
+        "the eraser leaves no mark of its own"
     );
+    assert_eq!(
+        cells_of(&h, before + 2).len(),
+        8,
+        "it takes the pixel out of the mark under it"
+    );
+    let raster = h.state().scene.active_raster().unwrap();
+    assert_eq!(raster.alpha_at(25.5, 5.5), 0.0, "the erased pixel is clear");
+    assert_eq!(raster.alpha_at(24.5, 5.5), 1.0, "its neighbour is still there");
+    let empty = on_screen(&h, 29.5, 20.5);
+    click_with(&mut h, empty, Modifiers::NONE);
+    h.run_steps(3);
+    ready(&mut h);
+    h.state_mut().tool = Tool::Strokes;
+    h.state_mut().invoke(Cmd::SelectAll).unwrap();
+    h.run_steps(2);
+    let chosen: Vec<u32> = h.state().scene.active_marks().iter().map(|m| m.id()).collect();
+    let cel = h.state().scene.active_cel().unwrap();
+    let ids: Vec<String> = chosen.iter().map(|id| format!("\"{cel}:s{id}\"")).collect();
+    let ops = klad_core::ops::parse_lines(&format!(
+        r#"{{"op":"transform","ids":[{}],"x":4,"y":15}}"#,
+        ids.join(",")
+    ))
+    .unwrap();
+    h.state_mut().apply(ops).unwrap();
+    h.run_steps(3);
+    ready(&mut h);
+    let raster = h.state().scene.active_raster().unwrap();
+    assert_eq!(
+        (
+            raster.alpha_at(28.5, 20.5),
+            raster.alpha_at(29.5, 20.5),
+            raster.alpha_at(30.5, 20.5)
+        ),
+        (1.0, 0.0, 1.0),
+        "pixels moved over a place the eraser went stay whole; their own hole moves with them"
+    );
+    h.state_mut().invoke(Cmd::Undo).unwrap();
+    h.run_steps(3);
+    let palette = h.state().scene.bundle.doc.palette.len();
+    h.state_mut().invoke(Cmd::Undo).unwrap();
+    h.run_steps(3);
+    assert_eq!(cells_of(&h, before + 2).len(), 9, "undo puts the erased pixel back");
     assert_eq!(h.state().scene.bundle.doc.palette.len(), palette);
     let _ = std::fs::remove_dir_all(&path);
 }
@@ -2052,6 +2086,37 @@ fn the_fill_and_shape_tools_draw_whole_pixels_on_a_pixel_layer() {
     drag(&mut h, a, b);
     h.run_steps(3);
     assert_eq!(cells_of(&h, before + 3), (2..=9).map(|x| [x, 20]).collect::<Vec<_>>());
+    h.run_steps(2);
+    assert!(
+        h.query_by_label("filled").is_some(),
+        "the filled box stays in the bar when the line is picked"
+    );
+    h.state_mut().invoke(Cmd::Eraser).unwrap();
+    h.state_mut().pixel_shape = super::PixelShape::Rect;
+    h.state_mut().tool = Tool::Shape;
+    h.run_steps(2);
+    let (a, b) = (on_screen(&h, 2.5, 20.5), on_screen(&h, 4.5, 21.5));
+    drag(&mut h, a, b);
+    h.run_steps(3);
+    ready(&mut h);
+    h.state_mut().tool = Tool::Fill;
+    h.run_steps(2);
+    let inside = on_screen(&h, 23.5, 5.5);
+    click_with(&mut h, inside, Modifiers::NONE);
+    h.run_steps(3);
+    ready(&mut h);
+    let marks = h.state().scene.active_marks();
+    let last: Vec<&klad_core::fill::Fill> = marks.iter().rev().take(2).filter_map(|m| m.as_fill()).collect();
+    assert!(
+        last.len() == 2
+            && last
+                .iter()
+                .all(|f| !f.erases() && klad_core::color::to_hex(f.color()) == "#f2c14e"),
+        "after E, the shape and the fill tools still draw in the colour"
+    );
+    let doc = &h.state().scene.bundle.doc;
+    let grid = klad_core::pixel::grid_of(marks, doc.canvas.width, doc.canvas.height);
+    assert!(grid.at(3, 20).is_some() && grid.at(23, 5).is_some());
     let _ = std::fs::remove_dir_all(&path);
 }
 

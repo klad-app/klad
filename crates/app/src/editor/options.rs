@@ -448,10 +448,10 @@ impl Editor {
                             self.pixel_shape = *kind;
                         }
                     });
-                    if self.pixel_shape != super::PixelShape::Line {
-                        ui.checkbox(&mut self.pixel_filled, "filled")
-                            .hint("every pixel inside, not only the outline");
-                    }
+                    let closed = self.pixel_shape != super::PixelShape::Line;
+                    ui.add_enabled(closed, egui::Checkbox::new(&mut self.pixel_filled, "filled"))
+                        .hint("every pixel inside, not only the outline")
+                        .on_disabled_hover_text("a line has no inside: pick rectangle or ellipse to fill one");
                     self.pixel_inks(ui);
                     let label = ui.label("size");
                     ui.add(

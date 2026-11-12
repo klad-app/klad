@@ -4355,7 +4355,7 @@ fn put_pixels(doc: &mut Document, spec: &PixelSpec, out: &mut Applied) -> Result
     fill.lock = !fill.erases() && locks_alpha(doc, &spec.layer);
     let cel = paint_cel_at(doc, &spec.layer, spec.frame, out)?;
     out.push(&spec.layer, &cel, MarkChange::Add(vec![Mark::Fill(fill)]));
-    if let Some(name) = &spec.part {
+    if let Some(name) = spec.part.as_ref().filter(|_| !spec.erase) {
         out.push(
             &spec.layer,
             &cel,

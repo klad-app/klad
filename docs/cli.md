@@ -1840,7 +1840,7 @@ Options:
 ```text
 Put whole pixels of one palette colour on a pixel layer, or erase them. A pixel layer is a grid with no anti-aliasing where one pixel is one canvas pixel; make a pixel drawing with klad new --pixel 64x64, or add a layer with klad add <bundle> layer pixel.
 
---cells lists them: x,y for one pixel, x0-x1,y for a run along a row, x,y0-y1 for a run down a column and x0-x1,y0-y1 for a block. --color is a palette name, a palette index or #rrggbb; a colour the palette does not have yet is added to it. The pixels become one mark bound to that palette entry, so it can be recoloured (klad set <cel>:s<id> color=...), moved (klad transform) or removed (klad rm) later, and klad strokes lists it. --erase clears the pixels under it instead.
+--cells lists them: x,y for one pixel, x0-x1,y for a run along a row, x,y0-y1 for a run down a column and x0-x1,y0-y1 for a block. --color is a palette name, a palette index or #rrggbb; a colour the palette does not have yet is added to it. The pixels become one mark bound to that palette entry, so it can be recoloured (klad set <cel>:s<id> color=...), moved (klad transform) or removed (klad rm) later, and klad strokes lists it. --erase takes those pixels out of the marks under them instead, and leaves no mark of its own.
 
 --path draws SVG path data as a line of pixels: a pixel is the square from x,y to x+1,y+1, so aim at pixel middles (3.5, not 3). Straight segments keep the corners they are given; curves are cleaned so no corner is doubled. --size makes the pencil a square of that many pixels, for --cells and --path alike.
 

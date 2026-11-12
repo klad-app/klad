@@ -664,6 +664,19 @@ impl Bundle {
         change: &mut MarkChange,
         cel: &str,
     ) -> Result<()> {
+        self.change_marks(doc, plan, marks, change, cel)?;
+        crate::pixel::bake(marks);
+        Ok(())
+    }
+
+    fn change_marks(
+        &self,
+        doc: &Document,
+        plan: &[PendingMarks],
+        marks: &mut Vec<Mark>,
+        change: &mut MarkChange,
+        cel: &str,
+    ) -> Result<()> {
         match change {
             MarkChange::Copy { layer, cel, upto } => {
                 *marks = self.marks_after(doc, plan, layer, cel, *upto)?;
@@ -1712,7 +1725,12 @@ mod tests {
             [[3, 3], [4, 3], [5, 3]],
             "moves are whole pixels"
         );
-        assert!(fills[2].erases() && fills[2].entry().is_none());
+        assert_eq!(fills.len(), 2, "an eraser leaves no mark of its own");
+        assert_eq!(
+            fills[1].coverage.cells().collect::<Vec<_>>(),
+            [[3, 3]],
+            "it takes its pixels out of the marks under it"
+        );
         assert_eq!(
             bundle.doc.palette.len(),
             2,
@@ -2147,6 +2165,104 @@ mod tests {
             .contains("not several")
         );
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_eraser_on_a_pixel_layer_waits_for_nothing() {
+        use crate::fill::{Coverage, Fill};
+        use crate::ops::parse_lines;
+        let dir = scratch("pixel-eraser");
+        let mut bundle = Bundle::blank(
+            &dir,
+            &Blank {
+                width: 12,
+                height: 8,
+                pixel: true,
+                ..Blank::default()
+            },
+            "cli",
+        )
+        .unwrap();
+        let layer = bundle.doc.layers[0].id.clone();
+        let cel = bundle.doc.layers[0].cels()[0].id.clone();
+        let run = |bundle: &mut Bundle, lines: String| bundle.apply(&parse_lines(&lines).unwrap()).unwrap();
+        let grid = |bundle: &Bundle| {
+            let marks = bundle.read_marks(&layer, &cel).unwrap();
+            crate::pixel::grid_of(&marks, 12, 8)
+        };
+        let count = |bundle: &Bundle| bundle.read_marks(&layer, &cel).unwrap().len();
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}",
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"#aa3344","cells":[[1,1],[2,1],[3,1]]}}"##),
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","erase":true,"cells":[[7,1],[8,1],[2,1]]}}"##),
+            ),
+        );
+        assert_eq!(count(&bundle), 1, "the eraser is not kept as a mark");
+        assert_eq!(
+            (
+                grid(&bundle).at(1, 1).is_some(),
+                grid(&bundle).at(2, 1),
+                grid(&bundle).at(3, 1).is_some()
+            ),
+            (true, None, true),
+            "it took its pixel out of the mark under it"
+        );
+        let first = crate::markedit::address(&cel, bundle.read_marks(&layer, &cel).unwrap()[0].id());
+        run(
+            &mut bundle,
+            format!(r##"{{"op":"transform","ids":["{first}"],"x":6,"y":0}}"##),
+        );
+        assert_eq!(
+            [7, 8, 9].map(|x| grid(&bundle).at(x, 1).is_some()),
+            [true, false, true],
+            "pixels moved to where an eraser once went stay whole, and their hole moves with them"
+        );
+        let mut marks = bundle.read_marks(&layer, &cel).unwrap();
+        marks.push(
+            Fill::cells(
+                900,
+                [0.0, 0.0, 0.0, 1.0],
+                "",
+                true,
+                Coverage::from_cells(&[[1, 5], [2, 5]]),
+            )
+            .into(),
+        );
+        bundle.write_marks(&layer, &cel, &marks).unwrap();
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}",
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"#aa3344","cells":[[1,6]]}}"##),
+                format_args!(r##"{{"op":"transform","ids":["{first}"],"x":-6,"y":4}}"##),
+            ),
+        );
+        assert_eq!(
+            count(&bundle),
+            2,
+            "an eraser saved by an earlier build goes with the next edit"
+        );
+        assert!(
+            grid(&bundle).at(1, 5).is_some(),
+            "and erases nothing that comes by later"
+        );
+        run(
+            &mut bundle,
+            format!(
+                "{}\n{}",
+                format_args!(r##"{{"op":"set","id":"{layer}","lockAlpha":true}}"##),
+                format_args!(r##"{{"op":"pixel","layer":"{layer}","color":"#223355","cells":[[1,5],[2,5],[5,5]]}}"##),
+            ),
+        );
+        let marks = bundle.read_marks(&layer, &cel).unwrap();
+        let last = marks.last().and_then(Mark::as_fill).unwrap();
+        assert_eq!(
+            (last.coverage.cells().collect::<Vec<_>>(), last.lock),
+            (vec![[1, 5]], false),
+            "with alpha locked a mark keeps only the pixels it landed on"
+        );
     }
 
     #[test]

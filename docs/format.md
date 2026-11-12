@@ -1,4 +1,4 @@
-_Last updated: 2026-11-12 19:30 (format `klad/7`, stroke files `KLST` version 3, brushes `klad-brush/1`)_
+_Last updated: 2026-11-12 09:31 (format `klad/7`, stroke files `KLST` version 3, brushes `klad-brush/1`)_
 
 # The klad drawing format
 
@@ -126,7 +126,7 @@ Layers compose bottom to top. Groups compose their children into one image, then
 
 - **Clipping.** A layer with `clip: true` shows only where its base, the nearest layer below it in the same list without `clip`, has alpha. The base and the clipped layers above it draw as one group: each clipped layer blends onto the base with its own blend and opacity, kept inside the base's alpha; the group then blends with the base's blend and opacity. A hidden base hides its clipped layers; the lowest layer of a list is never clipped.
 - **Masks.** `mask` is a paint layer of its own (own id, cels and stroke files, `strokes/<mask id>/...`) with opacity 1 and blend normal. Its alpha hides the layer: marks on the mask hide, eraser strokes on it show the layer again, and a frame without a mask cel hides nothing. `visible: false` on the mask turns it off.
-- **Pixel layers.** A paint layer with `pixel: true` is a grid with no anti-aliasing where one pixel is one canvas pixel. Its drawings hold only pixel marks (a fill record whose source is cells, below): each is a set of whole pixels in the colour of one palette swatch, or a set of pixels to erase. klad refuses brush strokes and flood or lasso fills on it.
+- **Pixel layers.** A paint layer with `pixel: true` is a grid with no anti-aliasing where one pixel is one canvas pixel. Its drawings hold only pixel marks (a fill record whose source is cells, below): each is a set of whole pixels in the colour of one palette swatch. klad refuses brush strokes and flood or lasso fills on it.
 - **Lock alpha** is recorded on each stroke and fill as it is made (a flag in the stroke file), so turning `lockAlpha` off later never changes what was drawn. A locked mark composites source-atop: it changes colour where the layer has paint and leaves alpha as it was.
 
 ### Cels: drawings on the timeline
@@ -307,7 +307,7 @@ A reader that ignores attachments draws every drawing as it was when its erasers
 
 A fill is drawn from its stored **coverage**, not recomputed, so it looks the same however the lines around it change (`klad refill` recomputes it on purpose). Coverage is a box and run-length coded alpha: varints `x`, `y`, `width`, `height`, a varint count of runs, then each run as a varint length and a `u8` alpha, row by row through the box.
 
-A **pixel mark** is a fill whose source is cells. Its coverage holds only 0 and 255: the pixels it covers. It paints them in its colour, which is the colour of its swatch when it was made or last recoloured; a mark that erases clears the paint of the marks before it at those pixels and has no colour of its own. Moving one moves it by whole pixels, and scaling, flipping or turning it samples the nearest pixel, so it never gets a soft edge.
+A **pixel mark** is a fill whose source is cells. Its coverage holds only 0 and 255: the pixels it covers. It paints them in its colour, which is the colour of its swatch when it was made or last recoloured; a mark that erases clears the paint of the marks before it at those pixels and has no colour of its own. klad does not keep erasing marks: its eraser takes the pixels out of the marks before it, and a mark made with alpha locked keeps only the pixels that had paint under them, so no mark waits to change pixels that arrive later. A reader should still honour an erasing or locked pixel mark it meets; klad folds one into the marks before it on the next change to that drawing. Moving one moves it by whole pixels, and scaling, flipping or turning it samples the nearest pixel, so it never gets a soft edge.
 
 ### Cuts
 

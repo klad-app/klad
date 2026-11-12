@@ -584,12 +584,12 @@ fn a_pixel_drawing_is_made_drawn_listed_and_edited_from_the_command_line() {
     draw(&["pixel", path, &layer, "--erase", "--cells", "7,5 8,5"]);
     let listed = json(&["strokes", path, &layer, "--json"]);
     let marks = listed["fills"].as_array().unwrap();
-    assert_eq!(marks.len(), 3);
+    assert_eq!(marks.len(), 2, "the eraser leaves no mark of its own");
     assert_eq!(marks[0]["cells"].as_array().unwrap().len(), 32);
-    assert_eq!(marks[1]["cells"].as_array().unwrap().len(), 48);
     assert_eq!(
-        (marks[2]["erase"].as_bool(), marks[2]["cells"].as_array().unwrap().len()),
-        (Some(true), 2)
+        marks[1]["cells"].as_array().unwrap().len(),
+        46,
+        "it takes its two pixels out of the mark under it"
     );
     let palette = json(&["palette", path, "--json"]);
     assert_eq!(palette.as_array().unwrap().len(), 2);
@@ -600,7 +600,7 @@ fn a_pixel_drawing_is_made_drawn_listed_and_edited_from_the_command_line() {
     assert_eq!(marks[0]["entry"], palette[1]["id"]);
     let text = draw(&["strokes", path, &layer]);
     assert!(
-        text.contains("3 pixel marks, 82 cells") && text.contains("skin") && text.contains("erases"),
+        text.contains("2 pixel marks, 78 cells") && text.contains("skin") && !text.contains("erases"),
         "{text}"
     );
     let first = marks[0]["address"].as_str().unwrap().to_string();
@@ -609,7 +609,7 @@ fn a_pixel_drawing_is_made_drawn_listed_and_edited_from_the_command_line() {
     let after = json(&["strokes", path, &layer, "--json"]);
     assert_eq!(after["fills"][0]["entry"], palette[0]["id"]);
     assert_eq!(after["fills"][0]["bounds"][0].as_f64(), Some(4.0));
-    assert!(draw(&["ls", path]).contains("3 pixel marks"));
+    assert!(draw(&["ls", path]).contains("2 pixel marks"));
     let refused = run(&["stroke", path, &layer, "--path", "M1 1 L9 9"]);
     assert!(!refused.status.success());
     assert!(String::from_utf8_lossy(&refused.stderr).contains("pixel layer"));
@@ -639,7 +639,6 @@ fn a_pixel_drawing_is_made_drawn_listed_and_edited_from_the_command_line() {
         "--path",
         "M1.5 1.5 L5.5 1.5 L5.5 4.5",
     ]);
-    draw(&["pixel", path, &lines_id, "--erase", "--size", "3", "--cells", "5,1"]);
     let lines = json(&["strokes", path, &lines_id, "--json"]);
     let cells = |at: usize| -> Vec<(i64, i64)> {
         lines["fills"][at]["cells"]
@@ -660,7 +659,16 @@ fn a_pixel_drawing_is_made_drawn_listed_and_edited_from_the_command_line() {
     });
     assert!(!doubled, "a curve is one pixel thin with no corner doubled: {curve:?}");
     assert_eq!(cells(1).len(), 8, "a path's own corner is kept");
-    assert_eq!(cells(2).len(), 9, "a size is a square of whole pixels");
+    draw(&["pixel", path, &lines_id, "--erase", "--size", "3", "--cells", "5,1"]);
+    let erased = json(&["strokes", path, &lines_id, "--json"]);
+    assert_eq!(
+        (
+            erased["fills"].as_array().unwrap().len(),
+            erased["fills"][1]["cells"].as_array().unwrap().len()
+        ),
+        (2, 5),
+        "a size is a square of whole pixels: the eraser takes three of the path's and leaves no mark"
+    );
     draw(&["rm", path, &lines_id]);
     let wide = run(&[
         "pixel", path, &layer, "--color", "skin", "--cells", "1,1", "--size", "99",
