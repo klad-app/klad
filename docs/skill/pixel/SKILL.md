@@ -1,7 +1,7 @@
 ---
 name: klad-pixel
 license: MIT (LICENSE-MIT in the klad repository)
-description: The craft of pixel art, for an agent that draws sprites, tiles and small animations. How to choose a size and a palette, how to build a sprite from its silhouette, how to keep lines clean, when to outline, how to make ramps with hue shift, how to shade without pillow shading or banding, how to anti-alias by hand, how to make tiles that repeat and animations that read, and a checklist to judge the result at its real size. Use it with the klad skill whenever you draw on a pixel layer, and before you critique pixel art.
+description: The craft of pixel art, for an agent that draws sprites, tiles and small animations. How to choose a size and a palette, how to build a sprite from its silhouette, how to keep lines clean, when to outline, how to make ramps with hue shift, how to shade without pillow shading or banding, how to anti-alias by hand, how to make tiles that repeat, how to animate a walk and an idle frame by frame without the mechanical look, and a checklist to judge the result at its real size. Use it with the klad skill whenever you draw on a pixel layer, and before you critique pixel art.
 ---
 
 # Pixel art
@@ -91,12 +91,60 @@ A step in an edge can be softened with one pixel of a colour between the two tha
 
 ## Animation
 
-- **Few frames, strong poses.** An idle is two to four drawings, a walk four to six, an attack three to five: a pose that winds up, the strike, a pose that settles. Timing comes from how long each drawing holds, not from more drawings.
+A sprite is animated by drawing it again, not by moving it. A layer that slides, turns or hangs on a bone keeps one shape, and one shape in motion is what looks mechanical. klad refuses in-betweens and bones on a pixel layer for that reason. Every frame is its own drawing: read the one before (`klad pixels hero.klad l1 --frame 0 --plain`), change the text, write it to the new frame (`klad pixel hero.klad l1 --frame 1 --grid -`). To redraw a frame that exists, remove its marks and write the grid in one `klad apply`, so nothing of the old drawing stays under the new one.
+
+### Order of work
+
+1. **Key poses first,** the most dramatic ones. If the motion does not read from them alone, more drawings will not save it.
+2. **One part across all frames at a time:** legs, then the body's height, then arms and head, then what hangs loose.
+3. **Flat shapes until the motion is right.** Plates told apart by value survive a change of pose; plates told apart by dark lines turn into noise once a limb bends. Shading and detail last.
+4. **Few frames, strong poses.** An idle is two to five drawings, a walk eight (six or four if it must), an attack three to five: a pose that winds up, the strike, a pose that settles. Too many in-betweens make a motion sluggish.
+5. **Timing is in the holds,** not in more drawings. Set a fast clock (`klad timeline hero.klad --fps 16`) and let each drawing start as many frames after the last as it should hold. Even holds are the commonest mistake.
+
+### The walk
+
+Four poses for each step, so eight for the cycle. The second four are the first four with the legs swapped, not copies: the far leg is darker (two steps down its ramp, no glow), a pixel higher and drawn first.
+
+| Pose | Legs | Body |
+|---|---|---|
+| Contact | Front heel lands with the toe up, back foot on its toe, legs at their widest | A little low |
+| Down | Front foot flat and takes the weight, knee bent; back foot leaves the ground | Lowest. This is where weight shows |
+| Passing | Standing leg straight under the body, the other knee swings past it | Rising |
+| Up | Standing leg pushes off its toe, the swinging leg reaches forward | Highest |
+
+- **The legs change shape.** The knee comes forward, the shin shortens when it swings, the foot lands on the heel, lies flat, leaves on the toe. A leg that keeps one outline is the mechanical look.
+- **A planted foot slides back the same number of pixels on every pose** (4 px at 64 px tall). Uneven steps make the figure stretch like an accordion.
+- **A stride you can see.** At 64 px, 16 px between the feet at contact; less looks like shuffling. A foot longer than the stride never comes clear of the other one: shorten it.
+- **Heights at 64 px:** hips one pixel low at contact, two on the down pose, level at passing, one high on the up pose. Halve it at 32 px.
+- **Holds at 16 fps:** contact 2 frames, down 3, passing 2, up 2. A heavy figure is slower and stays longest on the down pose; a light one loses the down pose first.
+
+### What moves with what
+
+- **One rhythm.** Whatever is bolted to the body moves on the body's beat: the head on its neck, shoulder plates, a pack or a scabbard on the back, a weapon held in both hands. Delaying a stiff part by a frame does not read as weight. It reads as a part out of step.
+- **Only loose things lag:** cloth, hair, straps, hoses, a tail. One frame behind, and further at the free end. The end that is fastened moves with the body on every frame; a loose part that floats free of its anchor reads as debris.
+- **The bounce lives low.** Hips and chest take the step; shoulders and head are damped. Where the hips travel three pixels, the shoulders travel one. Shoulders that bob as far as the hips look like a toy.
+- **Nothing comes apart.** Where two parts move by different amounts, draw what is behind the seam: a neck behind the collar, the torso behind the arm, the skirt under the hand. Then look at every frame for a part that has let go: one pixel of background between an arm and its shoulder is seen at once.
+- **Joints keep their thickness.** An ankle, a knee or a wrist is as wide in every pose as in the first. After a shin or a foot has been tilted, look at the joint for holes and thin places, fill them and close the outline again.
+- **A stiff thing stays stiff.** A blade that leans by one pixel over its length reads as a broken blade. Move it whole with the hands and let a glint travel along it.
+
+### The idle
+
+- Movement is the only requirement, and breathing is the usual answer: the chest rises one pixel, holds, and falls, over one and a half to two seconds.
+- What rests on something stays there. Hands on a planted sword do not rise with the chest: the chest stretches by a row.
+- Let something small answer the breath a step later: a strap swings out, a glow grows and fades a few pixels at a time.
+- **Less than a pixel.** To move something by less than a pixel, move its shading instead of its outline: a highlight that shifts by one pixel makes a chest breathe. Do it on every pose or on none, or the one pose reads as blurred. On a small sprite a bold whole pixel is better.
+
+### Keep it clean
+
 - **Keep the volume.** A limb that loses a pixel of width on one frame flickers. Move clusters whole (`klad lasso --box x,y,w,h --cut --move 1,0`) and then repair their edges.
-- **Less than a pixel.** To move something by less than a pixel, move its shading instead of its outline: a highlight that shifts by one pixel makes a chest breathe.
-- **One pixel is a lot.** At 16 px a one-pixel squash is a big gesture. Use it on purpose.
-- **No jitter.** A pixel that changes between frames for no reason is seen. Compare each frame with the last (`klad render --frame 3 --overlay onion`), and build a frame from the one before: read it (`klad pixels hero.klad l1 --frame 0 --plain`), change the text, write it to the new frame (`klad pixel hero.klad l1 --frame 1 --grid -`).
-- **Judge it moving,** at speed and at the size it will be seen: `klad export hero.klad --gif --scale 4`. Watch the loop where the last frame meets the first.
+- **One pixel is a lot.** At 16 px a one-pixel squash is a big gesture. Use it on purpose, and push a motion a little past what looks right: small sprites swallow subtlety.
+- **No jitter.** A pixel that changes between frames for no reason is seen. Compare each frame with the last (`klad render --frame 3 --overlay onion`).
+
+### Judge it
+
+- **All the drawings side by side:** `klad render hero.klad --sheet 0-17 --drawings --cell 420`. Poses, heights and joints are judged here.
+- **Moving,** at speed and at the size it will be seen: `klad clip hero.klad --add walk --from 0 --to 17 --loop`, then `klad export hero.klad --gif walk --scale 6`. Watch the loop where the last frame meets the first.
+- **If you cannot watch a GIF, say so.** Rhythm, weight and parts out of step show only in motion. Ask the user to play it and pin notes on the frames that look wrong (`klad notes hero.klad` reads them, with the frame each is on), then redraw those frames.
 
 ## What goes wrong, and why
 
@@ -119,6 +167,6 @@ Look at `klad render --scale 1`, and check in this order:
 5. **Lines:** runs that repeat or change smoothly, no doubled corners.
 6. **`klad check`:** nothing to look at, or every finding is one you meant.
 7. **Tiles:** repeated three times, is there a seam or a grid?
-8. **Animation:** as a GIF at speed: does the volume hold, does the loop close, does anything flicker?
+8. **Animation:** as a GIF at speed: does the volume hold, does the loop close, does anything flicker? Is every fastened part on the body's beat, and does anything come apart?
 
 If you can name what would make it better, do that before you show it.
