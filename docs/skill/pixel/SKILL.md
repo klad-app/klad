@@ -30,7 +30,7 @@ You draw enlarged and the player sees it small, so what you see while working is
 A cluster is a group of touching pixels of one colour that reads as one shape. Pixel art is built from clusters, the way a painting is built from strokes.
 
 - Make clusters simple and a little chunky: wedges, crescents, blocks with one cut corner. A shadow is a shape, not a row.
-- A single pixel with no neighbour of its colour is noise unless it is a detail the viewer should find: an eye, a glint, a button. Decide which. `klad check` lists them as stray pixels.
+- A single pixel with no neighbour of its colour is noise unless it is a detail the viewer should find: an eye, a glint, a button. Decide which. `klad check` lists the ones that stand out as stray pixels (alone outside the shape, or alone in a flat area) and counts the ones that sit among other colours without listing them.
 - Avoid one-pixel strings of a colour running through a shape, and pixels scattered like salt. Both read as dirt.
 - Every edge between two clusters is a line and wants the care of a line.
 

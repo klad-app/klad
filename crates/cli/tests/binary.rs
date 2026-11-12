@@ -1177,6 +1177,55 @@ fn a_pixel_layer_animates_frame_by_frame_moves_by_whole_pixels_and_refuses_in_be
 }
 
 #[test]
+fn klad_check_lists_what_stands_out_and_counts_the_details() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-check-quiet-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("stud.klad");
+    let path = bundle.to_str().unwrap();
+    let draw = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    draw(&["new", path, "--pixel", "8x6"]);
+    let grid = dir.join("stud.txt");
+    std::fs::write(
+        &grid,
+        "a = #20222e\nb = #6a7088\nc = #c8cedc\ns = #ffcc33\n\naabbb...\naasbb...\nccccc...\n........\n........\n.......s\n",
+    )
+    .unwrap();
+    draw(&["pixel", path, "l1", "--grid", grid.to_str().unwrap()]);
+    let listed = draw(&["check", path]);
+    assert!(
+        listed.contains("frame 0: 1 to look at, 1 small one left out"),
+        "{listed}"
+    );
+    assert!(
+        listed.contains("7,5") && listed.contains("alone, outside the shape"),
+        "{listed}"
+    );
+    assert!(
+        listed.contains("1 left out: single pixels among other colours") && !listed.contains("2,1 "),
+        "{listed}"
+    );
+    let found: serde_json::Value = serde_json::from_str(&draw(&["check", path, "--json"])).unwrap();
+    let small: Vec<&serde_json::Value> = found["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["minor"] == true)
+        .collect();
+    assert_eq!(small.len(), 1, "{found}");
+    assert_eq!(small[0]["at"], serde_json::json!([2, 1]));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn a_pixel_drawing_exports_sharp_at_whole_number_scales_as_png_gif_sheet_and_godot_scene() {
     let dir = std::env::temp_dir().join(format!("draw-binary-pixel-export-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

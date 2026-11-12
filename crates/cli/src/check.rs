@@ -115,7 +115,10 @@ pub fn run(path: &Path, layer: Option<&str>, frame: u32, all: bool, as_json: boo
             })
         })
         .collect::<Result<_>>()?;
-    let total: usize = checked.iter().map(|c| c.found.len()).sum();
+    let total: usize = checked
+        .iter()
+        .map(|c| c.found.iter().filter(|f| !f.minor).count())
+        .sum();
     if as_json {
         let findings: Vec<serde_json::Value> = checked
             .iter()
@@ -129,6 +132,7 @@ pub fn run(path: &Path, layer: Option<&str>, frame: u32, all: bool, as_json: boo
                         "to": f.to,
                         "color": name_of(doc, &f.key),
                         "note": words(doc, f),
+                        "minor": f.minor,
                     })
                 })
             })
@@ -144,13 +148,22 @@ pub fn run(path: &Path, layer: Option<&str>, frame: u32, all: bool, as_json: boo
     }
     checked.iter().for_each(|c| {
         let head = format!("{} ({}), frame {}", c.layer.name, c.layer.id, c.frame);
-        if c.found.is_empty() {
-            println!("{head}: nothing to look at");
-            return;
-        }
-        println!("{head}: {} to look at", c.found.len());
+        let small = c.found.iter().filter(|f| f.minor).count();
+        let main = c.found.len() - small;
+        println!(
+            "{head}: {}{}",
+            match main {
+                0 => "nothing to look at".to_string(),
+                n => format!("{n} to look at"),
+            },
+            match small {
+                0 => String::new(),
+                1 => ", 1 small one left out".to_string(),
+                n => format!(", {n} small ones left out"),
+            }
+        );
         Kind::ALL.iter().for_each(|kind| {
-            let of_kind: Vec<&Finding> = c.found.iter().filter(|f| f.kind == *kind).collect();
+            let of_kind: Vec<&Finding> = c.found.iter().filter(|f| f.kind == *kind && !f.minor).collect();
             of_kind.iter().take(SHOWN).for_each(|f| {
                 println!(
                     "  {:<16} {:<16} {:<12} {}",
@@ -167,13 +180,28 @@ pub fn run(path: &Path, layer: Option<&str>, frame: u32, all: bool, as_json: boo
                     of_kind.len() - SHOWN
                 );
             }
+            let left_out = c.found.iter().filter(|f| f.kind == *kind && f.minor).count();
+            if left_out > 0 {
+                println!(
+                    "  {:<16} {left_out} left out: {} (--json lists them)",
+                    kind.name(),
+                    match kind {
+                        Kind::Stray => "single pixels among other colours, most likely details",
+                        _ => "where two shades meet, not in a drawn line",
+                    }
+                );
+            }
         });
     });
     if total > 0 {
         println!();
         Kind::ALL
             .iter()
-            .filter(|kind| checked.iter().any(|c| c.found.iter().any(|f| f.kind == **kind)))
+            .filter(|kind| {
+                checked
+                    .iter()
+                    .any(|c| c.found.iter().any(|f| f.kind == **kind && !f.minor))
+            })
             .for_each(|kind| println!("{}: {}", kind.name(), kind.advice()));
         println!("These are places to look at, not errors: a single pixel can be an eye.");
     }

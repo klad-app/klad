@@ -56,6 +56,8 @@ pub struct Finding {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub beside: Vec<String>,
     pub note: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub minor: bool,
 }
 
 type Cell = (i64, i64);
@@ -122,8 +124,36 @@ fn strays(field: &Field) -> Vec<Finding> {
             key: key.to_string(),
             beside: Vec::new(),
             note: "alone: no neighbour of its colour".into(),
+            minor: false,
         })
+        .map(|found| settled(field, found))
         .collect()
+}
+
+fn settled(field: &Field, found: Finding) -> Finding {
+    let cell = (found.at[0] as i64, found.at[1] as i64);
+    let around: Vec<Option<&str>> = AROUND
+        .iter()
+        .map(|(dx, dy)| field.at((cell.0 + dx, cell.1 + dy)))
+        .collect();
+    let empty = around.iter().filter(|key| key.is_none()).count();
+    let others: BTreeSet<&str> = around.iter().flatten().copied().collect();
+    match (empty >= 5, others.len() == 1 && empty <= 3) {
+        (true, _) => Finding {
+            note: "alone, outside the shape".into(),
+            ..found
+        },
+        (false, true) => Finding {
+            beside: others.iter().map(|key| key.to_string()).collect(),
+            note: "alone in a field of one colour".into(),
+            ..found
+        },
+        (false, false) => Finding {
+            note: "alone among other colours".into(),
+            minor: true,
+            ..found
+        },
+    }
 }
 
 fn elbow(field: &Field, cell: Cell, key: &str) -> Option<[Cell; 2]> {
@@ -142,7 +172,20 @@ fn elbow(field: &Field, cell: Cell, key: &str) -> Option<[Cell; 2]> {
     (square && !field.is(inside, key) && !meant).then_some([(cell.0 + a.0, cell.1 + a.1), (cell.0 + b.0, cell.1 + b.1)])
 }
 
-fn corners(field: &Field) -> Vec<Finding> {
+fn in_shading(field: &Field, cell: Cell, key: &str, colour: &dyn Fn(&str) -> Option<Rgba>) -> bool {
+    let light = |key: &str| colour(key).map(|c| to_oklab(c)[0]);
+    let Some(own) = light(key) else {
+        return false;
+    };
+    AROUND
+        .iter()
+        .filter_map(|(dx, dy)| field.at((cell.0 + dx, cell.1 + dy)))
+        .filter(|other| *other != key)
+        .filter_map(light)
+        .any(|other| other < own)
+}
+
+fn corners(field: &Field, colour: &dyn Fn(&str) -> Option<Rgba>) -> Vec<Finding> {
     field
         .cells()
         .filter(|(cell, key)| {
@@ -167,6 +210,18 @@ fn corners(field: &Field) -> Vec<Finding> {
             key: key.to_string(),
             beside: Vec::new(),
             note: "an L in a one-pixel line".into(),
+            minor: false,
+        })
+        .map(|found| {
+            let cell = (found.at[0] as i64, found.at[1] as i64);
+            match in_shading(field, cell, &found.key, colour) {
+                true => Finding {
+                    note: "an L where two shades meet, not in a drawn line".into(),
+                    minor: true,
+                    ..found
+                },
+                false => found,
+            }
         })
         .collect()
 }
@@ -298,6 +353,7 @@ fn jagged(field: &Field) -> Vec<Finding> {
                                 "a run of {} between runs of {} and {}",
                                 w[1].length, w[0].length, w[2].length
                             ),
+                            minor: false,
                         })
                         .collect::<Vec<_>>()
                 })
@@ -352,6 +408,7 @@ fn banding(field: &Field, colour: &dyn Fn(&str) -> Option<Rgba>) -> Vec<Finding>
                             key: first.1.to_string(),
                             beside: vec![first.0.to_string(), first.2.to_string()],
                             note: format!("one pixel wide for {length} pixels"),
+                            minor: false,
                         });
                     }
                     start += length;
@@ -380,6 +437,7 @@ fn off_palette(field: &Field) -> Vec<Finding> {
                 1 => "1 pixel".to_string(),
                 n => format!("{n} pixels, the first here"),
             },
+            minor: false,
         })
         .collect()
 }
@@ -388,7 +446,7 @@ pub fn check(grid: &Grid, wrap: bool, colour: &dyn Fn(&str) -> Option<Rgba>) -> 
     let field = Field { grid, wrap };
     let mut found: Vec<Finding> = strays(&field)
         .into_iter()
-        .chain(corners(&field))
+        .chain(corners(&field, colour))
         .chain(jagged(&field))
         .chain(banding(&field, colour))
         .chain(off_palette(&field))
@@ -396,6 +454,7 @@ pub fn check(grid: &Grid, wrap: bool, colour: &dyn Fn(&str) -> Option<Rgba>) -> 
     found.sort_by(|a, b| {
         a.kind
             .cmp(&b.kind)
+            .then(a.minor.cmp(&b.minor))
             .then(a.at[1].cmp(&b.at[1]))
             .then(a.at[0].cmp(&b.at[0]))
     });
@@ -454,6 +513,52 @@ mod tests {
             0,
             "on a canvas that wraps the two corners touch"
         );
+    }
+
+    #[test]
+    fn single_pixels_among_other_colours_and_corners_in_shading_are_small_findings() {
+        let all = |rows: &[&str]| check(&grid(rows), false, &shade);
+        let lone = |rows: &[&str]| -> Vec<(String, bool)> {
+            all(rows)
+                .into_iter()
+                .filter(|f| f.kind == Kind::Stray)
+                .map(|f| (f.note, f.minor))
+                .collect()
+        };
+        assert_eq!(
+            lone(&["i....", ".....", "....."]),
+            [("alone, outside the shape".to_string(), false)]
+        );
+        assert_eq!(
+            lone(&["bbbbb", "bbibb", "bbbbb"]),
+            [("alone in a field of one colour".to_string(), false)],
+            "a speck in a flat area stands out"
+        );
+        assert_eq!(
+            lone(&["aabbb", "aaibb", "ccccc"]),
+            [("alone among other colours".to_string(), true)],
+            "a stud where colours meet is most likely a detail"
+        );
+        let shaded = ["cbbbb", "bccbb", "bbcbb", "bbbcb"];
+        let corner: Vec<bool> = all(&shaded)
+            .into_iter()
+            .filter(|f| f.kind == Kind::Corner)
+            .map(|f| f.minor)
+            .collect();
+        assert_eq!(corner, [true], "a light L beside a darker shade is shading, not a line");
+        let drawn = ["ibbbb", "biibb", "bbibb", "bbbib"];
+        let corner: Vec<bool> = all(&drawn)
+            .into_iter()
+            .filter(|f| f.kind == Kind::Corner)
+            .map(|f| f.minor)
+            .collect();
+        assert_eq!(corner, [false], "the same L in the darkest colour is a drawn line");
+        let sorted: Vec<bool> = all(&["i....", ".....", "aabbb", "aaibb", "ccccc"])
+            .into_iter()
+            .filter(|f| f.kind == Kind::Stray)
+            .map(|f| f.minor)
+            .collect();
+        assert_eq!(sorted, [false, true], "what stands out comes first");
     }
 
     #[test]

@@ -3492,6 +3492,8 @@ Look over the pixel layers of a drawing for the usual slips of pixel art, and li
 
 Places are canvas pixels, x,y from the top left, the way klad pixels counts them. These are places to look at, not errors: a single pixel can be an eye, and a band can be a rim light. klad render --focus or klad pixels shows the spot; klad pixel fixes it.
 
+What stands out is listed first: a single pixel outside the shape or in a field of one colour, an L in a line drawn in the darkest colour around it. Single pixels that sit among other colours (studs, glints, shading) and corners where two shades meet are most likely meant: they are counted in one line as left out, and --json lists them with "minor": true.
+
 Usage: klad check [OPTIONS] <BUNDLE> [LAYER]
 
 Arguments:

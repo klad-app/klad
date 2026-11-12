@@ -4,6 +4,7 @@
 
 The first builds, and klad's licences.
 
+- `klad check` is quiet enough to read: it lists what stands out (a single pixel outside the shape or in a flat area, an L in a drawn line) and counts single pixels among other colours and corners in shading in one line as left out. A 64 px sprite that gave 77 findings gives 15. The editor's **Check pixels** marks the same ones.
 - `klad export -o` takes a folder that exists for every kind of export and puts the export in it under its usual name; a sheet used to land next to the folder.
 - A new icon, painted in klad: a K in two brush strokes.
 - Two pixel art samples, `sprout` (a 32 px character with an idle and a walk) and `ground` (a tileset of 16 px tiles), in the start window and `klad samples`, and a guide, Drawing pixel art.

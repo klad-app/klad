@@ -32,13 +32,18 @@ pub(super) fn tally(found: &[klad_core::pixelcheck::Finding]) -> String {
     let parts: Vec<String> = Kind::ALL
         .iter()
         .filter_map(|kind| {
-            let count = found.iter().filter(|f| f.kind == *kind).count();
+            let count = found.iter().filter(|f| f.kind == *kind && !f.minor).count();
             (count > 0).then(|| format!("{count} {}", kind.name()))
         })
         .collect();
+    let small = match found.iter().filter(|f| f.minor).count() {
+        0 => String::new(),
+        1 => " (1 small one, likely a detail, is not marked)".to_string(),
+        n => format!(" ({n} small ones, likely details, are not marked)"),
+    };
     match parts.is_empty() {
-        true => "nothing to look at on this layer".to_string(),
-        false => format!("to look at, marked on the canvas: {}", parts.join(", ")),
+        true => format!("nothing to look at on this layer{small}"),
+        false => format!("to look at, marked on the canvas: {}{small}", parts.join(", ")),
     }
 }
 
@@ -454,7 +459,7 @@ impl Editor {
         if let Some(check) = &self.checks.pixels {
             let words = tally(&check.found);
             self.say(
-                match check.found.is_empty() {
+                match check.found.iter().all(|f| f.minor) {
                     true => Tone::Done,
                     false => Tone::Refused,
                 },
@@ -479,7 +484,7 @@ impl Editor {
         let dark = Stroke::new(3.5, Color32::from_black_alpha(150));
         if let Some(check) = &self.checks.pixels {
             use klad_core::pixelcheck::Kind;
-            check.found.iter().for_each(|f| {
+            check.found.iter().filter(|f| !f.minor).for_each(|f| {
                 let tint = match f.kind {
                     Kind::Stray => Color32::from_rgb(255, 196, 0),
                     Kind::Corner => Color32::from_rgb(255, 80, 120),
@@ -555,6 +560,33 @@ impl Editor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_tally_counts_what_stands_out_and_names_the_small_ones() {
+        use klad_core::pixelcheck::{Finding, Kind};
+        let finding = |kind: Kind, minor: bool| Finding {
+            kind,
+            at: [1, 1],
+            to: [1, 1],
+            key: "ink".into(),
+            beside: Vec::new(),
+            note: String::new(),
+            minor,
+        };
+        assert_eq!(
+            tally(&[
+                finding(Kind::Stray, false),
+                finding(Kind::Stray, true),
+                finding(Kind::Corner, true)
+            ]),
+            "to look at, marked on the canvas: 1 stray pixel (2 small ones, likely details, are not marked)"
+        );
+        assert_eq!(
+            tally(&[finding(Kind::Stray, true)]),
+            "nothing to look at on this layer (1 small one, likely a detail, is not marked)"
+        );
+        assert_eq!(tally(&[]), "nothing to look at on this layer");
+    }
 
     #[test]
     fn the_job_arguments_are_the_cli_commands() {
