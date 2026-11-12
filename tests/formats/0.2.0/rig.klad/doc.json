@@ -1,0 +1,938 @@
+{
+  "format": "klad/7",
+  "canvas": {
+    "width": 800,
+    "height": 800,
+    "background": "#e9e2d4"
+  },
+  "timeline": {
+    "fps": 12,
+    "frames": 24,
+    "clips": [
+      {
+        "name": "wave",
+        "from": 0,
+        "to": 23,
+        "loop": true
+      }
+    ]
+  },
+  "layers": [
+    {
+      "id": "sky",
+      "name": "sky",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "c1",
+          "frame": 0,
+          "parts": {
+            "hill": [
+              1
+            ],
+            "moon": [
+              2
+            ]
+          }
+        }
+      ],
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": true,
+      "depth": 3.0
+    },
+    {
+      "id": "figure",
+      "name": "figure",
+      "kind": "group",
+      "children": [
+        {
+          "id": "colour",
+          "name": "colour",
+          "kind": "paint",
+          "cels": [
+            {
+              "id": "c2",
+              "frame": 0,
+              "hold": 1,
+              "parts": {
+                "body": [
+                  1
+                ],
+                "forearm": [
+                  4
+                ],
+                "hand": [
+                  5
+                ],
+                "head": [
+                  2
+                ],
+                "upper arm": [
+                  3
+                ]
+              }
+            },
+            {
+              "id": "c13",
+              "frame": 1,
+              "hold": 1,
+              "tween": {
+                "from": "c2",
+                "to": "c5",
+                "t": 0.25,
+                "made": "ad3dcb1486298b46"
+              },
+              "parts": {
+                "body": [
+                  1
+                ],
+                "forearm": [
+                  4
+                ],
+                "hand": [
+                  5
+                ],
+                "head": [
+                  2
+                ],
+                "upper arm": [
+                  3
+                ]
+              },
+              "pose": {
+                "rest": "c2",
+                "angles": {
+                  "fore": -13.75,
+                  "hand": -2.5,
+                  "upper": -8.75
+                }
+              }
+            },
+            {
+              "id": "c14",
+              "frame": 2,
+              "hold": 1,
+              "tween": {
+                "from": "c2",
+                "to": "c5",
+                "t": 0.5,
+                "made": "0768e2975d60ebad"
+              },
+              "parts": {
+                "body": [
+                  1
+                ],
+                "forearm": [
+                  4
+                ],
+                "hand": [
+                  5
+                ],
+                "head": [
+                  2
+                ],
+                "upper arm": [
+                  3
+                ]
+              },
+              "pose": {
+                "rest": "c2",
+                "angles": {
+                  "fore": -27.5,
+                  "hand": -5.0,
+                  "upper": -17.5
+                }
+              }
+            },
+            {
+              "id": "c15",
+              "frame": 3,
+              "hold": 1,
+              "tween": {
+                "from": "c2",
+                "to": "c5",
+                "t": 0.75,
+                "made": "fd4ca1e645da4c98"
+              },
+              "parts": {
+                "body": [
+                  1
+                ],
+                "forearm": [
+                  4
+                ],
+                "hand": [
+                  5
+                ],
+                "head": [
+                  2
+                ],
+                "upper arm": [
+                  3
+                ]
+              },
+              "pose": {
+                "rest": "c2",
+                "angles": {
+                  "fore": -41.25,
+                  "hand": -7.5,
+                  "upper": -26.25
+                }
+              }
+            },
+            {
+              "id": "c5",
+              "frame": 4,
+              "hold": 1,
+              "pose": {
+                "rest": "c2",
+                "angles": {
+                  "fore": -55.0,
+                  "hand": -10.0,
+                  "upper": -35.0
+                }
+              }
+            },
+            {
+              "id": "c19",
+              "frame": 5,
+              "hold": 1,
+              "tween": {
+                "from": "c5",
+                "to": "c7",
+                "t": 0.25,
+                "made": "dd4edd9e568fb3ec"
+              },
+              "pose": {
+                "rest": "c2",
+                "angles": {
+                  "fore": -46.25,
+                  "hand": -1.25,
+                  "upper": -38.75
+                }
+              }
+            },
+            {
+              "id": "c20",
+              "frame": 6,
+              "hold": 1,
+              "tween": {
+                "from": "c5",
+                "to": "c7",
+                "t": 0.5,
+                "made": "e2fc00ee5e8ea966"
+              },
+              "pose": {
+                "rest": "c2",
+                "angles": {
+                  "fore": -37.5,
+                  "hand": 7.5,
+                  "upper": -42.5
+                }
+              }
+            },
+            {
+              "id": "c21",
+              "frame": 7,
+              "hold": 1,
+              "tween": {
+                "from": "c5",
+                "to": "c7",
+                "t": 0.75,
+                "made": "84ad1e661f527ce9"
+              },
+              "pose": {
+                "rest": "c2",
+                "angles": {
+                  "fore": -28.75,
+                  "hand": 16.25,
+                  "upper": -46.25
+                }
+              }
+            },
+            {
+              "id": "c7",
+              "frame": 8,
+              "hold": 1,
+              "pose": {
+                "rest": "c2",
+                "angles": {
+                  "fore": -20.0,
+                  "hand": 25.0,
+                  "upper": -50.0
+                }
+              }
+            },
+            {
+              "id": "c25",
+              "frame": 9,
+              "hold": 1,
+              "tween": {
+                "from": "c7",
+                "to": "c9",
+                "t": 0.25,
+                "made": "84ad1e661f527ce9"
+              },
+              "pose": {
+                "rest": "c2",
+                "angles": {
+                  "fore": -28.75,
+                  "hand": 16.25,
+                  "upper": -46.25
+                }
+              }
+            },
+            {
+              "id": "c26",
+              "frame": 10,
+              "hold": 1,
+              "tween": {
+                "from": "c7",
+                "to": "c9",
+                "t": 0.5,
+                "made": "e2fc00ee5e8ea966"
+              },
+              "pose": {
+                "rest": "c2",
+                "angles": {
+                  "fore": -37.5,
+                  "hand": 7.5,
+                  "upper": -42.5
+                }
+              }
+            },
+            {
+              "id": "c27",
+              "frame": 11,
+              "hold": 1,
+              "tween": {
+                "from": "c7",
+                "to": "c9",
+                "t": 0.75,
+                "made": "dd4edd9e568fb3ec"
+              },
+              "pose": {
+                "rest": "c2",
+                "angles": {
+                  "fore": -46.25,
+                  "hand": -1.25,
+                  "upper": -38.75
+                }
+              }
+            },
+            {
+              "id": "c9",
+              "frame": 12,
+              "hold": 1,
+              "pose": {
+                "rest": "c2",
+                "angles": {
+                  "fore": -55.0,
+                  "hand": -10.0,
+                  "upper": -35.0
+                }
+              }
+            },
+            {
+              "id": "c31",
+              "frame": 13,
+              "hold": 1,
+              "tween": {
+                "from": "c9",
+                "to": "c11",
+                "t": 0.25,
+                "made": "dd4edd9e568fb3ec"
+              },
+              "pose": {
+                "rest": "c2",
+                "angles": {
+                  "fore": -46.25,
+                  "hand": -1.25,
+                  "upper": -38.75
+                }
+              }
+            },
+            {
+              "id": "c32",
+              "frame": 14,
+              "hold": 1,
+              "tween": {
+                "from": "c9",
+                "to": "c11",
+                "t": 0.5,
+                "made": "e2fc00ee5e8ea966"
+              },
+              "pose": {
+                "rest": "c2",
+                "angles": {
+                  "fore": -37.5,
+                  "hand": 7.5,
+                  "upper": -42.5
+                }
+              }
+            },
+            {
+              "id": "c33",
+              "frame": 15,
+              "hold": 1,
+              "tween": {
+                "from": "c9",
+                "to": "c11",
+                "t": 0.75,
+                "made": "84ad1e661f527ce9"
+              },
+              "pose": {
+                "rest": "c2",
+                "angles": {
+                  "fore": -28.75,
+                  "hand": 16.25,
+                  "upper": -46.25
+                }
+              }
+            },
+            {
+              "id": "c11",
+              "frame": 16,
+              "hold": 8,
+              "pose": {
+                "rest": "c2",
+                "angles": {
+                  "fore": -20.0,
+                  "hand": 25.0,
+                  "upper": -50.0
+                }
+              }
+            }
+          ],
+          "opacity": 1.0,
+          "blend": "normal",
+          "visible": true,
+          "rig": {
+            "skeleton": "bones"
+          }
+        },
+        {
+          "id": "lines",
+          "name": "lines",
+          "kind": "paint",
+          "cels": [
+            {
+              "id": "c3",
+              "frame": 0,
+              "hold": 1,
+              "parts": {
+                "body": [
+                  1
+                ],
+                "forearm": [
+                  5,
+                  6
+                ],
+                "head": [
+                  2,
+                  7,
+                  8
+                ],
+                "upper arm": [
+                  3,
+                  4
+                ]
+              }
+            },
+            {
+              "id": "c16",
+              "frame": 1,
+              "hold": 1,
+              "tween": {
+                "from": "c3",
+                "to": "c6",
+                "t": 0.25,
+                "made": "6421b74f3cf51f86"
+              },
+              "parts": {
+                "body": [
+                  1
+                ],
+                "forearm": [
+                  5,
+                  6
+                ],
+                "head": [
+                  2,
+                  7,
+                  8
+                ],
+                "upper arm": [
+                  3,
+                  4
+                ]
+              },
+              "pose": {
+                "rest": "c3",
+                "angles": {
+                  "fore": -13.75,
+                  "hand": -2.5,
+                  "upper": -8.75
+                }
+              }
+            },
+            {
+              "id": "c17",
+              "frame": 2,
+              "hold": 1,
+              "tween": {
+                "from": "c3",
+                "to": "c6",
+                "t": 0.5,
+                "made": "ddbfd3039517beb1"
+              },
+              "parts": {
+                "body": [
+                  1
+                ],
+                "forearm": [
+                  5,
+                  6
+                ],
+                "head": [
+                  2,
+                  7,
+                  8
+                ],
+                "upper arm": [
+                  3,
+                  4
+                ]
+              },
+              "pose": {
+                "rest": "c3",
+                "angles": {
+                  "fore": -27.5,
+                  "hand": -5.0,
+                  "upper": -17.5
+                }
+              }
+            },
+            {
+              "id": "c18",
+              "frame": 3,
+              "hold": 1,
+              "tween": {
+                "from": "c3",
+                "to": "c6",
+                "t": 0.75,
+                "made": "14559a8475801427"
+              },
+              "parts": {
+                "body": [
+                  1
+                ],
+                "forearm": [
+                  5,
+                  6
+                ],
+                "head": [
+                  2,
+                  7,
+                  8
+                ],
+                "upper arm": [
+                  3,
+                  4
+                ]
+              },
+              "pose": {
+                "rest": "c3",
+                "angles": {
+                  "fore": -41.25,
+                  "hand": -7.5,
+                  "upper": -26.25
+                }
+              }
+            },
+            {
+              "id": "c6",
+              "frame": 4,
+              "hold": 1,
+              "pose": {
+                "rest": "c3",
+                "angles": {
+                  "fore": -55.0,
+                  "hand": -10.0,
+                  "upper": -35.0
+                }
+              }
+            },
+            {
+              "id": "c22",
+              "frame": 5,
+              "hold": 1,
+              "tween": {
+                "from": "c6",
+                "to": "c8",
+                "t": 0.25,
+                "made": "2df37cfcbd3d5dc6"
+              },
+              "pose": {
+                "rest": "c3",
+                "angles": {
+                  "fore": -46.25,
+                  "hand": -1.25,
+                  "upper": -38.75
+                }
+              }
+            },
+            {
+              "id": "c23",
+              "frame": 6,
+              "hold": 1,
+              "tween": {
+                "from": "c6",
+                "to": "c8",
+                "t": 0.5,
+                "made": "30baea0bb5426bf3"
+              },
+              "pose": {
+                "rest": "c3",
+                "angles": {
+                  "fore": -37.5,
+                  "hand": 7.5,
+                  "upper": -42.5
+                }
+              }
+            },
+            {
+              "id": "c24",
+              "frame": 7,
+              "hold": 1,
+              "tween": {
+                "from": "c6",
+                "to": "c8",
+                "t": 0.75,
+                "made": "47f1554d5e043fef"
+              },
+              "pose": {
+                "rest": "c3",
+                "angles": {
+                  "fore": -28.75,
+                  "hand": 16.25,
+                  "upper": -46.25
+                }
+              }
+            },
+            {
+              "id": "c8",
+              "frame": 8,
+              "hold": 1,
+              "pose": {
+                "rest": "c3",
+                "angles": {
+                  "fore": -20.0,
+                  "hand": 25.0,
+                  "upper": -50.0
+                }
+              }
+            },
+            {
+              "id": "c28",
+              "frame": 9,
+              "hold": 1,
+              "tween": {
+                "from": "c8",
+                "to": "c10",
+                "t": 0.25,
+                "made": "47f1554d5e043fef"
+              },
+              "pose": {
+                "rest": "c3",
+                "angles": {
+                  "fore": -28.75,
+                  "hand": 16.25,
+                  "upper": -46.25
+                }
+              }
+            },
+            {
+              "id": "c29",
+              "frame": 10,
+              "hold": 1,
+              "tween": {
+                "from": "c8",
+                "to": "c10",
+                "t": 0.5,
+                "made": "30baea0bb5426bf3"
+              },
+              "pose": {
+                "rest": "c3",
+                "angles": {
+                  "fore": -37.5,
+                  "hand": 7.5,
+                  "upper": -42.5
+                }
+              }
+            },
+            {
+              "id": "c30",
+              "frame": 11,
+              "hold": 1,
+              "tween": {
+                "from": "c8",
+                "to": "c10",
+                "t": 0.75,
+                "made": "2df37cfcbd3d5dc6"
+              },
+              "pose": {
+                "rest": "c3",
+                "angles": {
+                  "fore": -46.25,
+                  "hand": -1.25,
+                  "upper": -38.75
+                }
+              }
+            },
+            {
+              "id": "c10",
+              "frame": 12,
+              "hold": 1,
+              "pose": {
+                "rest": "c3",
+                "angles": {
+                  "fore": -55.0,
+                  "hand": -10.0,
+                  "upper": -35.0
+                }
+              }
+            },
+            {
+              "id": "c34",
+              "frame": 13,
+              "hold": 1,
+              "tween": {
+                "from": "c10",
+                "to": "c12",
+                "t": 0.25,
+                "made": "2df37cfcbd3d5dc6"
+              },
+              "pose": {
+                "rest": "c3",
+                "angles": {
+                  "fore": -46.25,
+                  "hand": -1.25,
+                  "upper": -38.75
+                }
+              }
+            },
+            {
+              "id": "c35",
+              "frame": 14,
+              "hold": 1,
+              "tween": {
+                "from": "c10",
+                "to": "c12",
+                "t": 0.5,
+                "made": "30baea0bb5426bf3"
+              },
+              "pose": {
+                "rest": "c3",
+                "angles": {
+                  "fore": -37.5,
+                  "hand": 7.5,
+                  "upper": -42.5
+                }
+              }
+            },
+            {
+              "id": "c36",
+              "frame": 15,
+              "hold": 1,
+              "tween": {
+                "from": "c10",
+                "to": "c12",
+                "t": 0.75,
+                "made": "47f1554d5e043fef"
+              },
+              "pose": {
+                "rest": "c3",
+                "angles": {
+                  "fore": -28.75,
+                  "hand": 16.25,
+                  "upper": -46.25
+                }
+              }
+            },
+            {
+              "id": "c12",
+              "frame": 16,
+              "hold": 8,
+              "pose": {
+                "rest": "c3",
+                "angles": {
+                  "fore": -20.0,
+                  "hand": 25.0,
+                  "upper": -50.0
+                }
+              }
+            }
+          ],
+          "opacity": 1.0,
+          "blend": "normal",
+          "visible": true,
+          "rig": {
+            "skeleton": "bones"
+          }
+        },
+        {
+          "id": "bones",
+          "name": "bones",
+          "kind": "bones",
+          "opacity": 1.0,
+          "blend": "normal",
+          "visible": true,
+          "bones": [
+            {
+              "name": "body",
+              "head": [
+                400.0,
+                590.0
+              ],
+              "tail": [
+                400.0,
+                360.0
+              ]
+            },
+            {
+              "name": "head",
+              "parent": "body",
+              "head": [
+                400.0,
+                360.0
+              ],
+              "tail": [
+                400.0,
+                230.0
+              ]
+            },
+            {
+              "name": "upper",
+              "parent": "body",
+              "head": [
+                452.0,
+                392.0
+              ],
+              "tail": [
+                560.0,
+                360.0
+              ]
+            },
+            {
+              "name": "fore",
+              "parent": "upper",
+              "head": [
+                560.0,
+                360.0
+              ],
+              "tail": [
+                650.0,
+                330.0
+              ]
+            },
+            {
+              "name": "hand",
+              "parent": "fore",
+              "head": [
+                650.0,
+                330.0
+              ],
+              "tail": [
+                694.0,
+                316.0
+              ]
+            }
+          ]
+        }
+      ],
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": true
+    },
+    {
+      "id": "lantern",
+      "name": "lantern",
+      "kind": "vector",
+      "cels": [
+        {
+          "id": "c4",
+          "frame": 0,
+          "nodes": [
+            {
+              "id": "flame",
+              "type": "ellipse",
+              "cx": 170.0,
+              "cy": 260.0,
+              "rx": 20.0,
+              "ry": 28.0,
+              "fill": "#ffcc66",
+              "blur": 6.0,
+              "keys": {
+                "opacity": [
+                  {
+                    "frame": 0,
+                    "value": 1.0,
+                    "ease": "in-out"
+                  },
+                  {
+                    "frame": 6,
+                    "value": 0.55,
+                    "ease": "in-out"
+                  },
+                  {
+                    "frame": 12,
+                    "value": 1.0
+                  }
+                ]
+              }
+            },
+            {
+              "id": "lamp",
+              "type": "rect",
+              "x": 150.0,
+              "y": 230.0,
+              "w": 40.0,
+              "h": 64.0,
+              "radius": 8.0,
+              "fill": "none",
+              "stroke": {
+                "paint": "#1f1d26",
+                "width": 4.0,
+                "cap": "round",
+                "join": "round"
+              }
+            }
+          ]
+        }
+      ],
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": true,
+      "keys": {
+        "y": [
+          {
+            "frame": 0,
+            "value": 0.0,
+            "ease": "in-out"
+          },
+          {
+            "frame": 12,
+            "value": -18.0,
+            "ease": "in-out"
+          },
+          {
+            "frame": 23,
+            "value": 0.0
+          }
+        ]
+      }
+    }
+  ]
+}

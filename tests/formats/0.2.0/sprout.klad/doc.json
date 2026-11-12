@@ -1,0 +1,189 @@
+{
+  "format": "klad/7",
+  "canvas": {
+    "width": 32,
+    "height": 32
+  },
+  "timeline": {
+    "fps": 8,
+    "frames": 12,
+    "origin": [
+      16.0,
+      26.0
+    ],
+    "clips": [
+      {
+        "name": "idle",
+        "from": 0,
+        "to": 7,
+        "loop": true
+      },
+      {
+        "name": "walk",
+        "from": 8,
+        "to": 11,
+        "loop": true
+      }
+    ]
+  },
+  "palette": [
+    {
+      "color": "#231d2b",
+      "name": "ink",
+      "id": "p19"
+    },
+    {
+      "color": "#2c5a45",
+      "name": "leaf-1",
+      "id": "p23",
+      "ramp": "leaf"
+    },
+    {
+      "color": "#4a8a3c",
+      "name": "leaf-2",
+      "id": "p22",
+      "ramp": "leaf"
+    },
+    {
+      "color": "#8cc24a",
+      "name": "leaf-3",
+      "id": "p21",
+      "ramp": "leaf"
+    },
+    {
+      "color": "#4b2f2d",
+      "name": "soil-1",
+      "id": "p20",
+      "ramp": "soil"
+    },
+    {
+      "color": "#7d5136",
+      "name": "soil-2",
+      "id": "p25",
+      "ramp": "soil"
+    },
+    {
+      "color": "#b07f4f",
+      "name": "soil-3",
+      "id": "p24",
+      "ramp": "soil"
+    },
+    {
+      "color": "#27304f",
+      "name": "visor",
+      "id": "p26"
+    },
+    {
+      "color": "#e9f1ff",
+      "name": "eye",
+      "id": "p27"
+    }
+  ],
+  "layers": [
+    {
+      "id": "l-legs",
+      "name": "legs",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "c1",
+          "frame": 0
+        },
+        {
+          "id": "c2",
+          "frame": 4
+        },
+        {
+          "id": "c3",
+          "frame": 8
+        },
+        {
+          "id": "c4",
+          "frame": 9
+        },
+        {
+          "id": "c5",
+          "frame": 10
+        },
+        {
+          "id": "c6",
+          "frame": 11
+        }
+      ],
+      "pixel": true,
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": true
+    },
+    {
+      "id": "l-body",
+      "name": "body",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "c7",
+          "frame": 0
+        },
+        {
+          "id": "c8",
+          "frame": 4
+        },
+        {
+          "id": "c9",
+          "frame": 8
+        },
+        {
+          "id": "c10",
+          "frame": 9
+        },
+        {
+          "id": "c11",
+          "frame": 10
+        },
+        {
+          "id": "c12",
+          "frame": 11
+        }
+      ],
+      "pixel": true,
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": true
+    },
+    {
+      "id": "l-sprout",
+      "name": "sprout",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "c13",
+          "frame": 0
+        },
+        {
+          "id": "c14",
+          "frame": 4
+        },
+        {
+          "id": "c15",
+          "frame": 8
+        },
+        {
+          "id": "c16",
+          "frame": 9
+        },
+        {
+          "id": "c17",
+          "frame": 10
+        },
+        {
+          "id": "c18",
+          "frame": 11
+        }
+      ],
+      "pixel": true,
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": true
+    }
+  ]
+}

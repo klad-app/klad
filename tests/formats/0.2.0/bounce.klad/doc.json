@@ -1,0 +1,281 @@
+{
+  "format": "klad/7",
+  "canvas": {
+    "width": 1024,
+    "height": 768,
+    "background": "#f4efe6"
+  },
+  "timeline": {
+    "fps": 12,
+    "frames": 20,
+    "clips": [
+      {
+        "name": "bounce",
+        "from": 0,
+        "to": 14,
+        "loop": true
+      },
+      {
+        "name": "rest",
+        "from": 15,
+        "to": 19,
+        "loop": false,
+        "fps": 6
+      }
+    ]
+  },
+  "palette": [
+    {
+      "color": "#1d1a22",
+      "name": "ink"
+    },
+    {
+      "color": "#d8543c",
+      "name": "red"
+    },
+    {
+      "color": "#f2e3c4",
+      "name": "cream"
+    },
+    {
+      "color": "#cdb58f",
+      "name": "ground"
+    },
+    {
+      "color": "#3a3046",
+      "name": "shade"
+    }
+  ],
+  "layers": [
+    {
+      "id": "floor",
+      "name": "floor",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "floor0",
+          "frame": 0
+        }
+      ],
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": true
+    },
+    {
+      "id": "shadow",
+      "name": "shadow",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "shadow0",
+          "frame": 0,
+          "hold": 2
+        },
+        {
+          "id": "shadow2",
+          "frame": 2,
+          "hold": 2
+        },
+        {
+          "id": "shadow4",
+          "frame": 4,
+          "hold": 1
+        },
+        {
+          "id": "shadow5",
+          "frame": 5,
+          "hold": 1
+        },
+        {
+          "id": "shadow6",
+          "frame": 6,
+          "hold": 1
+        },
+        {
+          "id": "shadow7",
+          "frame": 7,
+          "hold": 1
+        },
+        {
+          "id": "shadow8",
+          "frame": 8,
+          "hold": 1
+        },
+        {
+          "id": "shadow9",
+          "frame": 9,
+          "hold": 1
+        },
+        {
+          "id": "shadow10",
+          "frame": 10,
+          "hold": 1
+        },
+        {
+          "id": "shadow11",
+          "frame": 11,
+          "hold": 2
+        },
+        {
+          "id": "shadow13",
+          "frame": 13,
+          "hold": 2
+        },
+        {
+          "id": "shadow15",
+          "frame": 15,
+          "hold": 5,
+          "link": "shadow0"
+        }
+      ],
+      "opacity": 0.45,
+      "blend": "multiply",
+      "visible": true
+    },
+    {
+      "id": "colour",
+      "name": "colour",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "colour0",
+          "frame": 0,
+          "hold": 2
+        },
+        {
+          "id": "colour2",
+          "frame": 2,
+          "hold": 2
+        },
+        {
+          "id": "colour4",
+          "frame": 4,
+          "hold": 1
+        },
+        {
+          "id": "colour5",
+          "frame": 5,
+          "hold": 1
+        },
+        {
+          "id": "colour6",
+          "frame": 6,
+          "hold": 1
+        },
+        {
+          "id": "colour7",
+          "frame": 7,
+          "hold": 1
+        },
+        {
+          "id": "colour8",
+          "frame": 8,
+          "hold": 1
+        },
+        {
+          "id": "colour9",
+          "frame": 9,
+          "hold": 1
+        },
+        {
+          "id": "colour10",
+          "frame": 10,
+          "hold": 1
+        },
+        {
+          "id": "colour11",
+          "frame": 11,
+          "hold": 2
+        },
+        {
+          "id": "colour13",
+          "frame": 13,
+          "hold": 2
+        },
+        {
+          "id": "colour15",
+          "frame": 15,
+          "hold": 5,
+          "link": "colour0"
+        }
+      ],
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": true
+    },
+    {
+      "id": "lines",
+      "name": "lines",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "lines0",
+          "frame": 0,
+          "hold": 2
+        },
+        {
+          "id": "lines2",
+          "frame": 2,
+          "hold": 2
+        },
+        {
+          "id": "lines4",
+          "frame": 4,
+          "hold": 1
+        },
+        {
+          "id": "lines5",
+          "frame": 5,
+          "hold": 1
+        },
+        {
+          "id": "lines6",
+          "frame": 6,
+          "hold": 1
+        },
+        {
+          "id": "lines7",
+          "frame": 7,
+          "hold": 1
+        },
+        {
+          "id": "lines8",
+          "frame": 8,
+          "hold": 1
+        },
+        {
+          "id": "lines9",
+          "frame": 9,
+          "hold": 1
+        },
+        {
+          "id": "lines10",
+          "frame": 10,
+          "hold": 1
+        },
+        {
+          "id": "lines11",
+          "frame": 11,
+          "hold": 2
+        },
+        {
+          "id": "lines13",
+          "frame": 13,
+          "hold": 2
+        },
+        {
+          "id": "lines15",
+          "frame": 15,
+          "hold": 5,
+          "link": "lines0"
+        }
+      ],
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": true
+    }
+  ],
+  "export": {
+    "godot": "bounce-godot"
+  }
+}

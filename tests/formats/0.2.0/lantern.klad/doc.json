@@ -1,0 +1,349 @@
+{
+  "format": "klad/7",
+  "canvas": {
+    "width": 1024,
+    "height": 1280
+  },
+  "timeline": {
+    "fps": 12,
+    "frames": 1
+  },
+  "palette": [
+    {
+      "color": "#15161c",
+      "name": "ink"
+    },
+    {
+      "color": "#3b4352",
+      "name": "iron"
+    },
+    {
+      "color": "#d3cab3",
+      "name": "bone"
+    },
+    {
+      "color": "#a9ecff",
+      "name": "glow"
+    },
+    {
+      "color": "#6b7584",
+      "name": "stone"
+    },
+    {
+      "color": "#4a5260",
+      "name": "stone dark"
+    },
+    {
+      "color": "#283039",
+      "name": "chain"
+    },
+    {
+      "color": "#56607e",
+      "name": "shadow"
+    },
+    {
+      "color": "#e2f5ff",
+      "name": "rim"
+    }
+  ],
+  "layers": [
+    {
+      "id": "sketch",
+      "name": "sketch",
+      "kind": "vector",
+      "cels": [
+        {
+          "id": "c1",
+          "frame": 0,
+          "nodes": [
+            {
+              "id": "post",
+              "type": "path",
+              "d": "M431 1088 C 419 950 451 760 435 600 C 419 470 425 380 449 330 C 481 260 600 250 646 300 C 668 328 674 362 664 392 L 650 388 C 658 366 654 338 636 318 C 600 280 506 286 488 336 C 466 384 462 470 478 600 C 494 760 466 950 474 1088 Z"
+            },
+            {
+              "id": "knob",
+              "type": "ellipse",
+              "cx": 657.0,
+              "cy": 392.0,
+              "rx": 10.0,
+              "ry": 10.0
+            },
+            {
+              "id": "edge-link",
+              "type": "path",
+              "d": "M649 419 C 649 415 655 415 655 419 L 654 436 C 654 440 648 440 648 436 Z"
+            },
+            {
+              "id": "bead",
+              "type": "ellipse",
+              "cx": 650.0,
+              "cy": 456.0,
+              "rx": 7.0,
+              "ry": 5.0
+            },
+            {
+              "id": "cap",
+              "type": "path",
+              "d": "M624 484 C 624 466 676 466 676 484 C 664 492 636 492 624 484 Z"
+            },
+            {
+              "id": "pod",
+              "type": "path",
+              "d": "M650 480 C 702 508 775 562 772 650 C 770 730 720 785 650 788 C 580 785 528 730 528 650 C 526 562 598 508 650 480 Z"
+            },
+            {
+              "id": "window",
+              "type": "ellipse",
+              "cx": 650.0,
+              "cy": 655.0,
+              "rx": 50.0,
+              "ry": 70.0
+            },
+            {
+              "id": "stone",
+              "type": "path",
+              "d": "M300 1180 C 298 1122 362 1088 452 1083 C 548 1078 646 1084 702 1112 C 742 1132 748 1176 722 1196 C 600 1206 420 1206 322 1200 C 307 1198 300 1191 300 1180 Z"
+            },
+            {
+              "id": "stone-side",
+              "type": "path",
+              "d": "M301 1172 C 380 1162 600 1160 744 1162 C 744 1180 736 1192 722 1196 C 600 1206 420 1206 322 1200 C 307 1198 300 1191 301 1172 Z"
+            },
+            {
+              "id": "left-tuft",
+              "type": "rect",
+              "x": 292.0,
+              "y": 1192.0,
+              "w": 44.0,
+              "h": 8.0
+            },
+            {
+              "id": "right-tuft",
+              "type": "rect",
+              "x": 690.0,
+              "y": 1190.0,
+              "w": 52.0,
+              "h": 8.0
+            }
+          ]
+        }
+      ],
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": false
+    },
+    {
+      "id": "halo",
+      "name": "halo",
+      "kind": "vector",
+      "cels": [
+        {
+          "id": "c2",
+          "frame": 0,
+          "nodes": [
+            {
+              "id": "n8",
+              "type": "ellipse",
+              "cx": 650.0,
+              "cy": 655.0,
+              "rx": 260.0,
+              "ry": 260.0,
+              "fill": {
+                "radial": {
+                  "center": [
+                    650.0,
+                    655.0
+                  ],
+                  "radius": 260.0,
+                  "stops": [
+                    [
+                      0.0,
+                      "#7fd6ff66"
+                    ],
+                    [
+                      0.45,
+                      "#3f9fd022"
+                    ],
+                    [
+                      1.0,
+                      "#2a6f8800"
+                    ]
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "opacity": 1.0,
+      "blend": "screen",
+      "visible": true
+    },
+    {
+      "id": "flats",
+      "name": "flats",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "c3",
+          "frame": 0
+        }
+      ],
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": true
+    },
+    {
+      "id": "shade",
+      "name": "shade",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "c4",
+          "frame": 0
+        }
+      ],
+      "opacity": 0.8,
+      "blend": "multiply",
+      "visible": true,
+      "clip": true
+    },
+    {
+      "id": "rim",
+      "name": "rim",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "c5",
+          "frame": 0
+        }
+      ],
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": true,
+      "clip": true
+    },
+    {
+      "id": "lines",
+      "name": "lines",
+      "kind": "paint",
+      "cels": [
+        {
+          "id": "c6",
+          "frame": 0
+        }
+      ],
+      "opacity": 1.0,
+      "blend": "normal",
+      "visible": true
+    },
+    {
+      "id": "light",
+      "name": "light",
+      "kind": "vector",
+      "cels": [
+        {
+          "id": "c7",
+          "frame": 0,
+          "nodes": [
+            {
+              "id": "n9",
+              "type": "ellipse",
+              "cx": 650.0,
+              "cy": 668.0,
+              "rx": 64.0,
+              "ry": 64.0,
+              "fill": {
+                "radial": {
+                  "center": [
+                    650.0,
+                    668.0
+                  ],
+                  "radius": 64.0,
+                  "stops": [
+                    [
+                      0.0,
+                      "#f4feffff"
+                    ],
+                    [
+                      0.5,
+                      "#bff0ff88"
+                    ],
+                    [
+                      1.0,
+                      "#6fd0ff00"
+                    ]
+                  ]
+                }
+              }
+            },
+            {
+              "id": "n10",
+              "type": "ellipse",
+              "cx": 560.0,
+              "cy": 560.0,
+              "rx": 4.0,
+              "ry": 4.0,
+              "fill": "#dff8ffcc",
+              "blur": 3.2
+            },
+            {
+              "id": "n11",
+              "type": "ellipse",
+              "cx": 742.0,
+              "cy": 520.0,
+              "rx": 3.0,
+              "ry": 3.0,
+              "fill": "#dff8ffcc",
+              "blur": 2.4
+            },
+            {
+              "id": "n12",
+              "type": "ellipse",
+              "cx": 770.0,
+              "cy": 712.0,
+              "rx": 5.0,
+              "ry": 5.0,
+              "fill": "#dff8ffcc",
+              "blur": 4.0
+            },
+            {
+              "id": "n13",
+              "type": "ellipse",
+              "cx": 590.0,
+              "cy": 830.0,
+              "rx": 3.0,
+              "ry": 3.0,
+              "fill": "#dff8ffcc",
+              "blur": 2.4
+            },
+            {
+              "id": "n14",
+              "type": "ellipse",
+              "cx": 708.0,
+              "cy": 452.0,
+              "rx": 2.5,
+              "ry": 2.5,
+              "fill": "#dff8ffcc",
+              "blur": 2.0
+            },
+            {
+              "id": "n15",
+              "type": "ellipse",
+              "cx": 520.0,
+              "cy": 700.0,
+              "rx": 2.5,
+              "ry": 2.5,
+              "fill": "#dff8ffcc",
+              "blur": 2.0
+            }
+          ]
+        }
+      ],
+      "opacity": 1.0,
+      "blend": "add",
+      "visible": true
+    }
+  ]
+}
