@@ -81,9 +81,11 @@ klad export creature.klad --godot ../game/art
 
 A pixel layer holds whole pixels, each one bound to a palette colour: change the colour and every pixel drawn with it follows. The editor zooms in whole steps, shows a grid between the pixels and keeps a panel with the sprite at its real size.
 
+![A knight in plate armour walking, sword upright in one hand, eight drawings](docs/images/knight-walk.gif) ![The knight's idle, five drawings held](docs/images/knight-idle.gif)
+
 ![The sprout's walk, four drawings](docs/images/sprout-walk.gif) ![The sprout's idle, two drawings held](docs/images/sprout-idle.gif) ![A tileset: grass over earth in nine pieces, a floating platform, a stone block and a flower](docs/images/ground.png)
 
-*The pixel samples that come with klad: `sprout`, 32 pixels with a walk and an idle, and `ground`, twelve tiles of 16 pixels.*
+*A knight of 64 pixels, drawn pixel by pixel by an agent, with a walk of eight drawings and an idle of five. Below it the pixel samples that come with klad: `sprout`, 32 pixels with a walk and an idle, and `ground`, twelve tiles of 16 pixels.*
 
 - **Draw on the grid.** A pencil and an eraser, fill, rectangles, ellipses and lines, a mirror line, and a box that selects pixels to move, flip, turn or recolour.
 - **Shade.** Ramps of five steps, lighter and darker inks that step a pixel along its ramp, dithering, and a one-pixel outline.
