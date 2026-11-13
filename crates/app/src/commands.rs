@@ -2326,7 +2326,7 @@ impl Cmd {
                 G::File,
                 T::Press(const { &[cmd(Key::O)] }),
                 R::No,
-                "pick a .klad folder and switch to it; this one stays saved",
+                "pick a .klad drawing and switch to it; this one stays saved",
             ),
             Cmd::OpenRecent => spec(
                 "file.recent",
@@ -2488,7 +2488,7 @@ impl Cmd {
                 G::File,
                 T::None,
                 R::No,
-                "puts the .klad folder's path on the clipboard, to hand to the agent",
+                "puts the drawing's path on the clipboard, to hand to the agent",
             ),
             Cmd::NudgeDown => spec(
                 "edit.nudge-down",

@@ -218,7 +218,7 @@ impl Home {
                 }
                 (Picked::Run(Cmd::OpenDocument), None) if picker::NATIVE => {
                     let folder = self.settings.drawings_folder();
-                    picker::choose_folder(Some(&folder), "Open").or(path)
+                    picker::choose_drawing(Some(&folder), "Open").or(path)
                 }
                 (Picked::Run(Cmd::OpenDocument), None) => {
                     self.start = Some(Start::new(&self.settings, Section::Open));
@@ -274,7 +274,7 @@ impl Home {
                     Some(Want::Recent) => self.start = Some(Start::new(&editor.settings, Section::Recent)),
                     Some(Want::Open) if picker::NATIVE => {
                         let folder = editor.settings.drawings_folder();
-                        chosen = picker::choose_folder(Some(&folder), "Open").and_then(|path| {
+                        chosen = picker::choose_drawing(Some(&folder), "Open").and_then(|path| {
                             start::openable(&path)
                                 .map_err(|e| editor.error(format!("{e:#}")))
                                 .ok()

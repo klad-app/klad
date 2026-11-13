@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Nothing yet.
+- Fixed opening a drawing on the Mac: **Choose a .klad file...** in the start window (it said folder) and **File > Open…** could not pick a `.klad` drawing, which Finder shows as one file. The open panel now takes a `.klad` drawing; other files are greyed out.
 
 ## 0.2.0 (2026-11-12)
 
