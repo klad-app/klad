@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Nothing yet.
+- Light maps for 2D lighting: a normal map (OpenGL style, green up, as Godot expects), a height map, a specular map and an emission map, made from what is drawn. The drawing's surface rounds in from its outline by a bevel (**round**, **chamfer**, **pillow** or **flat**), rises where paint with body is thick, and follows height layers you paint (white raises, black lowers); a top layer can have a surface of its own, and layers can paint the normal, specular and emission maps directly. Map layers never show in the picture. **Window > Light maps** turns them on and holds the settings; **View > Next light map** (**M**) shows each map over the canvas, **View > Lit** shows the drawing lit by its preview lights, and holding **L** lights it with the pointer. From the command line: `klad maps art.klad --on`, `klad set art.klad l7 map=height`, `klad set art.klad g2 surface.bevel=12`, `klad lights art.klad --add point --at 120,80`, `klad render art.klad --map normal` and `--lit`, `klad hash art.klad --map normal`. Drawings are saved in format `klad/8`; older drawings open unchanged.
 
 ## 0.2.0 (2026-11-12)
 

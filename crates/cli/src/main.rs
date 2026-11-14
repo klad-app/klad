@@ -18,6 +18,7 @@ mod install;
 mod keys;
 mod layers;
 mod looks;
+mod maps;
 mod marks;
 mod paintover;
 mod paths;
@@ -542,6 +543,53 @@ enum Command {
         flags: EditFlags,
     },
     #[command(
+        about = "Light maps: show, set or turn off the drawing's normal, height, specular and emission maps",
+        long_about = "Light maps for 2D lighting in a game: a normal map (OpenGL style, green up, as Godot expects), a height map, a specular map and an emission map, made from what is drawn. Each layer at the top of the stack is part of the drawing's surface, or a surface of its own (klad set art.klad g2 surface.bevel=6); the surface rounds in from its outline by the bevel, rises where paint with body is thick, and follows the height layers painted on it (klad set art.klad l7 map=height: white raises, black lowers, by the range). Layers with map=normal, map=specular or map=emission paint those maps directly. Map layers are never drawn in the picture. See them with klad render --map normal, and lit with klad lights and klad render --lit.\n\n  klad maps art.klad\n  klad maps art.klad --on\n  klad maps art.klad bevel=12 profile=round strength=1.5 body=1 range=12\n  klad maps art.klad ambient=#30303c shininess=24\n  klad maps art.klad --off\n\nThe surface: bevel (px the rim rounds over), profile (round, chamfer, pillow or flat), strength (how steep the slopes read), body (how much paint with body raises it, 0 for none), range (px a white height layer raises). The light preview: ambient (the colour where no light reaches, like Godot's CanvasModulate) and shininess (how tight the highlights on the specular map are)."
+    )]
+    Maps {
+        bundle: PathBuf,
+        props: Vec<String>,
+        #[arg(long, help = "Turn the maps on with the default surface")]
+        on: bool,
+        #[arg(
+            long,
+            help = "Turn the maps off: the surface and the lights are forgotten, map layers stay"
+        )]
+        off: bool,
+        #[command(flatten)]
+        flags: EditFlags,
+    },
+    #[command(
+        about = "Preview lights: list, add, change or remove the lights klad render --lit and the editor light the drawing with",
+        long_about = "Lights to preview the light maps with, kept in the drawing (never in its picture). A point light sits at x,y on the canvas, height px in front of it, and fades out at range px; a directional light comes from the direction x,y, its height from 0 (along the picture) to 1 (straight from the front), as in Godot's PointLight2D and DirectionalLight2D.\n\n  klad lights art.klad\n  klad lights art.klad --add point --at 120,80 --height 90 --color '#ffd9a0' --energy 1.2 --range 500\n  klad lights art.klad --add directional --at -1,-1 --height 0.4\n  klad lights art.klad --set 1 --at 300,80\n  klad lights art.klad --rm 2\n  klad lights art.klad --clear\n\nklad render art.klad --lit shows the drawing lit by them."
+    )]
+    Lights {
+        bundle: PathBuf,
+        #[arg(long, value_name = "point|directional", help = "Add a light")]
+        add: Option<String>,
+        #[arg(long = "set", value_name = "N", help = "Change light N (from 1, as listed)")]
+        change: Option<usize>,
+        #[arg(long, value_name = "N", help = "Remove light N")]
+        rm: Option<usize>,
+        #[arg(long, help = "Remove every light")]
+        clear: bool,
+        #[arg(long, allow_hyphen_values = true, value_parser = maps::parse_at, help = "A point light's place x,y, or the direction x,y a directional light comes from")]
+        at: Option<[f32; 2]>,
+        #[arg(
+            long,
+            help = "A point light's px in front of the canvas, or a directional light's 0 to 1"
+        )]
+        height: Option<f32>,
+        #[arg(long)]
+        color: Option<String>,
+        #[arg(long)]
+        energy: Option<f32>,
+        #[arg(long, help = "A point light's px to where it fades out")]
+        range: Option<f32>,
+        #[command(flatten)]
+        flags: EditFlags,
+    },
+    #[command(
         about = "Show the timeline (fps, length, origin, clips) or set fps, length and origin",
         long_about = "Show the timeline (fps, length, origin, clips) or set fps, length and origin.\n\n  klad timeline art.klad\n  klad timeline art.klad --fps 12 --frames 24\n  klad timeline art.klad --origin 512,700      the canvas point a Godot export puts on the node's position\n  klad timeline art.klad --origin centre       back to the middle of the canvas (the default)"
     )]
@@ -915,6 +963,17 @@ enum Command {
         cell: u32,
         #[arg(long, help = "With --sheet: cells per row (default: about square)")]
         columns: Option<usize>,
+        #[arg(
+            long,
+            value_name = "normal|height|specular|emission",
+            help = "Render one of the light maps instead of the picture (see klad maps)"
+        )]
+        map: Option<String>,
+        #[arg(
+            long,
+            help = "Render the picture lit by the drawing's lights through its maps (see klad lights)"
+        )]
+        lit: bool,
     },
     #[command(
         about = "Paint a stroke with a brush along an SVG path or explicit points",
@@ -2255,6 +2314,12 @@ enum Command {
         all: bool,
         #[arg(long)]
         no_cache: bool,
+        #[arg(
+            long,
+            value_name = "normal|height|specular|emission",
+            help = "Hash a light map instead of the picture"
+        )]
+        map: Option<String>,
     },
     #[command(about = "Write a sample bundle (vector sky and hills, painted glow, clouds, hatching, grass)")]
     Demo {
@@ -3276,6 +3341,35 @@ fn run() -> Result<()> {
             region,
             focus,
             overlay,
+            repeat,
+            onion,
+            sheet,
+            track,
+            map,
+            lit,
+            ..
+        } if map.is_some() || lit => {
+            if sheet.is_some()
+                || overlay.is_some()
+                || focus.is_some()
+                || onion.is_some()
+                || !track.is_empty()
+                || repeat > 1
+            {
+                return Err(anyhow!(
+                    "--map and --lit render the whole frame (with --scale, --region and --frame): not with --sheet, --overlay, --focus, --onion, --track or --repeat"
+                ));
+            }
+            maps::render(&bundle, out, frame, (scale, region), map.as_deref(), lit)?
+        }
+        Command::Render {
+            bundle,
+            out,
+            frame,
+            scale,
+            region,
+            focus,
+            overlay,
             depth,
             no_cache,
             repeat,
@@ -3290,6 +3384,7 @@ fn run() -> Result<()> {
             cell,
             columns,
             track,
+            ..
         } => {
             let defaults = klad_render::onion::Onion::default();
             let (before, after) = onion.unwrap_or((defaults.before, defaults.after));
@@ -4439,6 +4534,40 @@ fn run() -> Result<()> {
             off,
             flags,
         } => looks::atmosphere(&bundle, &props, off, &output(&flags, 0))?,
+        Command::Maps {
+            bundle,
+            props,
+            on,
+            off,
+            flags,
+        } => maps::maps(&bundle, &props, on, off, &output(&flags, 0))?,
+        Command::Lights {
+            bundle,
+            add,
+            change,
+            rm,
+            clear,
+            at,
+            height,
+            color,
+            energy,
+            range,
+            flags,
+        } => maps::lights(
+            &bundle,
+            &maps::LightArgs {
+                add,
+                change,
+                rm,
+                clear,
+                at,
+                height,
+                color,
+                energy,
+                range,
+            },
+            &output(&flags, 0),
+        )?,
         Command::Effect {
             bundle,
             layer,
@@ -4502,7 +4631,21 @@ fn run() -> Result<()> {
             bundle,
             frame,
             all,
+            map: Some(map),
+            ..
+        } => {
+            let frames: Vec<u32> = match all {
+                true => (0..Bundle::open(&bundle)?.doc.timeline.frames).collect(),
+                false => vec![frame],
+            };
+            maps::hash(&bundle, &frames, &map)?
+        }
+        Command::Hash {
+            bundle,
+            frame,
+            all,
             no_cache,
+            map: None,
         } => match all {
             true => hash_all(&bundle, !no_cache)?,
             false => hash(&bundle, frame, !no_cache)?,

@@ -10,7 +10,7 @@ pub fn migrate(value: Value) -> Result<Value> {
         .to_string();
     match format.as_str() {
         FORMAT => Ok(value),
-        "klad/4" | "klad/5" | "klad/6" => Ok(uncount(value)),
+        "klad/4" | "klad/5" | "klad/6" | "klad/7" => Ok(uncount(value)),
         "klad/1" | "klad/2" | "klad/3" => {
             let mut value = value;
             if let Some(layers) = value.get_mut("layers").and_then(Value::as_array_mut) {
@@ -103,8 +103,13 @@ mod tests {
             json!({"format": FORMAT, "layers": []}),
             "klad/7 adds pixel layers and palette ids; a klad/6 drawing opens unchanged"
         );
+        assert_eq!(
+            migrate(json!({"format": "klad/7", "layers": []})).unwrap(),
+            json!({"format": FORMAT, "layers": []}),
+            "klad/8 adds maps, surfaces and map layers; a klad/7 drawing opens unchanged"
+        );
         assert!(
-            migrate(json!({"format": "klad/8"}))
+            migrate(json!({"format": "klad/9"}))
                 .unwrap_err()
                 .to_string()
                 .contains("newer klad")

@@ -24,6 +24,8 @@ This reference is licensed under the MIT License (`LICENSE-MIT`), unlike klad it
 - [`klad font`](#klad-font): Copy a font into the bundle for text nodes, by name or from a file, or list the fonts it has
 - [`klad fonts`](#klad-fonts): List the fonts that come with klad, search the open fonts it can download, or download one
 - [`klad atmosphere`](#klad-atmosphere): Fog and haze by depth: show, set or turn off the document's atmosphere
+- [`klad maps`](#klad-maps): Light maps: show, set or turn off the drawing's normal, height, specular and emission maps
+- [`klad lights`](#klad-lights): Preview lights: list, add, change or remove the lights klad render --lit and the editor light the drawing with
 - [`klad timeline`](#klad-timeline): Show the timeline (fps, length, origin, clips) or set fps, length and origin
 - [`klad clip`](#klad-clip): List, add, change, rename and remove clips (named frame ranges)
 - [`klad ls`](#klad-ls): Layer tree with ids, kinds, contents and bounds at a frame, top layer first
@@ -855,6 +857,115 @@ Options:
           Print help (see a summary with '-h')
 ```
 
+## klad maps
+
+```text
+Light maps for 2D lighting in a game: a normal map (OpenGL style, green up, as Godot expects), a height map, a specular map and an emission map, made from what is drawn. Each layer at the top of the stack is part of the drawing's surface, or a surface of its own (klad set art.klad g2 surface.bevel=6); the surface rounds in from its outline by the bevel, rises where paint with body is thick, and follows the height layers painted on it (klad set art.klad l7 map=height: white raises, black lowers, by the range). Layers with map=normal, map=specular or map=emission paint those maps directly. Map layers are never drawn in the picture. See them with klad render --map normal, and lit with klad lights and klad render --lit.
+
+  klad maps art.klad
+  klad maps art.klad --on
+  klad maps art.klad bevel=12 profile=round strength=1.5 body=1 range=12
+  klad maps art.klad ambient=#30303c shininess=24
+  klad maps art.klad --off
+
+The surface: bevel (px the rim rounds over), profile (round, chamfer, pillow or flat), strength (how steep the slopes read), body (how much paint with body raises it, 0 for none), range (px a white height layer raises). The light preview: ambient (the colour where no light reaches, like Godot's CanvasModulate) and shininess (how tight the highlights on the specular map are).
+
+Usage: klad maps [OPTIONS] <BUNDLE> [PROPS]...
+
+Arguments:
+  <BUNDLE>
+
+
+  [PROPS]...
+
+
+Options:
+      --on
+          Turn the maps on with the default surface
+
+      --off
+          Turn the maps off: the surface and the lights are forgotten, map layers stay
+
+      --render
+          Render a preview after the edit and print its path
+
+      --scale <SCALE>
+          Preview scale (default: longest side 1024 px)
+
+      --json
+          Print the result as JSON
+
+      --overlay <OVERLAY>
+          Draw on the preview: ids, bbox, grid or all (comma separated)
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## klad lights
+
+```text
+Lights to preview the light maps with, kept in the drawing (never in its picture). A point light sits at x,y on the canvas, height px in front of it, and fades out at range px; a directional light comes from the direction x,y, its height from 0 (along the picture) to 1 (straight from the front), as in Godot's PointLight2D and DirectionalLight2D.
+
+  klad lights art.klad
+  klad lights art.klad --add point --at 120,80 --height 90 --color '#ffd9a0' --energy 1.2 --range 500
+  klad lights art.klad --add directional --at -1,-1 --height 0.4
+  klad lights art.klad --set 1 --at 300,80
+  klad lights art.klad --rm 2
+  klad lights art.klad --clear
+
+klad render art.klad --lit shows the drawing lit by them.
+
+Usage: klad lights [OPTIONS] <BUNDLE>
+
+Arguments:
+  <BUNDLE>
+
+
+Options:
+      --add <point|directional>
+          Add a light
+
+      --set <N>
+          Change light N (from 1, as listed)
+
+      --rm <N>
+          Remove light N
+
+      --clear
+          Remove every light
+
+      --at <AT>
+          A point light's place x,y, or the direction x,y a directional light comes from
+
+      --height <HEIGHT>
+          A point light's px in front of the canvas, or a directional light's 0 to 1
+
+      --color <COLOR>
+
+
+      --energy <ENERGY>
+
+
+      --range <RANGE>
+          A point light's px to where it fades out
+
+      --render
+          Render a preview after the edit and print its path
+
+      --scale <SCALE>
+          Preview scale (default: longest side 1024 px)
+
+      --json
+          Print the result as JSON
+
+      --overlay <OVERLAY>
+          Draw on the preview: ids, bbox, grid or all (comma separated)
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
 ## klad timeline
 
 ```text
@@ -1667,6 +1778,12 @@ Options:
 
       --columns <COLUMNS>
           With --sheet: cells per row (default: about square)
+
+      --map <normal|height|specular|emission>
+          Render one of the light maps instead of the picture (see klad maps)
+
+      --lit
+          Render the picture lit by the drawing's lights through its maps (see klad lights)
 
   -h, --help
           Print help
@@ -3979,6 +4096,9 @@ Options:
 
       --no-cache
 
+
+      --map <normal|height|specular|emission>
+          Hash a light map instead of the picture
 
   -h, --help
           Print help

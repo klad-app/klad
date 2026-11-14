@@ -31,6 +31,8 @@ const LAYER_KEYS: &[&str] = &[
     "effects",
     "adjust",
     "depth",
+    "surface",
+    "map",
     "reference",
     "bones",
     "ik",
@@ -147,6 +149,7 @@ pub enum Op {
         tile: Option<Option<[u32; 2]>>,
     },
     Atmosphere(Option<crate::look::Atmosphere>),
+    Maps(Option<crate::maps::Maps>),
     Frames(FrameSpec),
     Cel(CelSpec),
     Retime(RetimeSpec),
@@ -1822,6 +1825,11 @@ impl Op {
                 Some(Value::Bool(true)) => Op::Atmosphere(None),
                 Some(other) if other != Value::Bool(false) => bail!("atmosphere: off takes true or false"),
                 _ => Op::Atmosphere(Some(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?)),
+            },
+            "maps" => match map.remove("off") {
+                Some(Value::Bool(true)) => Op::Maps(None),
+                Some(other) if other != Value::Bool(false) => bail!("maps: off takes true or false"),
+                _ => Op::Maps(Some(serde_json::from_value(Value::Object(std::mem::take(&mut map)))?)),
             },
             "canvas" => Op::Canvas {
                 wrap: match map.remove("wrap") {
@@ -4221,6 +4229,13 @@ pub fn apply(doc: &mut Document, op: &Op, out: &mut Applied) -> Result<()> {
             }
             doc.atmosphere = air.clone();
             out.changed.push("atmosphere".into());
+        }
+        Op::Maps(maps) => {
+            if let Some(maps) = maps {
+                maps.validate()?;
+            }
+            doc.maps = maps.clone();
+            out.changed.push("maps".into());
         }
         Op::Canvas { wrap, tile } => {
             if wrap.is_none() && tile.is_none() {

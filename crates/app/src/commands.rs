@@ -13,6 +13,9 @@ pub enum Cmd {
     BoneTool,
     Symmetry,
     Parallax,
+    LightPreview,
+    MapView,
+    LitView,
     MakeRepeat,
     MakeScatter,
     MakeMirror,
@@ -140,6 +143,7 @@ pub enum Cmd {
     NotesPane,
     HistoryPane,
     PreviewPane,
+    MapsPane,
     PixelGrid,
     WrapCanvas,
     TileSize,
@@ -524,7 +528,7 @@ use Repeat as R;
 use Trigger as T;
 
 impl Cmd {
-    pub const ALL: [Cmd; 197] = [
+    pub const ALL: [Cmd; 201] = [
         Cmd::Brush,
         Cmd::Eraser,
         Cmd::Fill,
@@ -534,6 +538,9 @@ impl Cmd {
         Cmd::BoneTool,
         Cmd::Symmetry,
         Cmd::Parallax,
+        Cmd::LightPreview,
+        Cmd::MapView,
+        Cmd::LitView,
         Cmd::MakeRepeat,
         Cmd::MakeScatter,
         Cmd::MakeMirror,
@@ -661,6 +668,7 @@ impl Cmd {
         Cmd::NotesPane,
         Cmd::HistoryPane,
         Cmd::PreviewPane,
+        Cmd::MapsPane,
         Cmd::PixelGrid,
         Cmd::WrapCanvas,
         Cmd::TileSize,
@@ -824,6 +832,33 @@ impl Cmd {
                 T::Hold("hold D and move the pointer"),
                 R::No,
                 "the planes at the top of the stack slide by their depth, near ones most",
+            ),
+            Cmd::LightPreview => spec(
+                "view.light",
+                "light preview",
+                icon::SUN,
+                G::View,
+                T::Hold("hold L and move the pointer"),
+                R::No,
+                "the pointer is a light: the drawing lit through its light maps, with the preview lights",
+            ),
+            Cmd::MapView => spec(
+                "view.map",
+                "next light map",
+                icon::SPARKLE,
+                G::View,
+                T::Press(const { &[plain(Key::M)] }),
+                R::No,
+                "show the normal, height, specular and emission maps in turn instead of the picture, then the picture again",
+            ),
+            Cmd::LitView => spec(
+                "view.lit",
+                "lit by the preview lights",
+                icon::SUN,
+                G::View,
+                T::None,
+                R::No,
+                "show the drawing lit by its preview lights through its light maps, as a game's 2D lights would",
             ),
             Cmd::MakeRepeat => spec(
                 "shape.repeat",
@@ -2013,6 +2048,15 @@ impl Cmd {
                 R::No,
                 "start the measurements again",
             ),
+            Cmd::MapsPane => spec(
+                "panel.maps",
+                "light maps panel",
+                icon::SPARKLE,
+                G::Panels,
+                T::None,
+                R::No,
+                "show or hide the light maps panel: the surface, map layers and the preview lights",
+            ),
             Cmd::PreviewPane => spec(
                 "panel.real-size",
                 "real size panel",
@@ -2634,6 +2678,9 @@ impl Cmd {
             Cmd::NotesPane => "Notes",
             Cmd::HistoryPane => "History",
             Cmd::PreviewPane => "Real size",
+            Cmd::MapsPane => "Light maps",
+            Cmd::MapView => "Next light map",
+            Cmd::LitView => "Lit",
             Cmd::PixelGrid => "Pixel grid",
             Cmd::WrapCanvas => "Tile: wrap at the edges",
             Cmd::TileSize => "Tileset: cut into tiles…",
@@ -2694,9 +2741,14 @@ impl Cmd {
             Cmd::FillShape => "Fill with colour",
             Cmd::OutlineShape => "Outline with colour",
             Cmd::SoloLayer => "Show only this",
-            Cmd::Parallax | Cmd::Eyedropper | Cmd::Pan | Cmd::Zoom | Cmd::FlipFrames | Cmd::Roll | Cmd::SizeDrag => {
-                self.spec().name
-            }
+            Cmd::Parallax
+            | Cmd::LightPreview
+            | Cmd::Eyedropper
+            | Cmd::Pan
+            | Cmd::Zoom
+            | Cmd::FlipFrames
+            | Cmd::Roll
+            | Cmd::SizeDrag => self.spec().name,
         }
     }
 
@@ -2996,6 +3048,9 @@ pub const MENUS: [Menu; 9] = [
             Run(Cmd::WrapCanvas),
             Run(Cmd::TileSize),
             Line,
+            Run(Cmd::MapView),
+            Run(Cmd::LitView),
+            Line,
             Run(Cmd::CompareReference),
         ],
     },
@@ -3012,6 +3067,7 @@ pub const MENUS: [Menu; 9] = [
             Run(Cmd::NotesPane),
             Run(Cmd::HistoryPane),
             Run(Cmd::PreviewPane),
+            Run(Cmd::MapsPane),
             Run(Cmd::Timeline),
             Line,
             Run(Cmd::MessageLog),

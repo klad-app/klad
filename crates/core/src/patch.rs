@@ -102,6 +102,7 @@ fn doc_shell(doc: &Document) -> Document {
         layers: Vec::new(),
         export: doc.export.clone(),
         atmosphere: doc.atmosphere.clone(),
+        maps: doc.maps.clone(),
         next_id: doc.next_id,
         here: doc.here.clone(),
     }
@@ -131,6 +132,8 @@ fn layer_shell(layer: &Layer) -> Layer {
         mask: layer.mask.clone(),
         effects: layer.effects.clone(),
         depth: layer.depth,
+        surface: layer.surface.clone(),
+        map: layer.map,
         reference: layer.reference,
         bones: layer.bones.clone(),
         ik: layer.ik.clone(),

@@ -886,6 +886,8 @@ pub fn summarize(ops: &[Op]) -> String {
             Op::Canvas { .. } => "the canvas stops at its edges".to_string(),
             Op::Atmosphere(Some(_)) => "atmosphere".to_string(),
             Op::Atmosphere(None) => "atmosphere off".to_string(),
+            Op::Maps(Some(_)) => "maps".to_string(),
+            Op::Maps(None) => "maps off".to_string(),
             Op::Clip(edit) => match edit {
                 ClipEdit::Add(clip) => format!("add clip {}", clip.name),
                 ClipEdit::Set { name, .. } => format!("set clip {name}"),

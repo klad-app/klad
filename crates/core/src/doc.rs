@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const FORMAT: &str = "klad/7";
+pub const FORMAT: &str = "klad/8";
 pub const MAX_SIZE: u32 = 16384;
 pub const MASK: usize = usize::MAX;
 
@@ -28,6 +28,8 @@ pub struct Document {
     pub export: Exports,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub atmosphere: Option<Atmosphere>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maps: Option<crate::maps::Maps>,
     #[serde(skip)]
     pub next_id: u64,
     #[serde(skip)]
@@ -44,6 +46,7 @@ impl PartialEq for Document {
             && self.layers == other.layers
             && self.export == other.export
             && self.atmosphere == other.atmosphere
+            && self.maps == other.maps
     }
 }
 
@@ -246,6 +249,10 @@ pub struct Layer {
     pub effects: Vec<Effect>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub depth: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surface: Option<crate::maps::Surface>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map: Option<crate::maps::Role>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub reference: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -631,6 +638,8 @@ impl Layer {
             mask: None,
             effects: Vec::new(),
             depth: None,
+            surface: None,
+            map: None,
             reference: false,
             bones: Vec::new(),
             ik: Vec::new(),
@@ -1141,6 +1150,7 @@ impl Document {
             layers: Vec::new(),
             export: Exports::default(),
             atmosphere: None,
+            maps: None,
             next_id: 0,
             here: Here::default(),
         }
@@ -1579,6 +1589,9 @@ impl Document {
         if let Some(air) = &self.atmosphere {
             air.validate().context("atmosphere")?;
         }
+        if let Some(maps) = &self.maps {
+            maps.validate().context("maps")?;
+        }
         let layers = self.all_layers();
         if let Some(deep) = layers
             .iter()
@@ -1586,6 +1599,15 @@ impl Document {
         {
             bail!(
                 "layer {}: depth is for layers at the top of the stack (the planes)",
+                deep.id
+            );
+        }
+        if let Some(deep) = layers
+            .iter()
+            .find(|l| l.surface.is_some() && !self.layers.iter().any(|t| t.id == l.id))
+        {
+            bail!(
+                "layer {}: a surface of its own is for layers at the top of the stack; the layers inside take the surface of the top layer they are in",
                 deep.id
             );
         }
@@ -1634,6 +1656,26 @@ impl Document {
                 && (!depth.is_finite() || depth < 0.0)
             {
                 bail!("layer {}: depth {depth} must be 0 or more", layer.id);
+            }
+            if let Some(surface) = &layer.surface {
+                surface.validate().with_context(|| format!("layer {}", layer.id))?;
+            }
+            if let Some(role) = layer.map {
+                if !matches!(layer.kind(), Kind::Paint | Kind::Vector) {
+                    bail!(
+                        "layer {}: a {} map is drawn on a paint or vector layer, not a {} layer",
+                        layer.id,
+                        role.name(),
+                        layer.kind().name()
+                    );
+                }
+                if layer.surface.is_some() || layer.depth.is_some() {
+                    bail!(
+                        "layer {}: a map layer draws into the {} map of the layer it belongs to, so it has no surface or depth of its own",
+                        layer.id,
+                        role.name()
+                    );
+                }
             }
             layer
                 .cels()

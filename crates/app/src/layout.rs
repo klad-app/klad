@@ -21,6 +21,7 @@ pub enum Pane {
     Notes,
     History,
     Preview,
+    Maps,
 }
 
 impl Pane {
@@ -33,6 +34,7 @@ impl Pane {
             Pane::Notes => "Notes for the agent",
             Pane::History => "History",
             Pane::Preview => "Real size",
+            Pane::Maps => "Light maps",
         }
     }
 
@@ -45,6 +47,7 @@ impl Pane {
             Pane::Notes => 60.0,
             Pane::History => 60.0,
             Pane::Preview => 110.0,
+            Pane::Maps => 120.0,
         }
     }
 
@@ -57,6 +60,7 @@ impl Pane {
             Pane::Notes => 90.0,
             Pane::History => 80.0,
             Pane::Preview => 170.0,
+            Pane::Maps => 260.0,
         }
     }
 }
@@ -100,6 +104,7 @@ impl Default for Layout {
                 (Pane::Brush, true, false),
                 (Pane::Layers, true, false),
                 (Pane::Inspector, true, false),
+                (Pane::Maps, false, false),
                 (Pane::Notes, true, true),
                 (Pane::History, true, true),
             ]
@@ -340,9 +345,9 @@ mod tests {
         )
         .unwrap()
         .repaired();
-        assert_eq!(old.panes.len(), 7);
+        assert_eq!(old.panes.len(), 8);
         assert!(
-            !old.is_open(Pane::Preview),
+            !old.is_open(Pane::Preview) && !old.is_open(Pane::Maps),
             "a pane that is new to old settings keeps its default"
         );
         assert_eq!(old.panes[0].pane, Pane::Layers);

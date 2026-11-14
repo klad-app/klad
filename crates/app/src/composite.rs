@@ -1484,6 +1484,10 @@ impl Scene {
             .collect()
     }
 
+    pub fn rasters_now(&self) -> Rasters {
+        self.rasters.clone()
+    }
+
     pub fn planes_job(&self) -> impl FnOnce() -> Result<Vec<(f32, egui::ColorImage)>> + Send + 'static {
         let doc = self.bundle.doc.clone();
         let rasters = self.rasters.clone();

@@ -447,6 +447,9 @@ impl Editor {
             Cmd::PixelGrid => self.settings.pixel_grid,
             Cmd::WrapCanvas => self.scene.bundle.doc.canvas.wrap,
             Cmd::PreviewPane => layout.dock && layout.is_open(Pane::Preview),
+            Cmd::MapsPane => layout.dock && layout.is_open(Pane::Maps),
+            Cmd::LitView => self.maps.show == Some(super::maps::Show::Lit),
+            Cmd::MapView => matches!(self.maps.show, Some(super::maps::Show::Map(_))),
             Cmd::Fill => self.tool == Tool::Fill,
             Cmd::Shapes => self.tool == Tool::Select,
             Cmd::Strokes => self.tool == Tool::Strokes,
@@ -687,7 +690,9 @@ impl Editor {
                     Op::Palette(PaletteEdit::Ramp { name, keys }),
                 ])?;
             }
-            Cmd::Parallax => {}
+            Cmd::Parallax | Cmd::LightPreview => {}
+            Cmd::MapView => self.next_map(),
+            Cmd::LitView => self.toggle_lit(),
             Cmd::Note => self.tool = Tool::Note,
             Cmd::Smaller if self.scene.on_grid() => self.pixel_size = self.pixel_size.saturating_sub(1).max(1),
             Cmd::Bigger if self.scene.on_grid() => {
@@ -1070,6 +1075,7 @@ impl Editor {
             Cmd::NotesPane => self.pane(Pane::Notes),
             Cmd::HistoryPane => self.pane(Pane::History),
             Cmd::PreviewPane => self.pane(Pane::Preview),
+            Cmd::MapsPane => self.pane(Pane::Maps),
             Cmd::PixelGrid => {
                 self.settings.pixel_grid = !self.settings.pixel_grid;
                 self.settings_dirty = true;

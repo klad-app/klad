@@ -2364,3 +2364,112 @@ fn a_brush_with_a_feathered_or_fringed_edge_goes_in_from_the_command_line() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("feather"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn light_maps_are_set_up_painted_lit_and_hashed_from_the_command_line() {
+    let dir = std::env::temp_dir().join(format!("draw-binary-maps-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundle = dir.join("maps.klad");
+    let path = bundle.to_str().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_klad")).args(args).output().unwrap();
+    let draw = |args: &[&str]| {
+        let out = run(args);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+    let refused = |args: &[&str]| {
+        let out = run(args);
+        assert!(!out.status.success(), "{args:?} should fail");
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    let id_of = |name: &str| -> String {
+        draw(&["ls", path])
+            .lines()
+            .find(|line| line.split_whitespace().nth(2) == Some(name))
+            .and_then(|line| line.split_whitespace().next())
+            .unwrap()
+            .to_string()
+    };
+    draw(&["new", path, "--width", "128", "--height", "128"]);
+    draw(&["add", path, "layer", "vector", "name=body"]);
+    let body = id_of("body");
+    draw(&[
+        "add",
+        path,
+        "ellipse",
+        "--in",
+        &body,
+        "cx=64",
+        "cy=64",
+        "rx=40",
+        "ry=40",
+        "fill=#c08040",
+    ]);
+    assert!(draw(&["maps", path]).contains("maps are off"));
+    let picture = draw(&["hash", path]);
+    draw(&["maps", path, "--on"]);
+    assert!(draw(&["maps", path]).contains("\"bevel\":8.0"));
+    draw(&["maps", path, "bevel=12", "profile=chamfer"]);
+    assert!(draw(&["maps", path]).contains("\"profile\":\"chamfer\""));
+    assert!(refused(&["maps", path, "glow=1"]).contains("bevel, profile"));
+    let png = dir.join("normal.png");
+    draw(&["render", path, "--map", "normal", "-o", png.to_str().unwrap()]);
+    assert!(std::fs::read(&png).unwrap().starts_with(b"\x89PNG"));
+    let normal = draw(&["hash", path, "--map", "normal"]);
+    assert!(normal.contains("normal"));
+    draw(&["add", path, "layer", "vector", "name=bump", "map=height"]);
+    let bump = id_of("bump");
+    draw(&[
+        "add",
+        path,
+        "ellipse",
+        "--in",
+        &bump,
+        "cx=64",
+        "cy=64",
+        "rx=12",
+        "ry=12",
+        "fill=#ffffff",
+    ]);
+    assert_eq!(
+        draw(&["hash", path]),
+        picture,
+        "a height layer is not drawn in the picture"
+    );
+    assert_ne!(
+        draw(&["hash", path, "--map", "normal"]),
+        normal,
+        "but it shapes the normal map"
+    );
+    assert!(refused(&["render", path, "--lit"]).contains("no lights"));
+    draw(&["lights", path, "--add", "point", "--at", "10,64", "--height", "40"]);
+    draw(&["lights", path, "--add", "directional", "--at", "-1,-1"]);
+    let listed = draw(&["lights", path]);
+    assert!(listed.contains("1  point at 10,64 height 40 px") && listed.contains("2  directional from -1,-1"));
+    draw(&["lights", path, "--set", "1", "--color", "#ffd9a0"]);
+    assert!(draw(&["lights", path]).contains("#ffd9a0"));
+    assert!(refused(&["lights", path, "--rm", "5"]).contains("no light 5"));
+    draw(&["lights", path, "--rm", "2"]);
+    assert!(!draw(&["lights", path]).contains("directional"));
+    let lit = dir.join("lit.png");
+    draw(&[
+        "render",
+        path,
+        "--lit",
+        "-o",
+        lit.to_str().unwrap(),
+        "--region",
+        "0,32,64,64",
+    ]);
+    assert!(std::fs::read(&lit).unwrap().starts_with(b"\x89PNG"));
+    assert!(refused(&["render", path, "--map", "glow"]).contains("normal, height, specular and emission"));
+    assert!(refused(&["render", path, "--lit", "--overlay", "ids"]).contains("whole frame"));
+    draw(&["set", path, &body, "surface.bevel=20"]);
+    assert!(draw(&["show", path, &body]).contains("\"surface\""));
+    assert!(refused(&["set", path, &body, "map=height", "surface.bevel=3"]).contains("no surface or depth"));
+    draw(&["set", path, &body, "surface=null"]);
+    draw(&["maps", path, "--off"]);
+    assert!(draw(&["maps", path]).contains("maps are off"));
+    let _ = std::fs::remove_dir_all(&dir);
+}

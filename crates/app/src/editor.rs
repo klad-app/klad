@@ -16,6 +16,7 @@ mod keys;
 mod layers;
 mod look;
 mod make;
+mod maps;
 mod options;
 mod paintover;
 mod panels;
@@ -707,6 +708,7 @@ pub(crate) struct Editor {
     palette_path: String,
     swatch_picked: Option<usize>,
     depth: depth::Parallax,
+    maps: maps::MapsView,
     batch: usize,
     pen_path: Option<PenPath>,
     pen_fill: bool,
@@ -910,6 +912,7 @@ impl Editor {
             palette_path: String::new(),
             swatch_picked: None,
             depth: depth::Parallax::default(),
+            maps: maps::MapsView::default(),
             batch: timeline::FILL,
             pen_path: None,
             pen_fill: true,
@@ -3803,6 +3806,7 @@ impl Editor {
                 stats: self.stats.clone(),
             },
         ));
+        self.map_overlay(ui, view, rect);
         self.parallax(ui, view, rect);
         self.prepare_typing(&ctx, view, rect);
         let hover = ui

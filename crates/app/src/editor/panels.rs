@@ -654,6 +654,7 @@ impl Editor {
             Pane::Notes => self.notes_pane(ui),
             Pane::History => self.history_pane(ui),
             Pane::Preview => self.real_size_pane(ui),
+            Pane::Maps => self.maps_pane(ui),
         }
     }
 

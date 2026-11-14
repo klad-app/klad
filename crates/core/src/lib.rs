@@ -11,6 +11,7 @@ pub mod here;
 pub mod history;
 pub mod keys;
 pub mod look;
+pub mod maps;
 pub mod markedit;
 pub mod migrate;
 pub mod notes;

@@ -1,4 +1,4 @@
-_Last updated: 2026-11-12 09:31 (format `klad/7`, stroke files `KLST` version 3, brushes `klad-brush/1`)_
+_Last updated: 2026-11-14 11:51 (format `klad/8`, stroke files `KLST` version 3, brushes `klad-brush/1`)_
 
 # The klad drawing format
 
@@ -32,13 +32,13 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
 - **Colours** are `"#rrggbb"` or `"#rrggbbaa"`: sRGB, straight (not premultiplied) alpha.
 - **Ids** are unique across the whole document and use letters, digits, `-` and `_`. Ids are case sensitive. klad makes new ones from a prefix (`l` layer, `c` cel, `n` node), a number, and the tag of the copy that made them: `l48qa`. Each copy of a drawing (a clone, a git worktree: any folder without `.cache/copy.json`) picks a two-letter tag the first time klad opens it and keeps it in `.cache/copy.json`, with counters that only go up, so two copies edited apart never make the same id; the copy a drawing was made in has no tag (`l48`). A folder copied by hand with its `.cache/` keeps the tag: delete `.cache/` in the copy to give it its own. Ids already in a drawing never change. Writers that make their own ids should do the same or use a long random part. A drawing with an id used twice does not open; `klad repair` gives every later one a new id.
 - **JSON** is UTF-8, written pretty with a stable key order. Keys at their default value are left out; readers must take the defaults listed below for missing keys. Most objects reject keys they do not know, so writers must not add their own.
-- **Versions.** `format` names the version of `doc.json` and everything it implies; this is `klad/7`. Each version opens the older `klad/` drawings and migrates them in memory (written back on the next change). A reader that meets a newer version than it knows should refuse to write the bundle. Drawings from before `klad/1` (`.draw` folders, formats `draw-anything/0` to `/9`) do not open.
+- **Versions.** `format` names the version of `doc.json` and everything it implies; this is `klad/8`. Each version opens the older `klad/` drawings and migrates them in memory (written back on the next change). A reader that meets a newer version than it knows should refuse to write the bundle. Drawings from before `klad/1` (`.draw` folders, formats `draw-anything/0` to `/9`) do not open.
 
 ## doc.json
 
 ```json
 {
-  "format": "klad/7",
+  "format": "klad/8",
   "canvas": { "width": 2048, "height": 2048, "background": "#f4efe6" },
   "timeline": { "fps": 12, "frames": 24, "origin": [1024, 1800],
     "clips": [{ "name": "run", "from": 0, "to": 11, "loop": true, "fps": 24 }] },
@@ -60,7 +60,7 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `format` | string | | `"klad/7"` |
+| `format` | string | | `"klad/8"` |
 | `canvas` | object | | `width`, `height` (px), `background` (a colour; none is transparent), `wrap` (bool, default false: the drawing is a tile, and klad brings pixel marks drawn past an edge back in on the other side; it changes nothing about how the drawing renders); `tile` ([width, height] in px, left out when there is none: the drawing is cut into tiles of that size, a tileset, and each side of the canvas is a whole number of them) |
 | `timeline` | object | 12 fps, 1 frame | see below |
 | `palette` | array | `[]` | swatches: `color`, optional `name` (unique, not starting with `#`), optional `id` (unique; set once a pixel mark uses the swatch), optional `ramp` (the name of the ramp it belongs to) |
@@ -68,6 +68,7 @@ Writers replace files atomically (write a temporary file, then rename), so a rea
 | `layers` | array | | the layers, **bottom first** |
 | `export` | object | `{}` | `godot`: the folder Godot exports go to, relative to the folder holding the bundle |
 | `atmosphere` | object | none | fog by depth: `color` (`#9aa8b8`), `top` (a colour higher up), `density` (0.5), `blur` (1), `desaturate` (0.15) |
+| `maps` | object | none | light maps (below): `surface`, `ambient`, `shininess`, `lights`; left out when the maps are off |
 
 Strokes and fills store their colour, so for them the palette is a list of names for colours, never a reference: renaming or recolouring a swatch changes nothing drawn. Pixel marks (below) also name the swatch they were drawn with, by its `id`: when klad changes that swatch's colour it rewrites the colour of every pixel mark bound to it, and when the swatch is removed it clears the marks' binding and leaves their colour. A reader draws a pixel mark in the colour the mark stores. A **ramp** is the swatches that share a `ramp` name, in palette order, dark to light.
 
@@ -116,6 +117,8 @@ A clip is `name` (unique), `from` and `to` (both included), `loop` (false) and `
 | `mask` | layer | none | a paint layer whose alpha hides this one (below) |
 | `effects` | array | `[]` | applied in order when the layer composes (below) |
 | `depth` | number | none | on a top-level layer or group: how far the plane is (0 near); drives the atmosphere and parallax |
+| `surface` | object | none | on a top-level layer or group: a surface of its own for the light maps (below), the same keys as `maps.surface` |
+| `map` | string | none | paint and vector layers: `height`, `normal`, `specular` or `emission`; the layer draws into that light map and never into the picture (below) |
 | `reference` | bool | false | shown in the editor, left out of renders and exports (pictures to trace) |
 | `bones` | array | `[]` | bones layers: the skeleton (below) |
 | `ik` | array | `[]` | bones layers: the skeleton's IK constraints (below) |
@@ -127,6 +130,7 @@ Layers compose bottom to top. Groups compose their children into one image, then
 - **Clipping.** A layer with `clip: true` shows only where its base, the nearest layer below it in the same list without `clip`, has alpha. The base and the clipped layers above it draw as one group: each clipped layer blends onto the base with its own blend and opacity, kept inside the base's alpha; the group then blends with the base's blend and opacity. A hidden base hides its clipped layers; the lowest layer of a list is never clipped.
 - **Masks.** `mask` is a paint layer of its own (own id, cels and stroke files, `strokes/<mask id>/...`) with opacity 1 and blend normal. Its alpha hides the layer: marks on the mask hide, eraser strokes on it show the layer again, and a frame without a mask cel hides nothing. `visible: false` on the mask turns it off.
 - **Pixel layers.** A paint layer with `pixel: true` is a grid with no anti-aliasing where one pixel is one canvas pixel. Its drawings hold only pixel marks (a fill record whose source is cells, below): each is a set of whole pixels in the colour of one palette swatch. klad refuses brush strokes and flood or lasso fills on it.
+- **Map layers.** A layer with `map` is left out of the picture, of renders and of exports of the picture, everywhere a hidden layer would be. It draws into one light map instead, clipped like any layer (`clip` keeps it inside its base). It has no `surface` or `depth` of its own.
 - **Lock alpha** is recorded on each stroke and fill as it is made (a flag in the stroke file), so turning `lockAlpha` off later never changes what was drawn. A locked mark composites source-atop: it changes colour where the layer has paint and leaves alpha as it was.
 
 ### Cels: drawings on the timeline
@@ -358,6 +362,32 @@ Drawing a stroke: walk the samples, interpolate between them, stamp the tip ever
 
 `images/` holds the pictures `image` nodes show, as PNG, each named by a hash of its contents so the same picture is stored once. `fonts/` holds the font files `text` nodes name (TrueType or OpenType) with their licence files beside them; text is shaped with HarfBuzz rules (kerning, ligatures, marks) from the file alone, never from fonts installed on the machine.
 
+### Light maps
+
+Light maps are made from what is drawn, for a game's 2D lights: a **normal** map, a **height** map, a **specular** map and an **emission** map, each the size of the picture. klad makes them at render time; nothing about them is stored but the settings below and the map layers.
+
+`maps` holds the settings:
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `surface` | object | below | the drawing's surface: the one the top-level layers without a `surface` of their own share |
+| `ambient` | colour | `#3a3a46` | the light preview: the colour where no light reaches (Godot's `CanvasModulate`) |
+| `shininess` | number | 24 | the light preview: the exponent of the highlights on the specular map, 1 to 512 |
+| `lights` | array | `[]` | preview lights (below) |
+
+A `surface` (in `maps` or on a top-level layer) has `bevel` (8: px the rim rounds over, in from the outline), `profile` (`round`, `chamfer`, `pillow` or `flat`), `strength` (1: how steep the slopes read), `body` (1: how much paint with body raises it, 0 for none) and `range` (12: px a white height layer raises it).
+
+A light has `kind` (`point` or `directional`), `at` (a point light's place on the canvas, or the direction x, y a directional light comes from, y down), `height` (a point light's px in front of the canvas, or a directional light's 0, along the picture, to 1, straight from the front), `color`, `energy` (1) and `range` (600: px where a point light has faded out).
+
+How the maps come out, for a reader that wants to make its own:
+
+- **Surfaces.** Each visible top-level layer with blend `normal`, not a reference, not clipped and not a map layer, is part of a surface: its own when it has `surface`, the drawing's otherwise. Clipped layers belong to their base. Layers with another blend (shading) and adjustment layers are not part of any surface.
+- **Height.** A surface's height at a pixel adds three things. The **bevel**: the distance d from the pixel to the outline of the surface's layers (their alpha at 0.5), softened over about a twelfth of the bevel, gives `rise(d / bevel) x bevel`, where `rise(t)` is `sqrt(1 - (1 - t)^2)` for `round`, `t` for `chamfer`, `t^2 (3 - 2t)` for `pillow` and 0 for `flat`, and 1 past the bevel. The **paint body**: the height paint with body lays (stroke records with body, in the paint layers of the surface), eased as `1.6 tanh(h / 1.6)`, times `body` x 3 px. The **height layers** of the surface (map layers with `map: height`, clipped to one of its layers or inside it, or at the top for the drawing's surface): their alpha times `(2 L - 1) x range`, with L their luminance, so white raises, mid grey changes nothing and black lowers. The sum, times the square root of the surface's alpha, is lightly blurred.
+- **Normals.** A surface's normal is `normalize(-strength dh/dx, strength dh/dy, 1)` from the height's slope, with x right and y down on the canvas, so the map is OpenGL style: red is right, green is up, blue is out of the picture, stored as `(n + 1) / 2`.
+- **Composing.** Each pixel's normal and height mix the surfaces seen there, top layer first: a layer with alpha a takes a of what is still uncovered. Where nothing is drawn the normal faces out (`#8080ff`). Then the **normal layers** go over in stack order, their colour read as a normal the same way and mixed by their alpha; the **specular layers** go over a specular of 0 by their alpha with their luminance; the **emission layers** go over nothing like layers in the picture.
+- **The files.** A normal map is RGBA with the alpha of what is drawn; a height map is grey, its brightest pixel the highest point; a specular map is grey; an emission map is the colour of the emission layers with their alpha.
+- **Lit.** The light preview colours a pixel `albedo x (ambient + sum of light colour x energy x fade x max(0, n . l)) + specular highlights`, with the emission over it; `l` points from the pixel to a point light (its px in front as z) or along a directional light, `fade` is `(1 - distance / range)^2` for a point light and 1 for a directional one, and highlights are `specular x (n . h)^shininess` with `h` halfway between `l` and the view.
+
 ## Format history
 
 | Format | Change |
@@ -369,3 +399,4 @@ Drawing a stroke: walk the samples, interpolate between them, stamp the tip ever
 | `klad/5` | `rev` and `nextId` leave `doc.json`, and new ids carry the tag of the copy that made them, so drawings diff and merge in git (2026-11-09). Older drawings open with their ids unchanged; their counters move to `.cache/copy.json`. |
 | `klad/6` | stroke files version 2: eraser, smudge and blender strokes record the marks they are attached to, and attached erasers erase only those (2026-11-09). Older drawings open unchanged, with nothing attached. |
 | `klad/7` | pixel layers: paint layers with `pixel`, pixel marks in stroke files (version 3), palette swatches with an `id` (2026-11-11), palette `variants` and `canvas.tile` (2026-11-12). Older drawings open unchanged. |
+| `klad/8` | light maps: the document's `maps`, a layer's `surface` and `map` (2026-11-14). Older drawings open unchanged, with the maps off. |

@@ -283,7 +283,7 @@ mod tests {
         assert_eq!(settings.ui_scale, 1.25);
         assert_eq!(settings.documents, ["/w/a.klad"]);
         assert_eq!(settings.layout.dock_width, 400.0);
-        assert_eq!(settings.layout.panes.len(), 7);
+        assert_eq!(settings.layout.panes.len(), 8);
         assert_eq!(settings.layout.panes[0].pane, crate::layout::Pane::Layers);
         let pane = |pane| settings.layout.pane(pane).map(|p| (p.open, p.collapsed));
         assert_eq!(

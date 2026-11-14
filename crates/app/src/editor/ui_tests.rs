@@ -5991,7 +5991,8 @@ fn editor_pictures(source: &Path, layer: &str, moment: Moment, shots: &[(Option<
         .build_ui_state(|ui, home: &mut crate::home::Home| home.frame(ui), first);
     let settle = |h: &mut Harness<'static, crate::home::Home>| {
         let started = std::time::Instant::now();
-        while !h.state().editor.as_ref().unwrap().canvas_current() && started.elapsed().as_secs() < 180 {
+        let waiting = |ed: &Editor| !ed.canvas_current() || (ed.maps.show.is_some() && ed.map_shown().is_none());
+        while waiting(h.state().editor.as_ref().unwrap()) && started.elapsed().as_secs() < 180 {
             h.step();
             h.render().unwrap();
             std::thread::sleep(std::time::Duration::from_millis(20));
@@ -6185,5 +6186,65 @@ fn the_numbers_need_developer_tools_and_notes_start_folded() {
     h.state_mut().invoke(Cmd::Numbers).unwrap();
     h.run_steps(2);
     assert!(h.state().settings.layout.numbers, "with developer tools on they open");
+    let _ = std::fs::remove_dir_all(&path);
+}
+
+#[test]
+fn the_light_maps_panel_turns_maps_on_gives_layers_a_role_and_shows_the_maps() {
+    let path = sample("maps");
+    let mut h = harness(editor(&path), vec2(1440.0, 1500.0));
+    [Pane::Brush, Pane::Inspector, Pane::Preview, Pane::Notes, Pane::History]
+        .into_iter()
+        .filter(|pane| h.state().settings.layout.is_open(*pane))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .for_each(|pane| h.state_mut().settings.layout.toggle(pane));
+    h.state_mut().settings.layout.timeline = false;
+    h.state_mut().invoke(Cmd::MapsPane).unwrap();
+    h.run_steps(3);
+    assert_eq!(h.state().is_on(Cmd::MapsPane), Some(true));
+    h.get_by_label("light maps").click();
+    h.run_steps(3);
+    assert!(h.state().scene.bundle.doc.maps.is_some(), "the box turns the maps on");
+    activate(&mut h, "shade");
+    let lowest = |h: &Harness<'static, Editor>, label: &str| {
+        h.query_all_by_label(label)
+            .map(|n| n.rect())
+            .max_by(|a, b| a.top().total_cmp(&b.top()))
+            .unwrap()
+            .center()
+    };
+    let at = lowest(&h, "height");
+    click(&mut h, at);
+    h.run_steps(3);
+    let shade = h.state().scene.bundle.doc.find_layer("shade").unwrap().clone();
+    assert_eq!(shade.map, Some(klad_core::maps::Role::Height), "shade now draws height");
+    activate(&mut h, "colour");
+    h.get_by_label("a surface of its own").click();
+    h.run_steps(3);
+    let colour = h.state().scene.bundle.doc.find_layer("colour").unwrap().clone();
+    assert!(colour.surface.is_some(), "colour rounds in from its own outline");
+    h.get_by_label("add a point light").click();
+    h.run_steps(3);
+    assert_eq!(h.state().scene.bundle.doc.maps.as_ref().unwrap().lights.len(), 1);
+    let wait = |h: &mut Harness<'static, Editor>, name: &str| {
+        let start = std::time::Instant::now();
+        while h.state().map_shown() != Some(name) && start.elapsed() < std::time::Duration::from_secs(20) {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(h.state().map_shown(), Some(name));
+    };
+    h.state_mut().invoke(Cmd::MapView).unwrap();
+    wait(&mut h, "normal");
+    assert_eq!(h.state().is_on(Cmd::MapView), Some(true));
+    h.state_mut().invoke(Cmd::MapView).unwrap();
+    wait(&mut h, "height");
+    h.state_mut().invoke(Cmd::LitView).unwrap();
+    wait(&mut h, "lit");
+    assert_eq!(h.state().is_on(Cmd::LitView), Some(true));
+    h.state_mut().invoke(Cmd::LitView).unwrap();
+    h.run_steps(2);
+    assert_eq!(h.state().is_on(Cmd::LitView), Some(false));
     let _ = std::fs::remove_dir_all(&path);
 }
