@@ -448,10 +448,10 @@ impl Start {
         let mut picked = None;
         if picker::NATIVE
             && ui
-                .add(egui::Button::new("Choose a .klad folder...").min_size(vec2(200.0, 28.0)))
+                .add(egui::Button::new(picker::CHOOSE_DRAWING).min_size(vec2(200.0, 28.0)))
                 .clicked()
         {
-            picked = picker::choose_folder(Some(&settings.drawings_folder()), "Open");
+            picked = picker::choose_drawing(Some(&settings.drawings_folder()), "Open");
         }
         if picker::NATIVE
             && ui
@@ -694,10 +694,13 @@ pub fn brought_in(path: &Path) -> Result<(PathBuf, Option<String>)> {
 
 pub fn openable(path: &Path) -> Result<()> {
     if path.as_os_str().is_empty() {
-        bail!("paste the path of a .klad folder");
+        bail!("paste the path of a .klad drawing");
+    }
+    if !path.exists() {
+        bail!("{} does not exist", path.display());
     }
     if !path.is_dir() {
-        bail!("{} is not a folder", path.display());
+        bail!("{} is not a klad drawing", path.display());
     }
     if !path.join("doc.json").is_file() {
         bail!("{} is not a drawing: it has no doc.json", path.display());
@@ -863,7 +866,7 @@ mod tests {
         assert_eq!((start.blank().width, start.blank().pixel), (640, false));
         start.name = "a/b".into();
         assert!(format!("{:#}", start.create(&mut Settings::default()).unwrap_err()).contains("cannot hold a /"));
-        assert!(format!("{:#}", openable(Path::new("/nowhere")).unwrap_err()).contains("is not a folder"));
+        assert!(format!("{:#}", openable(Path::new("/nowhere")).unwrap_err()).contains("does not exist"));
         if let Some(home) = std::env::var_os("HOME") {
             assert_eq!(expand("~/art"), PathBuf::from(home).join("art"));
         }
