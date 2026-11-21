@@ -4379,7 +4379,7 @@ Usage: klad skill [WHICH]
 
 Arguments:
   [WHICH]
-          Which skill: klad (the default) or drawing
+          Which skill: klad (the default), drawing or pixel
 
 Options:
   -h, --help
