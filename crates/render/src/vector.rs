@@ -5,7 +5,8 @@ use klad_core::look::Rays;
 use skia_safe::gradient::{Colors, Gradient, Interpolation, shaders};
 use skia_safe::{
     Canvas, Color4f, ColorSpace, Data, FilterMode, IRect, Matrix, MipmapMode, PaintCap, PaintJoin, PaintStyle, Path,
-    PathEffect, RRect, Rect, SamplingOptions, TileMode, canvas::SaveLayerRec, image_filters, images,
+    PathBuilder, PathEffect, RRect, Rect, SamplingOptions, StrokeRec, TileMode, canvas::SaveLayerRec, image_filters,
+    images,
 };
 
 use rayon::prelude::*;
@@ -190,6 +191,25 @@ pub fn instances(shape: &Shape) -> Vec<Matrix> {
         .collect()
 }
 
+/// Bounds of the ink a node paints: the geometry, plus the outline the stroke
+/// paints when a stroke is drawn on top. A stroke's caps and joins reach past
+/// the geometry (and butt caps leave the flat `width / 2` estimate too wide),
+/// so the stroked outline itself decides the box.
+fn ink_bounds(node: &Node, path: &Path) -> Rect {
+    let mut rect = path.compute_tight_bounds();
+    let stroked = node.stroke.as_ref().and_then(|s| stroke_paint(s).ok()).flatten().and_then(|paint| {
+        let rec = StrokeRec::from_paint(&paint, None, None);
+        rec.need_to_apply().then(|| {
+            let mut builder = PathBuilder::new();
+            rec.apply_to_path(&mut builder, path).then(|| builder.detach().compute_tight_bounds())
+        })
+    });
+    if let Some(Some(stroked)) = stroked {
+        rect = union(Some(rect), Some(stroked)).unwrap_or(rect);
+    }
+    rect
+}
+
 fn shape_bounds(node: &Node) -> Result<Option<Rect>> {
     match &node.shape {
         shape if shape.generates() || matches!(shape, Shape::Group { .. }) => {
@@ -201,8 +221,8 @@ fn shape_bounds(node: &Node) -> Result<Option<Rect>> {
             })
         }
         shape => Ok(shape_path(shape)?.map(|p| {
-            let rect = p.compute_tight_bounds();
-            let pad = node.stroke.as_ref().map_or(0.0, |s| s.width / 2.0) + node.blur * 2.0;
+            let rect = ink_bounds(node, &p);
+            let pad = node.blur * 2.0;
             rect.with_outset((pad, pad))
         })),
     }
