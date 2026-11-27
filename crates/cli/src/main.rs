@@ -2917,7 +2917,7 @@ enum Command {
         long_about = "Print an agent skill, to hand to an agent as its instructions.\n\n  klad skill            how an agent draws with klad: the commands, layers, brushes and traps (docs/skill/SKILL.md)\n  klad skill drawing    the craft: planning a picture, light on form, values, edges, colour, materials, line, a painting method and a critique checklist (docs/skill/drawing/SKILL.md)\n  klad skill pixel      the craft of pixel art: size and palette, silhouette, clusters, clean lines, outlines, ramps with hue shift, shading without pillows or banding, anti-aliasing by hand, tiles, animation and a checklist at real size (docs/skill/pixel/SKILL.md)\n\nAll three are under the MIT licence."
     )]
     Skill {
-        #[arg(help = "Which skill: klad (the default) or drawing")]
+        #[arg(help = "Which skill: klad (the default), drawing or pixel")]
         which: Option<String>,
     },
     #[command(
